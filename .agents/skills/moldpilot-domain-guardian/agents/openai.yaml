@@ -1,0 +1,4 @@
+interface:
+  display_name: "MoldPilot Domain Guardian"
+  short_description: "Guard MoldPilot scope and product rules"
+  default_prompt: "Use $moldpilot-domain-guardian to review this MoldPilot decision against Phase 1 scope and privacy rules."

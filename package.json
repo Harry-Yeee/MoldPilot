@@ -1,0 +1,57 @@
+{
+  "name": "moldpilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "start": "next start",
+    "typecheck": "prisma generate && next typegen && tsc --noEmit",
+    "test": "node --test tests/domain/*.test.ts",
+    "test:domain": "node --test tests/domain/*.test.ts",
+    "offline:cache": "bash scripts/create-offline-cache.sh",
+    "offline:install": "bash scripts/install-offline-deps.sh",
+    "pilot:preflight": "node scripts/pilot-preflight.mjs",
+    "pilot:db": "node scripts/pilot-preflight.mjs --db-up",
+    "pilot:setup": "node scripts/local-pilot.mjs --setup-only",
+    "pilot:start": "node scripts/local-pilot.mjs",
+    "pilot:reset": "prisma migrate reset --force && node scripts/pilot-preflight.mjs --check-seed",
+    "pilot:seed": "prisma db seed && node scripts/pilot-preflight.mjs --check-seed",
+    "pilot:check": "node scripts/pilot-preflight.mjs --check",
+    "pilot:e2e": "node scripts/pilot-e2e.mjs",
+    "pilot:workflow:e2e": "node scripts/pilot-workflow-e2e.mjs",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "prisma db seed && node scripts/pilot-preflight.mjs --check-seed",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@prisma/adapter-pg": "7.8.0",
+    "@prisma/client": "latest",
+    "next": "16.2.9",
+    "pdf-lib": "^1.17.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "dotenv": "17.4.2",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "postcss": "latest",
+    "prisma": "latest",
+    "tailwindcss": "latest",
+    "typescript": "6.0.3"
+  }
+}

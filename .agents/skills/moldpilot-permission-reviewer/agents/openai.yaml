@@ -1,0 +1,4 @@
+interface:
+  display_name: "MoldPilot Permission Reviewer"
+  short_description: "Check MoldPilot roles and access rules"
+  default_prompt: "Use $moldpilot-permission-reviewer to review this screen or API for role permissions."

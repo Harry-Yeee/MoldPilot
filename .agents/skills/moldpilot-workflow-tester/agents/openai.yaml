@@ -1,0 +1,4 @@
+interface:
+  display_name: "MoldPilot Workflow Tester"
+  short_description: "Test mold trial workflow behavior"
+  default_prompt: "Use $moldpilot-workflow-tester to design tests for the Phase 1 mold trial workflow."

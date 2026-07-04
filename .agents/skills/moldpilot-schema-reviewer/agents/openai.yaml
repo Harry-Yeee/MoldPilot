@@ -1,0 +1,4 @@
+interface:
+  display_name: "MoldPilot Schema Reviewer"
+  short_description: "Review MoldPilot data models and migrations"
+  default_prompt: "Use $moldpilot-schema-reviewer to review this schema change against MoldPilot Phase 1."

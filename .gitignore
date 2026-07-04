@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env*.local
+.next/
+.moldpilot-offline/
+.pnpm-store/
+node_modules/
+storage/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+prisma/migrations/dev.db*

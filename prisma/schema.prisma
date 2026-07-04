@@ -1,0 +1,820 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  systemRole  Boolean  @default(false) @map("system_role")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id                 String   @id @default(uuid()) @db.Uuid
+  code               String   @unique
+  name               String
+  processGroup       String   @map("process_group")
+  description        String?
+  isSystemPermission Boolean  @default(true) @map("is_system_permission")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+  userOverrides   UserPermissionOverride[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  enabled      Boolean  @default(true)
+  updatedById  String?  @map("updated_by_id") @db.Uuid
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  updatedBy  User?      @relation("RolePermissionUpdater", fields: [updatedById], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model DepartmentGroup {
+  id            String              @id @default(uuid()) @db.Uuid
+  code          String              @unique
+  name          String
+  groupType     DepartmentGroupType @default(DEPARTMENT) @map("group_type")
+  parentGroupId String?             @map("parent_group_id") @db.Uuid
+  active        Boolean             @default(true)
+
+  parentGroup DepartmentGroup?  @relation("DepartmentGroupHierarchy", fields: [parentGroupId], references: [id])
+  childGroups DepartmentGroup[] @relation("DepartmentGroupHierarchy")
+  users       User[]
+  ownedIssues TrialIssue[]      @relation("IssueOwnerGroup")
+
+  @@map("department_groups")
+}
+
+model User {
+  id                String     @id @default(uuid()) @db.Uuid
+  username          String     @unique
+  displayName       String     @map("display_name")
+  chineseName       String?    @map("chinese_name")
+  email             String?
+  passwordHash      String?    @map("password_hash")
+  forcePasswordChange Boolean  @default(true) @map("force_password_change")
+  passwordUpdatedAt DateTime?  @map("password_updated_at")
+  lastLoginAt       DateTime?  @map("last_login_at")
+  roleId            String     @map("role_id") @db.Uuid
+  departmentGroupId String?    @map("department_group_id") @db.Uuid
+  status            UserStatus @default(ACTIVE)
+  locale            Locale     @default(EN_US)
+  isDefaultAdmin    Boolean    @default(false) @map("is_default_admin")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  role                       Role                   @relation(fields: [roleId], references: [id])
+  departmentGroup            DepartmentGroup?       @relation(fields: [departmentGroupId], references: [id])
+  planningProjects           MoldTrialProject[]     @relation("PlanningPMProjects")
+  technicalProjects          MoldTrialProject[]     @relation("TechnicalPMProjects")
+  createdProjects            MoldTrialProject[]     @relation("ProjectCreator")
+  customLimitSetProjects     MoldTrialProject[]     @relation("CustomLimitSetter")
+  createdTrialEvents         TrialEvent[]           @relation("TrialCreator")
+  requestedTrialEvents       TrialEvent[]           @relation("TrialRequester")
+  followUpTrialEvents        TrialEvent[]           @relation("TrialFollowUpOwner")
+  autoMissedResolvedTrials   TrialEvent[]           @relation("TrialAutoMissedResolver")
+  createdMissedTrials        MissedTrialEvent[]     @relation("MissedTrialCreator")
+  createdIssues              TrialIssue[]           @relation("IssueCreator")
+  reportedIssues             TrialIssue[]           @relation("IssueReporter")
+  ownedIssues                TrialIssue[]           @relation("IssueOwnerUser")
+  closedIssues               TrialIssue[]           @relation("IssueCloser")
+  assemblyAcknowledgedIssues TrialIssue[]           @relation("IssueAssemblyAcknowledgement")
+  assemblySelfCheckedIssues  TrialIssue[]           @relation("IssueAssemblySelfCheck")
+  pmReadyConfirmedIssues     TrialIssue[]           @relation("IssuePmReadinessConfirmation")
+  createdDesignChanges       DesignChangeEvent[]    @relation("DesignChangeCreator")
+  approvedDesignChanges      DesignChangeEvent[]    @relation("DesignChangeApprover")
+  setLimitAdjustments        TrialLimitAdjustment[] @relation("LimitAdjustmentSetter")
+  approvedLimitAdjustments   TrialLimitAdjustment[] @relation("LimitAdjustmentApprover")
+  uploadedFiles              FileAttachment[]       @relation("FileUploader")
+  enteredProcessValues       TrialProcessValue[]    @relation("ProcessValueEnteredBy")
+  activityLogs               ActivityLog[]          @relation("ActivityActor")
+  updatedRolePermissions     RolePermission[]       @relation("RolePermissionUpdater")
+  permissionOverrides        UserPermissionOverride[] @relation("PermissionOverrideUser")
+  updatedPermissionOverrides UserPermissionOverride[] @relation("PermissionOverrideUpdater")
+  createdCustomers           Customer[]             @relation("CustomerCreator")
+  updatedCustomers           Customer[]             @relation("CustomerUpdater")
+  ownedCustomers             Customer[]             @relation("CustomerOwner")
+
+  @@map("users")
+}
+
+model UserPermissionOverride {
+  id           String                       @id @default(uuid()) @db.Uuid
+  userId       String                       @map("user_id") @db.Uuid
+  permissionId String                       @map("permission_id") @db.Uuid
+  effect       UserPermissionOverrideEffect
+  reason       String
+  expiresAt    DateTime?                    @map("expires_at")
+  updatedById  String?                      @map("updated_by_id") @db.Uuid
+  updatedAt    DateTime                     @updatedAt @map("updated_at")
+
+  user       User       @relation("PermissionOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  updatedBy  User?      @relation("PermissionOverrideUpdater", fields: [updatedById], references: [id])
+
+  @@unique([userId, permissionId])
+  @@index([permissionId])
+  @@map("user_permission_overrides")
+}
+
+model MoldTrialProject {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  projectCode             String                 @unique @map("project_code")
+  clientProjectRef        String?                @map("client_project_ref")
+  customerId              String                 @map("customer_id") @db.Uuid
+  customerCode            String                 @map("customer_code")
+  partCode                String                 @map("part_code")
+  moldCode                String                 @map("mold_code")
+  planningPmId            String?                @map("planning_pm_id") @db.Uuid
+  technicalPmId           String?                @map("technical_pm_id") @db.Uuid
+  status                  MoldTrialProjectStatus @default(ACTIVE)
+  priority                Priority               @default(NORMAL)
+  intakeNote              String?                @map("intake_note")
+  customerTargetDate      DateTime?              @map("customer_target_date") @db.Date
+  initialCustomerNote     String?                @map("initial_customer_note")
+  processSheetTemplateId  String?                @map("process_sheet_template_id") @db.Uuid
+  processSheetTemplateCode String?               @map("process_sheet_template_code")
+  firstPlannedTrialDate   DateTime?              @map("first_planned_trial_date") @db.Date
+  nextPlannedTrialDate    DateTime?              @map("next_planned_trial_date") @db.Date
+  baseTrialLimit          Int                    @default(3) @map("base_trial_limit")
+  currentTrialLimit       Int                    @default(3) @map("current_trial_limit")
+  customTrialLimit        Int?                   @map("custom_trial_limit")
+  customTrialLimitReason  String?                @map("custom_trial_limit_reason")
+  customTrialLimitSetById String?                @map("custom_trial_limit_set_by_id") @db.Uuid
+  customTrialLimitSetAt   DateTime?              @map("custom_trial_limit_set_at")
+  finalTrialCount         Int?                   @map("final_trial_count")
+  closeReason             String?                @map("close_reason")
+  createdById             String                 @map("created_by_id") @db.Uuid
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+
+  planningPm            User?                  @relation("PlanningPMProjects", fields: [planningPmId], references: [id])
+  technicalPm           User?                  @relation("TechnicalPMProjects", fields: [technicalPmId], references: [id])
+  customTrialLimitSetBy User?                  @relation("CustomLimitSetter", fields: [customTrialLimitSetById], references: [id])
+  createdBy             User                   @relation("ProjectCreator", fields: [createdById], references: [id])
+  customer              Customer               @relation(fields: [customerId], references: [id])
+  processSheetTemplate  ProcessSheetTemplate?  @relation(fields: [processSheetTemplateId], references: [id])
+  parts                 MoldTrialPart[]
+  trialEvents           TrialEvent[]
+  trialIssues           TrialIssue[]
+  processValues         TrialProcessValue[]
+  designChanges         DesignChangeEvent[]
+  trialLimitAdjustments TrialLimitAdjustment[]
+  missedTrialEvents     MissedTrialEvent[]
+  fileAttachments       FileAttachment[]
+
+  @@index([customerCode])
+  @@index([customerId])
+  @@index([clientProjectRef])
+  @@index([moldCode])
+  @@index([processSheetTemplateId])
+  @@index([status])
+  @@map("mold_trial_projects")
+}
+
+model Customer {
+  id                            String   @id @default(uuid()) @db.Uuid
+  code                          String   @unique
+  displayName                   String   @map("display_name")
+  shortName                     String   @map("short_name")
+  ownerUserId                   String?  @map("owner_user_id") @db.Uuid
+  defaultProcessSheetTemplateId String?  @map("default_process_sheet_template_id") @db.Uuid
+  aliases                       String?
+  notes                         String?
+  active                        Boolean  @default(true)
+  createdById                   String?  @map("created_by_id") @db.Uuid
+  updatedById                   String?  @map("updated_by_id") @db.Uuid
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
+
+  createdBy                   User?                  @relation("CustomerCreator", fields: [createdById], references: [id])
+  updatedBy                   User?                  @relation("CustomerUpdater", fields: [updatedById], references: [id])
+  ownerUser                   User?                  @relation("CustomerOwner", fields: [ownerUserId], references: [id])
+  defaultProcessSheetTemplate ProcessSheetTemplate?  @relation("CustomerDefaultProcessSheetTemplate", fields: [defaultProcessSheetTemplateId], references: [id])
+  processSheetTemplates       ProcessSheetTemplate[] @relation("CustomerProcessSheetTemplates")
+  moldTrialProjects           MoldTrialProject[]
+
+  @@index([active])
+  @@index([ownerUserId])
+  @@index([defaultProcessSheetTemplateId])
+  @@map("customers")
+}
+
+model InjectionMachine {
+  id              String   @id @default(uuid()) @db.Uuid
+  machineNo       String   @unique @map("machine_no")
+  displayName     String?  @map("display_name")
+  model           String?
+  brand           String?
+  tonnage         Int?
+  shotCapacityG   Decimal? @map("shot_capacity_g") @db.Decimal(10, 2)
+  nozzleOrificeMm Decimal? @map("nozzle_orifice_mm") @db.Decimal(10, 2)
+  notes           String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  trialEvents TrialEvent[]
+
+  @@index([active])
+  @@index([tonnage])
+  @@map("injection_machines")
+}
+
+model ProcessSheetTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  customerId  String?  @map("customer_id") @db.Uuid
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer            Customer?               @relation("CustomerProcessSheetTemplates", fields: [customerId], references: [id])
+  defaultForCustomers Customer[]              @relation("CustomerDefaultProcessSheetTemplate")
+  parameters          ProcessSheetParameter[]
+  projects            MoldTrialProject[]
+
+  @@index([active])
+  @@index([customerId])
+  @@map("process_sheet_templates")
+}
+
+model ProcessSheetParameter {
+  id                     String           @id @default(uuid()) @db.Uuid
+  processSheetTemplateId String           @map("process_sheet_template_id") @db.Uuid
+  section                String
+  parameterKey           String           @map("parameter_key")
+  labelEn                String           @map("label_en")
+  labelZh                String?          @map("label_zh")
+  unit                   String?
+  valueType              ProcessValueType @default(TEXT) @map("value_type")
+  sortOrder              Int              @default(0) @map("sort_order")
+  customerVisible        Boolean          @default(true) @map("customer_visible")
+  active                 Boolean          @default(true)
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  processSheetTemplate ProcessSheetTemplate @relation(fields: [processSheetTemplateId], references: [id], onDelete: Cascade)
+  processValues        TrialProcessValue[]
+
+  @@unique([processSheetTemplateId, parameterKey])
+  @@index([processSheetTemplateId, active, sortOrder])
+  @@map("process_sheet_parameters")
+}
+
+model MoldTrialPart {
+  id                 String   @id @default(uuid()) @db.Uuid
+  moldTrialProjectId String   @map("mold_trial_project_id") @db.Uuid
+  partCode           String   @map("part_code")
+  partName           String?  @map("part_name")
+  cavityLabel        String?  @map("cavity_label")
+  cavityCount        Int?     @map("cavity_count")
+  notes              String?
+  sortOrder          Int      @default(0) @map("sort_order")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  moldTrialProject MoldTrialProject @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  affectedIssues   TrialIssue[]     @relation("IssueAffectedPart")
+
+  @@index([moldTrialProjectId, active, sortOrder])
+  @@map("mold_trial_parts")
+}
+
+model TrialEvent {
+  id                         String                   @id @default(uuid()) @db.Uuid
+  moldTrialProjectId         String                   @map("mold_trial_project_id") @db.Uuid
+  trialCode                  TrialCode                @map("trial_code")
+  sequenceNumber             Int                      @map("sequence_number")
+  plannedDate                DateTime                 @map("planned_date") @db.Date
+  actualDate                 DateTime?                @map("actual_date") @db.Date
+  status                     TrialStatus              @default(PLANNED)
+  injectionMachineId         String?                  @map("injection_machine_id") @db.Uuid
+  machineNoSnapshot          String?                  @map("machine_no_snapshot")
+  machineTonnageSnapshot     String?                  @map("machine_tonnage_snapshot")
+  machine                    String?
+  material                   String?
+  moldStatus                 String?                  @map("mold_status")
+  sampleQuantity             Int?                     @map("sample_quantity")
+  result                     TrialResult?
+  outcomeDisposition         TrialOutcomeDisposition? @map("outcome_disposition")
+  outcomeNote                String?                  @map("outcome_note")
+  followUpOwnerId            String?                  @map("follow_up_owner_id") @db.Uuid
+  followUpDueDate            DateTime?                @map("follow_up_due_date") @db.Date
+  mainIssuesSummary          String?                  @map("main_issues_summary")
+  nextAction                 String?                  @map("next_action")
+  nextPlannedTrialDate       DateTime?                @map("next_planned_trial_date") @db.Date
+  planReasonCategory         NewTrialReasonCategory?  @map("plan_reason_category")
+  planReasonDetail           String?                  @map("plan_reason_detail")
+  sourceArea                 SourceArea?              @map("source_area")
+  requestedById              String?                  @map("requested_by_id") @db.Uuid
+  relatedTrialEventId        String?                  @map("related_trial_event_id") @db.Uuid
+  relatedTrialIssueId        String?                  @map("related_trial_issue_id") @db.Uuid
+  relatedDesignChangeEventId String?                  @map("related_design_change_event_id") @db.Uuid
+  countsAgainstLimit         Boolean                  @default(false) @map("counts_against_limit")
+  autoMissedAt               DateTime?                @map("auto_missed_at")
+  autoMissedResolvedAt       DateTime?                @map("auto_missed_resolved_at")
+  autoMissedResolvedById     String?                  @map("auto_missed_resolved_by_id") @db.Uuid
+  autoMissedResolution       AutoMissedResolution?    @map("auto_missed_resolution")
+  createdById                String                   @map("created_by_id") @db.Uuid
+  createdAt                  DateTime                 @default(now()) @map("created_at")
+  updatedAt                  DateTime                 @updatedAt @map("updated_at")
+
+  moldTrialProject  MoldTrialProject   @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  injectionMachine  InjectionMachine?  @relation(fields: [injectionMachineId], references: [id])
+  followUpOwner     User?              @relation("TrialFollowUpOwner", fields: [followUpOwnerId], references: [id])
+  autoMissedResolvedBy User?            @relation("TrialAutoMissedResolver", fields: [autoMissedResolvedById], references: [id])
+  requestedBy       User?              @relation("TrialRequester", fields: [requestedById], references: [id])
+  createdBy         User               @relation("TrialCreator", fields: [createdById], references: [id])
+  missedTrialEvents MissedTrialEvent[]
+  issuesFound       TrialIssue[]       @relation("IssuesFoundAtTrial")
+  issuesVerified    TrialIssue[]       @relation("IssuesVerifiedAtTrial")
+  processValues     TrialProcessValue[]
+
+  @@index([moldTrialProjectId])
+  @@index([injectionMachineId])
+  @@index([plannedDate])
+  @@index([status])
+  @@index([autoMissedResolvedById])
+  @@map("trial_events")
+}
+
+model MissedTrialEvent {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  moldTrialProjectId String                    @map("mold_trial_project_id") @db.Uuid
+  trialEventId       String?                   @map("trial_event_id") @db.Uuid
+  plannedDate        DateTime                  @map("planned_date") @db.Date
+  newPlannedDate     DateTime?                 @map("new_planned_date") @db.Date
+  reasonCategory     MissedTrialReasonCategory @map("reason_category")
+  responsibleArea    ResponsibleArea           @map("responsible_area")
+  explanation        String
+  createdById        String                    @map("created_by_id") @db.Uuid
+  createdAt          DateTime                  @default(now()) @map("created_at")
+
+  moldTrialProject MoldTrialProject @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  trialEvent       TrialEvent?      @relation(fields: [trialEventId], references: [id])
+  createdBy        User             @relation("MissedTrialCreator", fields: [createdById], references: [id])
+
+  @@index([plannedDate])
+  @@map("missed_trial_events")
+}
+
+model TrialIssue {
+  id                          String           @id @default(uuid()) @db.Uuid
+  moldTrialProjectId          String           @map("mold_trial_project_id") @db.Uuid
+  foundAtTrialEventId         String?          @map("found_at_trial_event_id") @db.Uuid
+  affectedScope               IssueAffectedScope @default(MOLD) @map("affected_scope")
+  affectedPartId              String?          @map("affected_part_id") @db.Uuid
+  affectedCavityNote          String?          @map("affected_cavity_note")
+  title                       String
+  description                 String?
+  issueType                   TrialIssueType   @map("issue_type")
+  source                      TrialIssueSource
+  sourceDetail                String?          @map("source_detail")
+  severity                    Severity
+  status                      TrialIssueStatus @default(OPEN)
+  ownerUserId                 String?          @map("owner_user_id") @db.Uuid
+  ownerGroupId                String?          @map("owner_group_id") @db.Uuid
+  dueDate                     DateTime?        @map("due_date") @db.Date
+  rootCause                   String?          @map("root_cause")
+  correctiveAction            String?          @map("corrective_action")
+  verificationMethod          String?          @map("verification_method")
+  verifiedAtTrialEventId      String?          @map("verified_at_trial_event_id") @db.Uuid
+  verificationResult          String?          @map("verification_result")
+  fixSummary                  String?          @map("fix_summary")
+  fixTimeMinutes              Int?             @map("fix_time_minutes")
+  closedById                  String?          @map("closed_by_id") @db.Uuid
+  nonOwnerCloseReason         String?          @map("non_owner_close_reason")
+  assemblyAcknowledgedAt      DateTime?        @map("assembly_acknowledged_at")
+  assemblyEstimatedFinishDate DateTime?        @map("assembly_estimated_finish_date") @db.Date
+  assemblyAcknowledgedById    String?          @map("assembly_acknowledged_by_id") @db.Uuid
+  assemblySelfCheckedAt       DateTime?        @map("assembly_self_checked_at")
+  assemblySelfCheckedById     String?          @map("assembly_self_checked_by_id") @db.Uuid
+  assemblySelfCheckNote       String?          @map("assembly_self_check_note")
+  pmReadyConfirmedAt          DateTime?        @map("pm_ready_confirmed_at")
+  pmReadyConfirmedById        String?          @map("pm_ready_confirmed_by_id") @db.Uuid
+  closedAt                    DateTime?        @map("closed_at")
+  createdById                 String           @map("created_by_id") @db.Uuid
+  reportedById                String           @map("reported_by_id") @db.Uuid
+  createdAt                   DateTime         @default(now()) @map("created_at")
+  updatedAt                   DateTime         @updatedAt @map("updated_at")
+
+  moldTrialProject       MoldTrialProject @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  foundAtTrialEvent      TrialEvent?      @relation("IssuesFoundAtTrial", fields: [foundAtTrialEventId], references: [id])
+  affectedPart           MoldTrialPart?   @relation("IssueAffectedPart", fields: [affectedPartId], references: [id])
+  verifiedAtTrialEvent   TrialEvent?      @relation("IssuesVerifiedAtTrial", fields: [verifiedAtTrialEventId], references: [id])
+  ownerUser              User?            @relation("IssueOwnerUser", fields: [ownerUserId], references: [id])
+  closedBy               User?            @relation("IssueCloser", fields: [closedById], references: [id])
+  ownerGroup             DepartmentGroup? @relation("IssueOwnerGroup", fields: [ownerGroupId], references: [id])
+  assemblyAcknowledgedBy User?            @relation("IssueAssemblyAcknowledgement", fields: [assemblyAcknowledgedById], references: [id])
+  assemblySelfCheckedBy  User?            @relation("IssueAssemblySelfCheck", fields: [assemblySelfCheckedById], references: [id])
+  pmReadyConfirmedBy     User?            @relation("IssuePmReadinessConfirmation", fields: [pmReadyConfirmedById], references: [id])
+  createdBy              User             @relation("IssueCreator", fields: [createdById], references: [id])
+  reportedBy             User             @relation("IssueReporter", fields: [reportedById], references: [id])
+
+  @@index([status])
+  @@index([severity])
+  @@index([affectedPartId])
+  @@index([closedById])
+  @@index([assemblySelfCheckedById])
+  @@map("trial_issues")
+}
+
+model TrialProcessValue {
+  id                      String    @id @default(uuid()) @db.Uuid
+  moldTrialProjectId      String    @map("mold_trial_project_id") @db.Uuid
+  trialEventId            String    @map("trial_event_id") @db.Uuid
+  processSheetParameterId String    @map("process_sheet_parameter_id") @db.Uuid
+  parameterKeySnapshot    String    @map("parameter_key_snapshot")
+  labelEnSnapshot         String    @map("label_en_snapshot")
+  labelZhSnapshot         String?   @map("label_zh_snapshot")
+  unitSnapshot            String?   @map("unit_snapshot")
+  valueText               String?   @map("value_text")
+  valueNumber             Decimal?  @map("value_number") @db.Decimal(14, 4)
+  valueDate               DateTime? @map("value_date") @db.Date
+  customerVisible         Boolean   @default(true) @map("customer_visible")
+  enteredById             String    @map("entered_by_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  moldTrialProject      MoldTrialProject     @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  trialEvent            TrialEvent           @relation(fields: [trialEventId], references: [id], onDelete: Cascade)
+  processSheetParameter ProcessSheetParameter @relation(fields: [processSheetParameterId], references: [id])
+  enteredBy             User                 @relation("ProcessValueEnteredBy", fields: [enteredById], references: [id])
+
+  @@unique([trialEventId, processSheetParameterId])
+  @@index([moldTrialProjectId])
+  @@index([processSheetParameterId])
+  @@map("trial_process_values")
+}
+
+model DesignChangeEvent {
+  id                             String          @id @default(uuid()) @db.Uuid
+  moldTrialProjectId             String          @map("mold_trial_project_id") @db.Uuid
+  changeDate                     DateTime        @map("change_date") @db.Date
+  requestedBy                    ChangeRequester @map("requested_by")
+  title                          String
+  description                    String
+  firstCompletedTrialAlreadyDone Boolean         @map("first_completed_trial_already_done")
+  grantsExtraTrial               Boolean         @default(false) @map("grants_extra_trial")
+  extraTrialCount                Int?            @map("extra_trial_count")
+  approvedById                   String?         @map("approved_by_id") @db.Uuid
+  approvalReason                 String?         @map("approval_reason")
+  createdById                    String          @map("created_by_id") @db.Uuid
+  createdAt                      DateTime        @default(now()) @map("created_at")
+  updatedAt                      DateTime        @updatedAt @map("updated_at")
+
+  moldTrialProject      MoldTrialProject       @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  approvedBy            User?                  @relation("DesignChangeApprover", fields: [approvedById], references: [id])
+  createdBy             User                   @relation("DesignChangeCreator", fields: [createdById], references: [id])
+  trialLimitAdjustments TrialLimitAdjustment[]
+
+  @@map("design_change_events")
+}
+
+model TrialLimitAdjustment {
+  id                         String              @id @default(uuid()) @db.Uuid
+  moldTrialProjectId         String              @map("mold_trial_project_id") @db.Uuid
+  adjustmentType             LimitAdjustmentType @map("adjustment_type")
+  deltaTrials                Int?                @map("delta_trials")
+  newLimit                   Int?                @map("new_limit")
+  reason                     String
+  relatedDesignChangeEventId String?             @map("related_design_change_event_id") @db.Uuid
+  setById                    String              @map("set_by_id") @db.Uuid
+  approvedById               String?             @map("approved_by_id") @db.Uuid
+  createdAt                  DateTime            @default(now()) @map("created_at")
+
+  moldTrialProject         MoldTrialProject   @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  relatedDesignChangeEvent DesignChangeEvent? @relation(fields: [relatedDesignChangeEventId], references: [id])
+  setBy                    User               @relation("LimitAdjustmentSetter", fields: [setById], references: [id])
+  approvedBy               User?              @relation("LimitAdjustmentApprover", fields: [approvedById], references: [id])
+
+  @@map("trial_limit_adjustments")
+}
+
+model FileAttachment {
+  id                 String               @id @default(uuid()) @db.Uuid
+  moldTrialProjectId String               @map("mold_trial_project_id") @db.Uuid
+  entityType         AttachmentEntityType @map("entity_type")
+  entityId           String               @map("entity_id") @db.Uuid
+  fileName           String               @map("file_name")
+  fileType           FileType             @map("file_type")
+  storageKey         String               @map("storage_key")
+  visibility         FileVisibility       @default(INTERNAL)
+  uploadedById       String               @map("uploaded_by_id") @db.Uuid
+  uploadedAt         DateTime             @default(now()) @map("uploaded_at")
+
+  moldTrialProject MoldTrialProject @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
+  uploadedBy       User             @relation("FileUploader", fields: [uploadedById], references: [id])
+
+  @@map("file_attachments")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id") @db.Uuid
+  action      String
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  actorUser User @relation("ActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}
+
+model KpiSnapshot {
+  id           String       @id @default(uuid()) @db.Uuid
+  snapshotDate DateTime     @map("snapshot_date") @db.Date
+  scopeType    KpiScopeType @map("scope_type")
+  scopeId      String?      @map("scope_id") @db.Uuid
+  metricsJson  Json         @map("metrics_json")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([snapshotDate])
+  @@map("kpi_snapshots")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserPermissionOverrideEffect {
+  ALLOW
+  DENY
+}
+
+enum Locale {
+  EN_US
+  ZH_CN
+}
+
+enum DepartmentGroupType {
+  DEPARTMENT
+  GROUP
+  SHIFT
+}
+
+enum MoldTrialProjectStatus {
+  INTAKE
+  ACTIVE
+  WAITING_TRIAL
+  TRIAL_DELAYED
+  IN_CORRECTION
+  WAITING_VERIFICATION
+  APPROVED
+  OVER_LIMIT
+  BLOCKED
+  PAUSED
+  CANCELLED
+  CLOSED
+}
+
+enum Priority {
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum TrialCode {
+  T0
+  T1
+  T2
+  EXTRA
+  OTHER
+}
+
+enum TrialStatus {
+  PLANNED
+  AT_RISK
+  AUTO_MISSED_REASON_REQUIRED
+  DELAYED
+  COMPLETED
+  PENDING_FOLLOW_UP
+  ABORTED
+  CANCELLED
+  SKIPPED
+}
+
+enum AutoMissedResolution {
+  MISSED_CONFIRMED
+  LATE_COMPLETED_TRIAL_ENTERED
+  BLOCKED
+  PAUSED
+  ADMIN_CORRECTION
+}
+
+enum ProcessValueType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+}
+
+enum TrialResult {
+  APPROVED
+  NOT_APPROVED
+  CONDITIONAL
+  PENDING_QC
+  PENDING_CUSTOMER_FEEDBACK
+  INVALID_TRIAL
+}
+
+enum TrialOutcomeDisposition {
+  APPROVED_COMPLETE
+  APPROVED_WITH_MINOR_ITEMS
+  REWORK_REQUIRED
+  PENDING_QC
+  PENDING_CUSTOMER_FEEDBACK
+  ABORTED_INVALID_TRIAL
+}
+
+enum NewTrialReasonCategory {
+  PLANNED_NEXT_TRIAL_AFTER_CORRECTION
+  CUSTOMER_DESIGN_CHANGE
+  BAD_CUSTOMER_FEEDBACK
+  CUSTOMER_SAMPLE_REJECTION
+  CUSTOMER_REQUIREMENT_CLARIFICATION
+  INTERNAL_REWORK
+  TRIAL_ISSUE_VERIFICATION
+  QC_FAILURE
+  MOLD_CORRECTION_VERIFICATION
+  INJECTION_PROCESS_RETEST
+  ABORTED_OR_INVALID_PREVIOUS_TRIAL
+  OTHER
+}
+
+enum SourceArea {
+  PLANNING
+  TECHNICAL
+  MARKETING
+  INJECTION
+  QC
+  CUSTOMER
+  SUPPLIER
+  OTHER
+}
+
+enum ResponsibleArea {
+  TECHNICAL
+  MACHINING
+  ASSEMBLY
+  INJECTION
+  QC
+  PURCHASING
+  CUSTOMER
+  SUPPLIER
+  PLANNING
+  OTHER
+}
+
+enum MissedTrialReasonCategory {
+  DESIGN_NOT_READY
+  DESIGN_CHANGE_PENDING
+  STEEL_OR_COMPONENT_NOT_READY
+  CNC_NOT_COMPLETE
+  EDM_NOT_COMPLETE
+  FITTING_NOT_COMPLETE
+  MOLD_CORRECTION_NOT_COMPLETE
+  INJECTION_MACHINE_NOT_AVAILABLE
+  MATERIAL_NOT_AVAILABLE
+  QC_PLAN_NOT_READY
+  CUSTOMER_REQUIREMENT_CHANGE
+  SUPPLIER_OR_OUTSOURCING_DELAY
+  INTERNAL_DECISION_PENDING
+  OTHER
+}
+
+enum TrialIssueType {
+  DESIGN_CHANGE
+  BAD_CUSTOMER_FEEDBACK
+  CUSTOMER_SAMPLE_REJECTION
+  DFM_PART_DESIGN_ISSUE
+  MOLD_DESIGN_ISSUE
+  MACHINING_ISSUE
+  ASSEMBLY_FITTING_ISSUE
+  INJECTION_PROCESS_ISSUE
+  MATERIAL_ISSUE
+  QC_DIMENSION_ISSUE
+  APPEARANCE_ISSUE
+  SUPPLIER_OUTSOURCING_ISSUE
+  CUSTOMER_REQUIREMENT_CHANGE
+  ABORTED_INVALID_TRIAL
+  OTHER
+}
+
+enum TrialIssueSource {
+  INTERNAL_TRIAL
+  PM_REVIEW
+  TECHNICAL_REVIEW
+  QC_INSPECTION
+  INJECTION_PROCESS
+  MARKETING_CLIENT_FEEDBACK
+  CUSTOMER_DESIGN_CHANGE
+  OTHER
+}
+
+enum IssueAffectedScope {
+  MOLD
+  PART
+  MULTIPLE_PARTS
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TrialIssueStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_INTERNAL
+  WAITING_CUSTOMER
+  WAITING_SUPPLIER
+  WAITING_VERIFICATION
+  VERIFIED
+  CLOSED
+}
+
+enum ChangeRequester {
+  CUSTOMER
+  INTERNAL
+  MARKETING
+  SUPPLIER
+  OTHER
+}
+
+enum LimitAdjustmentType {
+  DESIGN_CHANGE_EXTRA_TRIAL
+  PM_CUSTOM_LIMIT
+  ADMIN_CORRECTION
+}
+
+enum AttachmentEntityType {
+  MOLD_TRIAL_PROJECT
+  TRIAL_EVENT
+  TRIAL_ISSUE
+  DESIGN_CHANGE_EVENT
+  MISSED_TRIAL_EVENT
+  PROCESS_SHEET_EXPORT
+}
+
+enum FileType {
+  TRIAL_PHOTO
+  QC_REPORT
+  PROCESS_SHEET_PDF
+  CUSTOMER_REPORT_PDF
+  DESIGN_CHANGE
+  DRAWING
+  VIDEO
+  OTHER
+}
+
+enum FileVisibility {
+  INTERNAL
+  TECHNICAL
+  RESTRICTED
+}
+
+enum KpiScopeType {
+  COMPANY
+  DEPARTMENT_GROUP
+  MOLD_TRIAL_PROJECT
+  USER
+}

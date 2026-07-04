@@ -1,0 +1,8 @@
+-- RenameIndex
+ALTER INDEX "process_sheet_parameters_process_sheet_template_id_active_sort_" RENAME TO "process_sheet_parameters_process_sheet_template_id_active_s_idx";
+
+-- RenameIndex
+ALTER INDEX "process_sheet_parameters_process_sheet_template_id_parameter_ke" RENAME TO "process_sheet_parameters_process_sheet_template_id_paramete_key";
+
+-- RenameIndex
+ALTER INDEX "trial_process_values_trial_event_id_process_sheet_parameter_id_" RENAME TO "trial_process_values_trial_event_id_process_sheet_parameter_key";
