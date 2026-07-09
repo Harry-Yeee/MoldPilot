@@ -57,6 +57,21 @@ describe("Phase 1 named permission policy", () => {
     );
   });
 
+  test("trial date confirmation permissions match the Feature 6 owner decision", () => {
+    assert.deepEqual(
+      roleCodes.filter((roleCode) => roleHasDefaultPermission(roleCode, "trial.date.confirm")),
+      ["INJECTION", "ADMIN"]
+    );
+    assert.deepEqual(
+      roleCodes.filter((roleCode) => roleHasDefaultPermission(roleCode, "trial.date.propose_change")),
+      ["INJECTION", "ADMIN"]
+    );
+    assert.deepEqual(
+      roleCodes.filter((roleCode) => roleHasDefaultPermission(roleCode, "trial.date.approve_change")),
+      ["MARKETING", "ADMIN"]
+    );
+  });
+
   test("issue close permission defaults match owner plus PM/GM/Admin oversight policy", () => {
     assert.deepEqual(
       roleCodes.filter((roleCode) => roleHasDefaultPermission(roleCode, "trial.issue.close")),

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>月度成绩单长这样 · What your month-end scorecard looks like</title>
+<style>
+  @page { size: A3 portrait; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 9mm 11mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.2mm solid #1d4f91; padding-bottom: 3mm; margin-bottom: 4mm; }
+  .header h1 { font-size: 25pt; color: #1d4f91; }
+  .header .sub { font-size: 10.5pt; color: #536579; margin-top: 1.5mm; }
+  .example-tag { font-size: 11pt; font-weight: 800; color: #a52626; border: 0.5mm solid #f09595; background: #fcebeb; border-radius: 2.5mm; padding: 1.8mm 5mm; }
+  .card { border: 0.5mm solid #c8d1dc; border-radius: 3.5mm; overflow: hidden; margin-bottom: 4mm; }
+  .card-head { background: #1d4f91; color: white; padding: 3mm 5mm; display: flex; justify-content: space-between; align-items: center; }
+  .card-head .who { font-size: 15pt; font-weight: 700; }
+  .card-head .who .role { font-size: 9.5pt; font-weight: 400; opacity: 0.9; margin-left: 3mm; }
+  .card-head .verdict { font-size: 13pt; font-weight: 800; background: #0f6e56; padding: 1.6mm 5mm; border-radius: 10mm; }
+  .card-head .verdict.miss { background: #854f0b; }
+  .card-body { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0; }
+  .half { padding: 3mm 4.5mm; }
+  .half + .half { border-left: 0.4mm solid #e5e9ef; }
+  .half h3 { font-size: 11.5pt; color: #0c447c; margin-bottom: 2mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  th { text-align: left; color: #536579; font-size: 8.5pt; padding: 1.2mm 1.5mm; border-bottom: 0.4mm solid #d6dde6; }
+  td { padding: 1.6mm 1.5mm; border-bottom: 0.3mm solid #eef2f6; line-height: 1.4; }
+  td.n, th.n { text-align: right; white-space: nowrap; font-weight: 700; }
+  .ok { color: #0f6e56; } .warn { color: #854f0b; } .bad { color: #a52626; }
+  .totalrow td { border-top: 0.5mm solid #1d4f91; border-bottom: none; font-weight: 800; font-size: 10.5pt; padding-top: 2mm; }
+  .note { font-size: 8.5pt; color: #536579; margin-top: 1.6mm; line-height: 1.5; }
+  .payline { background: #e1f5ee; border-top: 0.4mm solid #5dcaa5; padding: 2.4mm 5mm; font-size: 11pt; font-weight: 700; color: #085041; }
+  .payline .en { font-size: 8pt; font-weight: 400; color: #536579; margin-left: 3mm; }
+  .payline.miss { background: #fff5db; border-top-color: #fac775; color: #633806; }
+  .star { color: #ba7517; font-weight: 800; }
+  .footer { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .fbox { border: 0.5mm solid #1d4f91; border-radius: 3mm; background: #eef5ff; padding: 3mm 4.5mm; }
+  .fbox .t { font-size: 11.5pt; font-weight: 800; color: #0c447c; margin-bottom: 1.4mm; }
+  .fbox .g { font-size: 9.5pt; line-height: 1.65; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>月度成绩单长这样</h1>
+    <div class="sub">Your month-end scorecard, with real math — 每一行都能在系统里点开查证 · every line opens to the records behind it</div>
+  </div>
+  <div class="example-tag">示例数据 EXAMPLE · 2026年10月</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div class="who">张师傅<span class="role">装配组长 · Assembly lead (example)</span></div>
+    <div class="verdict">达标 92% ✓</div>
+  </div>
+  <div class="card-body">
+    <div class="half">
+      <h3>① 达标线明细 · The bar, item by item</h3>
+      <table>
+        <tr><th>行为 behavior</th><th class="n">适用</th><th class="n">按时</th><th class="n">结果</th></tr>
+        <tr><td>整改确认 + 预计完成日 ≤1天</td><td class="n">7</td><td class="n">6</td><td class="n warn">6/7</td></tr>
+        <tr><td>试模前自检完成</td><td class="n">5</td><td class="n">5</td><td class="n ok">5/5</td></tr>
+        <tr><td>预计完成日兑现</td><td class="n">5</td><td class="n">4</td><td class="n warn">4/5</td></tr>
+        <tr><td>部门问题认领 ≤2天</td><td class="n">3</td><td class="n">3</td><td class="n ok">3/3</td></tr>
+        <tr><td>缺陷附照片</td><td class="n">4</td><td class="n">4</td><td class="n ok">4/4</td></tr>
+        <tr class="totalrow"><td>合计 total</td><td class="n">24</td><td class="n">22</td><td class="n ok">92% ≥ 85% ✓</td></tr>
+      </table>
+      <div class="note">迟到的两件，点开可见：10月14日 M-012 整改确认迟 2 天 · 10月22日 M-009 预计完成日超期 1 天。没有借口栏，也没有处罚栏——就是记录。<br>全组数据完整率 100%：组员做的每一步都录进了系统——这就是组长达标的前提。</div>
+    </div>
+    <div class="half">
+      <h3>② 积分明细 · Points, fix by fix</h3>
+      <table>
+        <tr><th>解决的问题 verified fixes</th><th class="n">严重度</th><th class="n">积分</th></tr>
+        <tr><td>滑块分型面毛边 <span class="star">★本周焦点</span></td><td class="n">高 3</td><td class="n ok">3 ×2 = 6</td></tr>
+        <tr><td>顶针孔披锋（M-007）</td><td class="n">中 2</td><td class="n ok">2</td></tr>
+        <tr><td>行位回位不顺（M-012）</td><td class="n">中 2</td><td class="n ok">2</td></tr>
+        <tr><td>表面夹线轻微（M-003）</td><td class="n">低 1</td><td class="n ok">1</td></tr>
+        <tr><td>浇口断裂残留 —— 待下次试模验证</td><td class="n">高 3</td><td class="n warn">暂计 0</td></tr>
+        <tr class="totalrow"><td>本月积分 points</td><td class="n"></td><td class="n ok">11 分</td></tr>
+      </table>
+      <div class="note">耐久率：90天内复发 0/8 = 100%——修复经得起时间。<br>滑块毛边解法已提名入经验库：若 11 月例会通过，+9 分预防分，署名张师傅。</div>
+    </div>
+  </div>
+  <div class="payline">本月：达标奖 ¥400 到手 · 最佳修复已提名（¥500 例会评选）· 部门奖看全组趋势<span class="en">the bar pays now; the story prize is voted; the team prize follows the group trend</span></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div class="who">李工<span class="role">注塑组长 · Injection lead (example)</span></div>
+    <div class="verdict miss">未达标 75%</div>
+  </div>
+  <div class="card-body">
+    <div class="half">
+      <h3>① 达标线明细</h3>
+      <table>
+        <tr><th>行为 behavior</th><th class="n">适用</th><th class="n">按时</th><th class="n">结果</th></tr>
+        <tr><td>试模日期 + 机台确认 ≤1天</td><td class="n">8</td><td class="n">5</td><td class="n bad">5/8</td></tr>
+        <tr><td>完成试模录入工艺参数</td><td class="n">4</td><td class="n">4</td><td class="n ok">4/4</td></tr>
+        <tr class="totalrow"><td>合计 total</td><td class="n">12</td><td class="n">9</td><td class="n bad">75% &lt; 85%</td></tr>
+      </table>
+    </div>
+    <div class="half">
+      <h3>这意味着什么 · What it means</h3>
+      <div class="note" style="font-size:10pt; line-height:1.7;">没有处罚，没有约谈记录，没有黑名单。只是这个月没有 ¥400 达标奖。<br><br>点开三件迟到的确认，都在同一周——机台排期冲突没有及时提议新日期。这是下个月最容易改的一件事。<br><br><b>每个月都是新的开始。</b>11月1日，所有人从 0% 重新出发。</div>
+    </div>
+  </div>
+  <div class="payline miss">本月：未达标，无当月达标奖 —— 无任何处罚 · 11月重新开始<span class="en">below the bar = no bonus this month, no punishment, fresh start next month</span></div>
+</div>
+
+<div class="footer">
+  <div class="fbox">
+    <div class="t">随时看自己的实时成绩 · See yours live, any day</div>
+    <div class="g">手机打开系统 → 我的成绩。每天更新，不用等月底。每一行、每一分都能点开看到背后的记录——你的成绩单没有黑箱。</div>
+  </div>
+  <div class="fbox">
+    <div class="t">两条保护 · Two protections</div>
+    <div class="g">当月适用事项不足 5 件 → 视为达标，安静的月份不吃亏。系统启用首月为基准月——只校准，不评价，不发奖也不追责。</div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, type RefObject } from "react";
+import { ImageCaptureField } from "@/components/attachments/image-capture-field";
+import { issuePhotoLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import { translateLabel } from "@/i18n";
 import { useI18n } from "@/i18n/language-provider";
 import { closeTrialIssue, editTrialIssue } from "@/server/mold-trial-actions";
@@ -42,6 +44,7 @@ type TrialIssueRowActionsProps = {
   issueSourceOptions: readonly Option[];
   issueStatusOptions: readonly Option[];
   issueTypeOptions: readonly Option[];
+  locale: Locale;
   projectCode: string;
   redirectTo: string;
   requiresNonOwnerCloseReason: boolean;
@@ -68,6 +71,7 @@ export function TrialIssueRowActions({
   issueSourceOptions,
   issueStatusOptions,
   issueTypeOptions,
+  locale,
   projectCode,
   redirectTo,
   requiresNonOwnerCloseReason,
@@ -186,6 +190,10 @@ export function TrialIssueRowActions({
             {t("field.description")}
             <textarea name="description" rows={3} defaultValue={issue.description} />
           </label>
+          <div className="fullSpan grid gap-1">
+            <span className="text-sm font-bold text-neutral-700">{pickLabel(issuePhotoLabels.addPhotos, locale)}</span>
+            <ImageCaptureField name="photos" locale={locale} />
+          </div>
           <div className="formActions fullSpan">
             <button type="button" className="secondaryButton" onClick={() => closeDialog(editDialogRef)}>
               {t("common.cancel")}

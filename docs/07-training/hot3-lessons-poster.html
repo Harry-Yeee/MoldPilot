@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>焦点问题与经验库 · The Hot 3 &amp; the lessons library</title>
+<style>
+  @page { size: A3 portrait; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 10mm 12mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.2mm solid #1d4f91; padding-bottom: 3.5mm; margin-bottom: 5mm; }
+  .header h1 { font-size: 27pt; color: #1d4f91; }
+  .header .sub { font-size: 11pt; color: #536579; margin-top: 1.5mm; }
+  .header .rhythm { text-align: right; font-size: 10.5pt; color: #405367; line-height: 1.6; }
+  .header .rhythm b { color: #1d4f91; }
+  .step { display: flex; gap: 5mm; align-items: flex-start; border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3.2mm 4.5mm; margin-bottom: 3mm; background: #fbfcfd; }
+  .num { flex-shrink: 0; width: 13mm; height: 13mm; border-radius: 50%; background: #1d4f91; color: white; display: flex; align-items: center; justify-content: center; font-size: 16pt; font-weight: 800; }
+  .step .body { flex: 1; }
+  .step .t { font-size: 14.5pt; font-weight: 700; line-height: 1.3; }
+  .step .t .en { font-size: 9.5pt; font-weight: 400; color: #536579; margin-left: 3mm; }
+  .step .d { font-size: 10.5pt; color: #2d3b4d; line-height: 1.55; margin-top: 1.2mm; }
+  .step .d .en { font-size: 8pt; color: #8a97a6; display: block; margin-top: 0.6mm; }
+  .chips { flex-shrink: 0; display: flex; flex-direction: column; gap: 1.6mm; align-items: flex-end; max-width: 62mm; }
+  .chip { font-size: 9pt; font-weight: 700; padding: 1.4mm 3.5mm; border-radius: 10mm; border: 0.4mm solid; text-align: center; }
+  .chip.gold { color: #633806; background: #faeeda; border-color: #ef9f27; }
+  .chip.green { color: #085041; background: #e1f5ee; border-color: #5dcaa5; }
+  .chip.blue { color: #0c447c; background: #e6f1fb; border-color: #85b7eb; }
+  .mottos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; margin-top: 4.5mm; }
+  .motto { border: 0.5mm solid #1d4f91; border-radius: 3mm; padding: 3.2mm 4mm; background: #eef5ff; text-align: center; }
+  .motto .zh { font-size: 12.5pt; font-weight: 800; color: #0c447c; line-height: 1.4; }
+  .motto .en { font-size: 8pt; color: #536579; margin-top: 1mm; line-height: 1.4; }
+  .footnote { text-align: center; font-size: 9pt; color: #536579; margin-top: 3.5mm; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>焦点问题与经验库</h1>
+    <div class="sub">The Hot 3 &amp; the lessons library — 一个问题的七步旅程 · the seven-step journey of one problem</div>
+  </div>
+  <div class="rhythm">
+    <b>每周五</b> 投票选出本周焦点 3 个问题<br>
+    <b>每月</b> 把解决好的问题提炼入经验库<br>
+    Weekly: vote the Hot 3 · Monthly: distill into lessons
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">1</div>
+  <div class="body">
+    <div class="t">发现问题，马上登记<span class="en">See a problem? File it — ten seconds</span></div>
+    <div class="d">手机或电脑，拍照上传，标题随手写。如实填写，永不追责。
+      <span class="en">Photo attached, messy title is fine. Honest data never gets anyone in trouble.</span></div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">2</div>
+  <div class="body">
+    <div class="t">周五投票，选出本周焦点<span class="en">Friday: the room votes the Hot 3</span></div>
+    <div class="d">各组长对上周问题投票，最严重的排在前面。市场部与质检的票 ×2——他们直接听到客户的声音。老板可以否决，但必须书面写明理由，全员可见。
+      <span class="en">Marketing and QC votes count double. The CEO may override only in writing, with a reason everyone can read.</span></div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">3</div>
+  <div class="body">
+    <div class="t">一周内认领<span class="en">Claim it within the week</span></div>
+    <div class="d">认领的意思是"我来解决"，绝不是"是我造成的"。系统只统计谁解决了问题。一周无人认领，由组长指派——焦点问题不能烂在原地。
+      <span class="en">Claiming means "I'll handle it" — never "I caused it." Unclaimed after a week, the leader assigns.</span></div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">4</div>
+  <div class="body">
+    <div class="t">动手修复，记录做法<span class="en">Fix it your way — then write down what you did</span></div>
+    <div class="d">修复方法和耗时一分钟录入，修复过程拍照——这是你下一步的证据。
+      <span class="en">One minute to log the fix and time spent; photos of the fix are your evidence.</span></div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">5</div>
+  <div class="body">
+    <div class="t">下次试模就是裁判<span class="en">The next trial is the judge</span></div>
+    <div class="d">质检在试模现场验证实物。验证通过才算数——零件量不过，谁也说不过去；零件量得过，谁也拿不走你的功劳。
+      <span class="en">QC verifies the real part. Only a verified fix counts — nobody argues with a part that measures right.</span></div>
+  </div>
+  <div class="chips">
+    <span class="chip gold">焦点问题修复 = 双倍积分<br>Hot-3 fix = double points</span>
+    <span class="chip blue">自动提名 ¥500 当月最佳修复<br>auto-nominated: best fix of the month</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">6</div>
+  <div class="body">
+    <div class="t">90 天考验期<span class="en">The 90-day watch — real fixes last</span></div>
+    <div class="d">同一副模具 90 天内复发，新问题自动关联回来。功劳不会被收回，但"耐久率"记录谁的修复经得起时间。难题修两轮很正常——隐瞒复发才是犯规。
+      <span class="en">Nothing is clawed back, but durability shows whose fixes hold. Iterating is normal; hiding a comeback is the only foul.</span></div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">7</div>
+  <div class="body">
+    <div class="t">写进经验库，署上你的名字<span class="en">Your fix becomes company memory — with your name on it</span></div>
+    <div class="d">每月例会把解决好、验证过的焦点问题提炼进经验库——一年只收 20–50 条，入库是荣誉，不是归档。下次任何人遇到同样的问题，系统展示的是你的解法。
+      <span class="en">Only 20–50 a year make it — an honor, not a filing cabinet. Next time anyone faces it, the system shows YOUR solution.</span></div>
+  </div>
+  <div class="chips">
+    <span class="chip green">入库 = 预防性加分<br>相当于 3 个重大修复<br>library entry = prevention credit, worth 3 big fixes</span>
+  </div>
+</div>
+
+<div class="mottos">
+  <div class="motto">
+    <div class="zh">下次试模就是裁判</div>
+    <div class="en">The next trial is the judge — nobody argues with a part that measures right.</div>
+  </div>
+  <div class="motto">
+    <div class="zh">隐瞒复发才是犯规</div>
+    <div class="en">Iterating on a hard problem is normal. Hiding a comeback is the only foul.</div>
+  </div>
+  <div class="motto">
+    <div class="zh">入库是荣誉，不是归档</div>
+    <div class="en">The library is an honor, not a filing cabinet — 20–50 entries a year, each with names on it.</div>
+  </div>
+</div>
+
+<div class="footnote">本制度运行于 MoldPilot 试模系统之上 · Runs on top of the MoldPilot trial tracker · 负责人是解决问题的人，不是犯错的人</div>
+
+</body>
+</html>

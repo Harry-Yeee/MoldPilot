@@ -143,7 +143,7 @@ Role creation and removal must:
 
 Business validation stays separate from permissions. A user with permission still cannot bypass required dates, reasons, closure fields, trial-limit rules, or customer privacy rules.
 
-Suggested Phase 1 permission codes:
+Phase 1 permission codes (updated 2026-07-07; source of truth is `src/domain/mold-trial/permission-policy.ts`):
 
 | Permission | Meaning |
 | --- | --- |
@@ -151,6 +151,9 @@ Suggested Phase 1 permission codes:
 | `project.basic.edit` | Edit basic project, part, mold, and PM assignment fields. |
 | `trial.schedule.first_t0` | Set first planned T0 date. |
 | `trial.schedule.reschedule` | Add or change later planned trial date with reason. |
+| `trial.date.confirm` | Injection confirms a planned trial date together with a machine. Defaults: Injection, Admin. |
+| `trial.date.propose_change` | Injection proposes a different trial date with required reason. Defaults: Injection, Admin. |
+| `trial.date.approve_change` | Marketing approves/returns a proposed date change against the customer target date. Defaults: Marketing, Admin. |
 | `trial.missed.record` | Record missed-trial reason and responsible area. |
 | `trial.record.completed` | Record actual trial result. |
 | `trial.issue.create` | Create trial issue. |
@@ -168,6 +171,16 @@ Suggested Phase 1 permission codes:
 | `admin.manage_customers` | Create/edit/archive Customer Master records used by project intake. |
 | `admin.manage_machines` | Create/edit/delete or safe-delete Injection Machine Master records. |
 | `admin.manage_report_templates` | Assign fixed process-sheet/report templates to customers or defaults. |
+| `attachment.upload` | Upload files to projects/trials/issues within per-type allowlists and size caps. Defaults: PM, Injection, Assembly, QC, Marketing, Admin. |
+| `attachment.delete` | Soft-delete any attachment. Defaults: Admin (the original uploader may always delete their own file — enforced in the action). |
+| `attachment.download.internal` | Download Internal/Technical/Restricted files. Defaults: PM, Injection, Assembly, QC, GM, Viewer, Admin (not Marketing). |
+| `attachment.download.customer_safe` | Download Customer-Safe files (the only tier Marketing can download). Defaults: Marketing, Admin. |
+| `qc.measurement_report.upload` | Upload the measurement report on a completed trial (fileType QC Report, default Customer-Safe). Defaults: QC, Admin. |
+| `qc.measurement_report.replace` | Replace an existing measurement report (soft-deletes the previous one, logged). Defaults: QC, Admin. |
+| `kpi.rules.manage` | Edit KPI rule deadlines (hours) and active flags in the admin Rules tab; changes are logged and re-score the current month. Defaults: Admin. |
+| `kpi.scores.view_all` | View every user's monthly scorecard in the admin Scores tab. Defaults: Admin, GM. |
+
+Note: ADMIN, GM, and VIEWER roles are never scored by the KPI engine regardless of permissions (see `docs/06-kpi/kpi-system-design.md`).
 
 Default `trial.schedule.reschedule` roles:
 

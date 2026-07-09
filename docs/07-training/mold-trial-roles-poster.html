@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MoldPilot 试模流程职责一览 · Who does what</title>
+<style>
+  @page { size: A3 landscape; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 420mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 8mm 10mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.2mm solid #1d4f91; padding-bottom: 4mm; margin-bottom: 5mm; }
+  .header h1 { font-size: 30pt; color: #1d4f91; letter-spacing: 0.5mm; }
+  .header .sub { font-size: 13pt; color: #405367; margin-top: 2mm; }
+  .motto { text-align: right; }
+  .motto .zh { font-size: 17pt; font-weight: 700; color: #1d4f91; }
+  .motto .en { font-size: 10pt; color: #536579; margin-top: 1mm; }
+  .legend { display: flex; gap: 4mm; margin-bottom: 4mm; flex-wrap: wrap; }
+  .legend span { font-size: 9.5pt; font-weight: 700; padding: 1.2mm 3.5mm; border-radius: 10mm; border: 0.4mm solid; }
+  .stages { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4mm; }
+  .stage { border: 0.4mm solid #d6dde6; border-radius: 3mm; overflow: hidden; display: flex; flex-direction: column; background: #fbfcfd; }
+  .stage-head { background: #1d4f91; color: white; padding: 3mm 3.5mm; }
+  .stage-head .num { font-size: 8.5pt; opacity: 0.85; letter-spacing: 1px; }
+  .stage-head .zh { font-size: 15pt; font-weight: 700; line-height: 1.25; }
+  .stage-head .en { font-size: 8.5pt; opacity: 0.9; margin-top: 0.5mm; }
+  .duty { padding: 2.6mm 3.5mm; border-top: 0.3mm solid #e5e9ef; }
+  .duty:first-of-type { border-top: none; }
+  .chip { display: inline-block; font-size: 8.5pt; font-weight: 700; padding: 0.6mm 2.6mm; border-radius: 10mm; border: 0.4mm solid; margin-bottom: 1.4mm; }
+  .duty .zh { font-size: 10.5pt; font-weight: 600; line-height: 1.45; }
+  .duty .en { font-size: 8pt; color: #536579; line-height: 1.4; margin-top: 0.6mm; }
+  .clock { font-size: 8.5pt; color: #a52626; font-weight: 700; }
+  .c-pm       { color: #0c447c; background: #e6f1fb; border-color: #378add; }
+  .c-mkt      { color: #72243e; background: #fbeaf0; border-color: #d4537e; }
+  .c-inj      { color: #633806; background: #faeeda; border-color: #ef9f27; }
+  .c-asm      { color: #27500a; background: #eaf3de; border-color: #97c459; }
+  .c-qc       { color: #3c3489; background: #eeedfe; border-color: #7f77dd; }
+  .c-design   { color: #085041; background: #e1f5ee; border-color: #5dcaa5; }
+  .c-all      { color: #444441; background: #f1efe8; border-color: #b4b2a9; }
+  .c-sys      { color: #4a1b0c; background: #faece7; border-color: #f0997b; }
+  .footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; margin-top: 5mm; }
+  .principle { border: 0.5mm solid #1d4f91; border-radius: 3mm; padding: 3mm 4mm; background: #eef5ff; }
+  .principle .t { font-size: 11.5pt; font-weight: 700; color: #0c447c; margin-bottom: 1mm; }
+  .principle .zh { font-size: 9.5pt; line-height: 1.5; }
+  .principle .en { font-size: 7.5pt; color: #536579; line-height: 1.45; margin-top: 1mm; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>MoldPilot 试模流程职责一览</h1>
+    <div class="sub">Mold trial workflow — who does what at every stage · 每个阶段，谁负责什么</div>
+  </div>
+  <div class="motto">
+    <div class="zh">负责人是解决问题的人，不是犯错的人</div>
+    <div class="en">The issue owner is the fixer, not the culprit</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="c-pm">PM 项目管理</span>
+  <span class="c-mkt">Marketing 市场部</span>
+  <span class="c-inj">Injection 注塑</span>
+  <span class="c-asm">Assembly 装配</span>
+  <span class="c-qc">QC 质检</span>
+  <span class="c-design">Design 设计</span>
+  <span class="c-all">All 各部门</span>
+  <span class="c-sys">System 系统</span>
+</div>
+
+<div class="stages">
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 1</div><div class="zh">项目立项</div><div class="en">Project intake</div></div>
+    <div class="duty"><span class="chip c-mkt">Marketing 市场部</span>
+      <div class="zh">创建项目：客户、零件、需求摘要</div>
+      <div class="en">Create the intake: customer, parts, request summary</div>
+    </div>
+    <div class="duty"><span class="chip c-pm">PM 项目管理</span>
+      <div class="zh">审核立项，录入模具编号，设定首次 T0 日期</div>
+      <div class="en">Review intake, enter mold code, set the first T0 date</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 2</div><div class="zh">排期确认</div><div class="en">Date confirmation</div></div>
+    <div class="duty"><span class="chip c-pm">PM 项目管理</span>
+      <div class="zh">设定试模日期（T0 / T1 / T2）</div>
+      <div class="en">Plan the trial date</div>
+    </div>
+    <div class="duty"><span class="chip c-inj">Injection 注塑</span>
+      <div class="zh">确认日期并选定机台；机台冲突则说明原因提议新日期 <span class="clock">≤1个工作日</span></div>
+      <div class="en">Confirm date + machine, or propose a new date with a reason</div>
+    </div>
+    <div class="duty"><span class="chip c-mkt">Marketing 市场部</span>
+      <div class="zh">对照客户交期，批准或退回日期变更 <span class="clock">≤1个工作日</span></div>
+      <div class="en">Approve or return date changes against the customer deadline</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 3</div><div class="zh">试模日</div><div class="en">Trial day</div></div>
+    <div class="duty"><span class="chip c-inj">Injection 注塑</span>
+      <div class="zh">执行试模，录入工艺参数（可复制上次参数）</div>
+      <div class="en">Run the trial, enter process values (copy previous trial to start)</div>
+    </div>
+    <div class="duty"><span class="chip c-pm">PM 项目管理</span>
+      <div class="zh">录入试模结果 <span class="clock">≤1个工作日</span>；未通过必须登记问题并附缺陷照片</div>
+      <div class="en">Record the result; failed trials must have issues filed with photos</div>
+    </div>
+    <div class="duty"><span class="chip c-qc">QC 质检</span>
+      <div class="zh">检验样品，记录尺寸与外观问题</div>
+      <div class="en">Inspect samples, record dimension and appearance issues</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 4</div><div class="zh">整改循环</div><div class="en">Correction loop</div></div>
+    <div class="duty"><span class="chip c-all">All 各部门</span>
+      <div class="zh">认领本部门待领问题 <span class="clock">≤2个工作日</span>——认领是加分，不是认错</div>
+      <div class="en">Claim your department's inbox issues — claiming is credit, not blame</div>
+    </div>
+    <div class="duty"><span class="chip c-asm">Assembly 装配</span>
+      <div class="zh">确认整改并给出预计完成日 <span class="clock">≤1个工作日</span>；下次试模前完成自检</div>
+      <div class="en">Acknowledge with estimated finish; self-check before the next trial</div>
+    </div>
+    <div class="duty"><span class="chip c-design">Design 设计</span>
+      <div class="zh">完成设计变更修订并上传图纸 <span class="clock">≤2个工作日</span></div>
+      <div class="en">Turn around design-change revisions, attach the drawings</div>
+    </div>
+    <div class="duty"><span class="chip c-pm">PM 项目管理</span>
+      <div class="zh">确认整改就绪，安排下一次试模</div>
+      <div class="en">Confirm readiness, plan the next trial</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 5</div><div class="zh">验证与报告</div><div class="en">Verify &amp; report</div></div>
+    <div class="duty"><span class="chip c-qc">QC 质检</span>
+      <div class="zh">在试模现场验证整改效果并记录结论；上传测量报告 <span class="clock">≤2个工作日</span></div>
+      <div class="en">Verify fixes at the trial, record verdicts; upload the measurement report</div>
+    </div>
+    <div class="duty"><span class="chip c-mkt">Marketing 市场部</span>
+      <div class="zh">下载客户可见文件，发送给客户</div>
+      <div class="en">Download customer-safe files, send to the client</div>
+    </div>
+    <div class="duty"><span class="chip c-sys">System 系统</span>
+      <div class="zh">整改未经验证不计入完成——假整改过不了验证关</div>
+      <div class="en">A fix only counts after verification — fake fixes fail the gate</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head"><div class="num">STAGE 6</div><div class="zh">计数与收尾</div><div class="en">Count &amp; close</div></div>
+    <div class="duty"><span class="chip c-sys">System 系统</span>
+      <div class="zh">每次完成的试模计入次数上限（默认 3 次；批准的设计变更 +1）</div>
+      <div class="en">Each completed trial counts against the limit (default 3; +1 per approved design change)</div>
+    </div>
+    <div class="duty"><span class="chip c-pm">PM 项目管理</span>
+      <div class="zh">客户批准后结案；记录最终试模次数</div>
+      <div class="en">Close the project on approval; final trial count recorded</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <div class="principle">
+    <div class="t">自动标记 Auto-missed</div>
+    <div class="zh">试模次日中午前未录入结果，系统自动标记，PM 须如实填写原因。<b>如实填写，永不追责。</b></div>
+    <div class="en">No result by noon the next day → the system flags it and PM enters the honest reason. Honest data is never punished.</div>
+  </div>
+  <div class="principle">
+    <div class="t">手机就是你的任务清单 Your phone is your task list</div>
+    <div class="zh">手机打开系统，首页就是你的待办：确认日期、认领问题、点击完成。无需寻找，无需报告。</div>
+    <div class="en">Open the app on your phone — the first screen is your to-do list. Confirm, claim, tap done.</div>
+  </div>
+  <div class="principle">
+    <div class="t">照片就是证据 Photos are evidence</div>
+    <div class="zh">缺陷必须拍照——没有照片是口说，有照片是证据。CAD 图纸与视频默认"技术级"保密，不外发。</div>
+    <div class="en">Defects get photographed — a photo is evidence. CAD and video default to TECHNICAL confidentiality.</div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -491,6 +491,15 @@ Represents a planned and/or completed mold trial.
 | auto_missed_resolved_at | datetime | Optional timestamp when the auto-missed state was resolved. |
 | auto_missed_resolved_by_id | uuid | Optional User who resolved the auto-missed state. |
 | auto_missed_resolution | enum | Optional: Missed Confirmed, Late Completed Trial Entered, Blocked, Paused, Admin Correction. |
+| date_confirmation_status | enum | Pending Confirmation (default), Confirmed, Reschedule Proposed, Returned To PM. Added 2026-07-05 (date-confirmation handshake). |
+| date_confirmed_by_id | uuid | Optional User (Injection) who confirmed date + machine. |
+| date_confirmed_at | datetime | Optional. |
+| proposed_date | date | Optional Injection counter-proposal date (must differ from planned_date). |
+| proposed_by_id | uuid | Optional proposer. |
+| proposed_reason | text | Required with a proposal. |
+| reschedule_decision_by_id | uuid | Optional Marketing decider. |
+| reschedule_decision_at | datetime | Optional. |
+| reschedule_reject_reason | text | Required on rejection (Returned To PM). |
 | created_by_id | uuid | References User. |
 | created_at | datetime |  |
 | updated_at | datetime |  |
@@ -502,6 +511,8 @@ Rule: Planned trials after the first planned trial require `plan_reason_category
 Rule: Design-change source/date/title fields are conditional. Default design change source to `No / None`; hide or ignore design-change fields unless the selected planned-trial reason is design-change related. Design change title is optional.
 
 Rule: Creating or changing planned trials after the first T0 requires `trial.schedule.reschedule`.
+
+Rule (2026-07-05, date-confirmation handshake): whenever a PM sets or changes a planned date (create, re-date, resolve auto-missed with a new date), `date_confirmation_status` resets to Pending Confirmation and all proposal fields clear. Injection confirms with a machine (`trial.date.confirm`) or proposes a new date with reason (`trial.date.propose_change`); Marketing approves or returns proposals (`trial.date.approve_change`). Approval writes `proposed_date` into `planned_date` in the same transaction. The handshake never blocks recording results, and auto-missed logic is unchanged.
 
 Default roles with this permission are PM, Injection, and Admin.
 
@@ -681,7 +692,7 @@ This is used for approved design-change allowances, extra-trial reason history, 
 
 ## FileAttachment
 
-Tracks trial photos, QC reports, design-change files, and supporting documents.
+Tracks trial photos, QC reports, CAD/drawings, video, and supporting documents. Updated 2026-07-04 (attachment infrastructure) — files live on local disk under `MOLDPILOT_STORAGE_DIR` (default `./storage/uploads`), soft-deleted only.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -689,12 +700,18 @@ Tracks trial photos, QC reports, design-change files, and supporting documents.
 | mold_trial_project_id | uuid | Required. |
 | entity_type | enum | MoldTrialProject, TrialEvent, TrialIssue, DesignChangeEvent, MissedTrialEvent, ProcessSheetExport. |
 | entity_id | uuid | Target record ID. |
-| file_name | text | Required. |
-| file_type | enum | Trial Photo, QC Report, Process Sheet PDF, Customer Report PDF, Design Change, Drawing, Video, Other. |
-| storage_key | text | Object storage key. |
-| visibility | enum | Internal, Technical, Restricted. |
+| file_name | text | Required. Sanitized for display; measurement reports are stored as `<projectCode>_<trialCode>_measurement-report.<ext>`. |
+| file_type | enum | Trial Photo, QC Report, Process Sheet PDF, Customer Report PDF, Design Change, Drawing, Video, Other. Per-type extension allowlists and size caps live in `src/domain/mold-trial/attachments.ts` (photos ≤10 MB; docs ≤25 MB; CAD/video ≤300 MB; Other ≤100 MB). |
+| content_type | text | Stored MIME type; served on download. Backfill default `application/octet-stream`. |
+| size_bytes | integer | Backfill default 0 for pre-existing rows. |
+| storage_key | text | Disk key (uuid + validated extension). Never derived from the client filename; resolved paths must stay inside the storage root. |
+| visibility | enum | Internal, Technical, Restricted, Customer Safe. Customer Safe is the only tier Marketing can download and is never a default — CAD/drawings/video default to Technical (IP protection). |
 | uploaded_by_id | uuid | References User. |
 | uploaded_at | datetime |  |
+| deleted_at | datetime | Optional soft delete (files are never hard-deleted). Deleted files 404 on download. |
+| deleted_by_id | uuid | Optional User who soft-deleted. |
+
+Download rule: `/api/attachments/[id]` enforces auth + visibility (`attachment.download.internal` vs `attachment.download.customer_safe`); images and video serve inline (video with HTTP Range support), everything else as attachment.
 
 ## ActivityLog
 
@@ -727,7 +744,58 @@ Stores periodic metrics for dashboards.
 | metrics_json | json | Flexible metrics payload. |
 | created_at | datetime |  |
 
+In use since 2026-07-07: `scripts/run-kpi-snapshot.mjs` writes one row per day per scope (User, DepartmentGroup, Company) with the monthly scorecard payload from the KPI scoring engine.
+
+## KpiRule
+
+Admin-editable KPI habit-rule registry (added 2026-07-07). Seeded from `src/domain/mold-trial/kpi-rules.ts`; edited in the admin Rules tab; every change is ActivityLogged. Changing a rule re-scores the entire current month (no per-month rule versioning yet).
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| id | uuid | Primary key. |
+| code | text | Unique stable code, e.g. `pm.missed_reason`, `inj.date_confirm`, `all.inbox_claim`. |
+| label_en | text | Required. |
+| label_zh | text | Required. |
+| hours | integer | Deadline in literal clock hours (1–336; weekends count). Null for boolean rules (`inj.process_values`, `asm.self_check`, `all.photo_on_defect`). |
+| role_scope | text | Which role's bar the rule feeds: pm, injection, assembly, qc, marketing, design, all. |
+| active | boolean | Design rules are seeded inactive ("role pending") until the Design role exists. |
+| sort_order | integer |  |
+| updated_by_id | uuid | Optional; null means never edited since seeding. |
+| updated_at | datetime |  |
+
+## SystemSetting
+
+Simple key/value feature flags (added 2026-07-07).
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| id | uuid | Primary key (use this uuid, not the key, as ActivityLog entity_id). |
+| key | text | Unique. Current keys: `scoreboard_enabled` (default "false" — staff scoreboard hidden for quiet baseline gathering; admins always preview). |
+| value | text |  |
+| updated_by_id | uuid | Optional. |
+| updated_at | datetime |  |
+
 ## Important Enums
+
+### Trial Date Confirmation Status (added 2026-07-05)
+
+```text
+Pending Confirmation
+Confirmed
+Reschedule Proposed
+Returned To PM
+```
+
+### File Visibility (updated 2026-07-04)
+
+```text
+Internal
+Technical
+Restricted
+Customer Safe
+```
+
+Customer Safe is the only tier Marketing can download and is never a default.
 
 ### Missed-Trial Reason Category
 

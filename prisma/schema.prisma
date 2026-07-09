@@ -99,6 +99,9 @@ model User {
   requestedTrialEvents       TrialEvent[]           @relation("TrialRequester")
   followUpTrialEvents        TrialEvent[]           @relation("TrialFollowUpOwner")
   autoMissedResolvedTrials   TrialEvent[]           @relation("TrialAutoMissedResolver")
+  dateConfirmedTrials        TrialEvent[]           @relation("TrialDateConfirmer")
+  dateProposedTrials         TrialEvent[]           @relation("TrialDateProposer")
+  dateRescheduleDecidedTrials TrialEvent[]          @relation("TrialDateRescheduleDecider")
   createdMissedTrials        MissedTrialEvent[]     @relation("MissedTrialCreator")
   createdIssues              TrialIssue[]           @relation("IssueCreator")
   reportedIssues             TrialIssue[]           @relation("IssueReporter")
@@ -112,6 +115,7 @@ model User {
   setLimitAdjustments        TrialLimitAdjustment[] @relation("LimitAdjustmentSetter")
   approvedLimitAdjustments   TrialLimitAdjustment[] @relation("LimitAdjustmentApprover")
   uploadedFiles              FileAttachment[]       @relation("FileUploader")
+  deletedFiles               FileAttachment[]       @relation("FileDeleter")
   enteredProcessValues       TrialProcessValue[]    @relation("ProcessValueEnteredBy")
   activityLogs               ActivityLog[]          @relation("ActivityActor")
   updatedRolePermissions     RolePermission[]       @relation("RolePermissionUpdater")
@@ -120,6 +124,8 @@ model User {
   createdCustomers           Customer[]             @relation("CustomerCreator")
   updatedCustomers           Customer[]             @relation("CustomerUpdater")
   ownedCustomers             Customer[]             @relation("CustomerOwner")
+  updatedKpiRules            KpiRule[]              @relation("KpiRuleUpdater")
+  updatedSystemSettings      SystemSetting[]        @relation("SystemSettingUpdater")
 
   @@map("users")
 }
@@ -345,6 +351,15 @@ model TrialEvent {
   autoMissedResolvedAt       DateTime?                @map("auto_missed_resolved_at")
   autoMissedResolvedById     String?                  @map("auto_missed_resolved_by_id") @db.Uuid
   autoMissedResolution       AutoMissedResolution?    @map("auto_missed_resolution")
+  dateConfirmationStatus     TrialDateConfirmationStatus @default(PENDING_CONFIRMATION) @map("date_confirmation_status")
+  dateConfirmedById          String?                  @map("date_confirmed_by_id") @db.Uuid
+  dateConfirmedAt            DateTime?                @map("date_confirmed_at")
+  proposedDate               DateTime?                @map("proposed_date") @db.Date
+  proposedById               String?                  @map("proposed_by_id") @db.Uuid
+  proposedReason             String?                  @map("proposed_reason")
+  rescheduleDecisionById     String?                  @map("reschedule_decision_by_id") @db.Uuid
+  rescheduleDecisionAt       DateTime?                @map("reschedule_decision_at")
+  rescheduleRejectReason     String?                  @map("reschedule_reject_reason")
   createdById                String                   @map("created_by_id") @db.Uuid
   createdAt                  DateTime                 @default(now()) @map("created_at")
   updatedAt                  DateTime                 @updatedAt @map("updated_at")
@@ -353,6 +368,9 @@ model TrialEvent {
   injectionMachine  InjectionMachine?  @relation(fields: [injectionMachineId], references: [id])
   followUpOwner     User?              @relation("TrialFollowUpOwner", fields: [followUpOwnerId], references: [id])
   autoMissedResolvedBy User?            @relation("TrialAutoMissedResolver", fields: [autoMissedResolvedById], references: [id])
+  dateConfirmedBy    User?             @relation("TrialDateConfirmer", fields: [dateConfirmedById], references: [id])
+  proposedBy         User?             @relation("TrialDateProposer", fields: [proposedById], references: [id])
+  rescheduleDecidedBy User?            @relation("TrialDateRescheduleDecider", fields: [rescheduleDecisionById], references: [id])
   requestedBy       User?              @relation("TrialRequester", fields: [requestedById], references: [id])
   createdBy         User               @relation("TrialCreator", fields: [createdById], references: [id])
   missedTrialEvents MissedTrialEvent[]
@@ -365,6 +383,7 @@ model TrialEvent {
   @@index([plannedDate])
   @@index([status])
   @@index([autoMissedResolvedById])
+  @@index([dateConfirmationStatus])
   @@map("trial_events")
 }
 
@@ -529,13 +548,19 @@ model FileAttachment {
   fileName           String               @map("file_name")
   fileType           FileType             @map("file_type")
   storageKey         String               @map("storage_key")
+  contentType        String               @default("application/octet-stream") @map("content_type")
+  sizeBytes          Int                  @default(0) @map("size_bytes")
   visibility         FileVisibility       @default(INTERNAL)
   uploadedById       String               @map("uploaded_by_id") @db.Uuid
   uploadedAt         DateTime             @default(now()) @map("uploaded_at")
+  deletedAt          DateTime?            @map("deleted_at")
+  deletedById        String?              @map("deleted_by_id") @db.Uuid
 
   moldTrialProject MoldTrialProject @relation(fields: [moldTrialProjectId], references: [id], onDelete: Cascade)
   uploadedBy       User             @relation("FileUploader", fields: [uploadedById], references: [id])
+  deletedBy        User?            @relation("FileDeleter", fields: [deletedById], references: [id])
 
+  @@index([moldTrialProjectId, entityType])
   @@map("file_attachments")
 }
 
@@ -566,6 +591,37 @@ model KpiSnapshot {
 
   @@index([snapshotDate])
   @@map("kpi_snapshots")
+}
+
+model KpiRule {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  labelEn     String   @map("label_en")
+  labelZh     String   @map("label_zh")
+  hours       Int?
+  roleScope   String   @map("role_scope")
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("KpiRuleUpdater", fields: [updatedById], references: [id])
+
+  @@index([roleScope])
+  @@map("kpi_rules")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  value       String
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SystemSettingUpdater", fields: [updatedById], references: [id])
+
+  @@map("system_settings")
 }
 
 enum UserStatus {
@@ -636,6 +692,13 @@ enum AutoMissedResolution {
   BLOCKED
   PAUSED
   ADMIN_CORRECTION
+}
+
+enum TrialDateConfirmationStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  RESCHEDULE_PROPOSED
+  RETURNED_TO_PM
 }
 
 enum ProcessValueType {
@@ -810,6 +873,7 @@ enum FileVisibility {
   INTERNAL
   TECHNICAL
   RESTRICTED
+  CUSTOMER_SAFE
 }
 
 enum KpiScopeType {

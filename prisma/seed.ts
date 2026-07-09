@@ -10,6 +10,7 @@ import {
   roleCodes
 } from "../src/domain/mold-trial/permission-policy.ts";
 import { clientOwnerUsernameByChineseName } from "../src/domain/mold-trial/client-owner-mapping.ts";
+import { defaultKpiRules, scoreboardEnabledSettingKey } from "../src/domain/mold-trial/kpi-rules.ts";
 import {
   DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
   PROCESS_SHEET_SUMMARY_PARAMETER_KEYS,
@@ -91,6 +92,7 @@ async function main() {
   const users = await seedUsers(roles);
   const permissions = await seedPermissions();
   await seedRolePermissions(roles, permissions, users);
+  await seedKpiRules(users);
   await seedInjectionMachines();
   const defaultProcessTemplate = await seedDefaultProcessSheetTemplate();
   await seedCustomers(users, defaultProcessTemplate);
@@ -293,6 +295,43 @@ async function seedRolePermissions(
       });
     })
   );
+}
+
+async function seedKpiRules(users: Awaited<ReturnType<typeof seedUsers>>) {
+  // Preserve admin-edited hours/active on re-seed: only refresh labels /
+  // roleScope / sortOrder for existing rows; new rows take the defaults.
+  await Promise.all(
+    defaultKpiRules.map((rule) =>
+      prisma.kpiRule.upsert({
+        where: { code: rule.code },
+        update: {
+          labelEn: rule.labelEn,
+          labelZh: rule.labelZh,
+          roleScope: rule.roleScope,
+          sortOrder: rule.sortOrder
+        },
+        create: {
+          code: rule.code,
+          labelEn: rule.labelEn,
+          labelZh: rule.labelZh,
+          hours: rule.hours,
+          roleScope: rule.roleScope,
+          active: rule.active,
+          sortOrder: rule.sortOrder,
+          updatedById: users.admin.id
+        }
+      })
+    )
+  );
+
+  // Staff scoreboard ships OFF (quiet data-gathering) — create only if absent
+  // so a later admin toggle is preserved across re-seeds.
+  const existing = await prisma.systemSetting.findUnique({ where: { key: scoreboardEnabledSettingKey } });
+  if (existing == null) {
+    await prisma.systemSetting.create({
+      data: { key: scoreboardEnabledSettingKey, value: "false", updatedById: users.admin.id }
+    });
+  }
 }
 
 const oleEndOfChain = 0xfffffffe;

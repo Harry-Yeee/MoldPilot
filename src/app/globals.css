@@ -154,6 +154,14 @@ body {
   justify-items: end;
 }
 
+.dashboardNavActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .accountSelector {
   display: flex;
   align-items: end;
@@ -196,7 +204,7 @@ body {
   max-width: 100%;
 }
 
-.accountMenu strong {
+.accountMenu > div > strong {
   max-width: 100%;
   overflow: hidden;
   color: #182230;
@@ -205,7 +213,7 @@ body {
   white-space: nowrap;
 }
 
-.accountMenu span {
+.accountMenu > div > span {
   max-width: 100%;
   overflow: hidden;
   color: #536579;
@@ -398,6 +406,14 @@ h2 {
   border-color: #9ad4b0;
   background: #edf9f1;
   color: #165c37;
+}
+
+/* The base .notice is already amber; .noticeWarning is an explicit alias so
+   KPI panels can name the intent (mid-month rescore + weekends-count copy). */
+.noticeWarning {
+  border-color: #f0c36a;
+  background: #fff8e8;
+  color: #6c4c07;
 }
 
 .metricGrid {
@@ -1424,6 +1440,337 @@ th {
   grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(170px, 1fr) auto;
 }
 
+/* Per-user KPI scorecard: a native <details> that reuses .adminRow chrome but
+   lays out as a plain block. It is a grid item of .adminList, so min-width:0
+   lets the column shrink to the card (never stretch to the widest audit line),
+   and the expanded audit renders BELOW the summary row, full width. */
+.kpiScoreRow {
+  display: block;
+  min-width: 0;
+  background: white;
+  padding: 12px 18px;
+}
+
+.kpiScoreRow[open] {
+  background: #fbfcfe;
+}
+
+/* Stable summary grid: name | role | applicable | on-time | percent | verdict |
+   points. minmax(0,…) on every track keeps long names/refs from forcing an
+   overflow. The disclosure marker is kept; the row is the clickable summary. */
+.kpiScoreSummary {
+  display: grid;
+  grid-template-columns:
+    minmax(7rem, 1.4fr) minmax(5rem, 1fr) minmax(4.5rem, 0.8fr)
+    minmax(4.5rem, 0.8fr) minmax(3.5rem, 0.6fr) minmax(6rem, auto) minmax(4rem, 0.6fr);
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.kpiScoreSummary::-webkit-details-marker {
+  color: #8a97a6;
+}
+
+.kpiScoreSummary > * {
+  min-width: 0;
+}
+
+.kpiSummaryName {
+  font-weight: 800;
+  color: #182230;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpiSummaryMuted {
+  color: #6b7787;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpiSummaryStat {
+  font-size: 0.8125rem;
+  color: #405367;
+  white-space: nowrap;
+}
+
+.kpiSummaryStat b {
+  color: #182230;
+}
+
+.kpiSummaryPct {
+  font-weight: 800;
+  color: #182230;
+  white-space: nowrap;
+}
+
+/* The audit body: full width, below the summary. */
+.kpiAudit {
+  margin-top: 12px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.kpiAuditRule {
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.kpiAuditRuleHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.kpiAuditRuleName {
+  font-weight: 800;
+  color: #1f2a44;
+  font-size: 0.875rem;
+}
+
+.kpiAuditRuleCounts {
+  color: #6b7787;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.kpiItemList {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* One item row: reference (truncates) | status. The ref track is minmax(0,1fr)
+   so a long trial ref ellipsis-truncates instead of pushing the panel wide. */
+.kpiItemRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 3px 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.kpiItemRef {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #405367;
+}
+
+.kpiItemStatus {
+  white-space: nowrap;
+  font-weight: 700;
+  justify-self: end;
+}
+
+.kpiItemOk {
+  color: #0f6e56;
+}
+
+.kpiItemLate {
+  color: #a3610b;
+}
+
+.kpiItemPending {
+  color: #6b7787;
+}
+
+/* Compact pass/fail chip for boolean rules. */
+.kpiChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.kpiChipPass {
+  background: #e1f5ee;
+  color: #0f6e56;
+}
+
+.kpiChipFail {
+  background: #fff5db;
+  color: #854f0b;
+}
+
+.kpiMoreDetails > summary {
+  cursor: pointer;
+  color: #4a6fb0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 2px 0;
+}
+
+.kpiPointsList {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kpiNoData {
+  color: #6b7787;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 840px) {
+  .kpiScoreSummary {
+    grid-template-columns: 1fr auto;
+    row-gap: 6px;
+  }
+
+  /* Below md the stats wrap into their own full-width row under name/verdict. */
+  .kpiScoreSummary .kpiSummaryMuted,
+  .kpiScoreSummary .kpiSummaryStat,
+  .kpiScoreSummary .kpiSummaryPct {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+}
+
+/* KPI Rules panel body: the .workSurface has no horizontal padding of its own
+   (only .surfaceHeader does), so the group headings used to hang flush at the
+   left border. This padded body inset fixes that and hosts the grouped rows. */
+.kpiRulesBody {
+  padding: 4px 18px 18px;
+}
+
+.kpiRulesGroup {
+  margin-top: 18px;
+}
+
+.kpiRulesGroupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kpiRulesGroupTitle {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1f2a44;
+}
+
+.kpiRulesGroupTitleZh {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #6b7787;
+}
+
+/* One rule per row at md+: name/code | hours | active | save. Stacks below. */
+.kpiRuleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 14px;
+  align-items: center;
+  background: white;
+  padding: 10px 12px;
+}
+
+.kpiRuleRow.kpiRuleRowDormant {
+  opacity: 0.6;
+}
+
+.kpiRuleName {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kpiRuleNameText {
+  font-weight: 700;
+  color: #182230;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+
+.kpiRuleCode {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  color: #8a97a6;
+}
+
+.kpiRuleHours {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #536579;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.kpiRuleHours input {
+  width: 5rem;
+  min-height: 2.25rem;
+  text-align: right;
+}
+
+.kpiRuleHoursBoolean {
+  color: #6b7787;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kpiRuleActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #536579;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kpiRuleActive input {
+  width: 1rem;
+  min-height: 1rem;
+}
+
+.kpiRuleSave {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.kpiRuleChanged {
+  color: #8a97a6;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (max-width: 840px) {
+  .kpiRuleRow {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .kpiRuleSave {
+    justify-items: stretch;
+    text-align: left;
+  }
+}
+
 .clientTableHeader,
 .clientTableRow {
   display: grid;
@@ -1723,6 +2070,10 @@ th {
   .accountSelectorNotice {
     align-items: stretch;
     justify-items: stretch;
+  }
+
+  .dashboardNavActions {
+    justify-content: flex-start;
   }
 
   .accountSelector {

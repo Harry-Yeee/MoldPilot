@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>岗位卡 · Role cards — 每个岗位一页，贴在自己工位</title>
+<style>
+  @page { size: A4 portrait; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .page { width: 190mm; min-height: 270mm; margin: 0 auto; padding: 4mm 0 6mm; page-break-after: always; display: flex; flex-direction: column; }
+  .page:last-child { page-break-after: auto; }
+  .banner { border-radius: 3.5mm; padding: 5mm 6mm; color: white; margin-bottom: 4mm; }
+  .banner .role { font-size: 22pt; font-weight: 800; }
+  .banner .role .en { font-size: 10pt; font-weight: 400; opacity: 0.9; margin-left: 3mm; }
+  .banner .mission { font-size: 11.5pt; margin-top: 1.5mm; opacity: 0.95; }
+  .b-pm { background: #185fa5; } .b-inj { background: #854f0b; } .b-asm { background: #3b6d11; }
+  .b-des { background: #0f6e56; } .b-qc { background: #534ab7; } .b-mkt { background: #993556; } .b-crew { background: #405367; }
+  .sec { border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3.5mm 5mm; margin-bottom: 3.5mm; background: #fbfcfd; }
+  .sec h2 { font-size: 12.5pt; color: #0c447c; margin-bottom: 2mm; }
+  .sec .li { font-size: 10.5pt; line-height: 1.65; padding-left: 5mm; position: relative; margin-bottom: 1.2mm; }
+  .sec .li::before { content: "■"; position: absolute; left: 0; font-size: 7pt; top: 1.2mm; color: #8a97a6; }
+  .clock { color: #a52626; font-weight: 700; }
+  .star { color: #ba7517; font-weight: 800; }
+  .bar-note { background: #eef5ff; border: 0.4mm solid #85b7eb; border-radius: 2.5mm; padding: 2.5mm 4mm; font-size: 10pt; line-height: 1.6; margin-top: 2mm; }
+  .bar-note b { color: #0c447c; }
+  .earn { display: flex; gap: 3mm; flex-wrap: wrap; }
+  .coin { border: 0.4mm solid #5dcaa5; background: #e1f5ee; color: #085041; border-radius: 2.5mm; padding: 2mm 3.5mm; font-size: 10pt; font-weight: 700; line-height: 1.4; }
+  .coin .sub { display: block; font-size: 8pt; font-weight: 400; color: #536579; }
+  .notm { background: #f1efe8; border: 0.4mm solid #b4b2a9; }
+  .notm h2 { color: #444441; }
+  .foot { margin-top: auto; text-align: center; font-size: 9.5pt; color: #536579; border-top: 0.4mm solid #d6dde6; padding-top: 2.5mm; }
+  .foot b { color: #1d4f91; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="banner b-pm"><div class="role">项目管理 PM ×2 + 助理<span class="en">Project management</span></div>
+    <div class="mission">你是整个试模循环的指挥——日期、结果、下一步，都从你这里发出。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">审核市场部立项，录入模具编号，设定 T0 日期</div>
+    <div class="li">试模后录入结果；未通过必须登记问题（附照片）</div>
+    <div class="li">整改就绪确认后，安排下一次试模</div>
+    <div class="li">被退回的日期，重新协调排期</div></div>
+  <div class="sec"><h2>你的达标线 · How you're measured</h2>
+    <div class="li">未试模 <span class="clock">1 天内</span>如实填写原因</div>
+    <div class="li">试模结果 <span class="clock">1 天内</span>录入，未通过必登记问题</div>
+    <div class="li">被退回的日期 <span class="clock">1 天内</span>重排</div>
+    <div class="li">部门待领问题 <span class="clock">2 天内</span>认领</div>
+    <div class="bar-note"><b>按时率 ≥85% = 达标 ¥400。</b>不足 5 件视为达标。两位 PM 工作量不同没关系——只算比例，不比数量。</div></div>
+  <div class="sec"><h2>你能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥400 / 月<span class="sub">达标即得，互不竞争</span></span>
+      <span class="coin">积分 ×2<span class="sub">解决<span class="star">★本周焦点</span>问题</span></span>
+      <span class="coin">¥500 提名<span class="sub">当月最佳修复（照片+故事）</span></span>
+      <span class="coin">部门奖 ¥1000<span class="sub">全组趋势最佳 → 团队聚餐</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">试模一次通过还是三次通过——难度不是你的错</div>
+    <div class="li">项目上问题的多少——问题多说明记录真实</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>负责人是解决问题的人，不是犯错的人</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-inj"><div class="role">注塑组长<span class="en">Injection leader</span></div>
+    <div class="mission">机台是你的地盘——日期你确认，参数你记录，冲突你提出。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">确认试模日期并选定机台；机台冲突时提议新日期并说明原因</div>
+    <div class="li">执行试模，录入工艺参数（可一键复制上次参数）</div>
+    <div class="li">用日历看每天机台负荷——同一机台一天 3 套模亮黄灯，4 套亮红灯</div></div>
+  <div class="sec"><h2>你的达标线 · How you're measured</h2>
+    <div class="li">试模日期 + 机台 <span class="clock">1 天内</span>确认或提议新日期（附原因）</div>
+    <div class="li">完成的试模，工艺参数录入完整</div>
+    <div class="li">部门待领问题 <span class="clock">2 天内</span>认领</div>
+    <div class="bar-note"><b>按时率 ≥85% = 达标 ¥400。</b>你的达标 = 全组数据完整：组员做了没录 = 没做。教会全组用系统，就是组长的赢法。</div></div>
+  <div class="sec"><h2>你能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥400 / 月<span class="sub">达标即得</span></span>
+      <span class="coin">积分 ×2<span class="sub"><span class="star">★焦点</span>问题修复</span></span>
+      <span class="coin">¥500 提名<span class="sub">当月最佳修复</span></span>
+      <span class="coin">部门奖 ¥1000<span class="sub">替全组赢一顿聚餐</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">你提议了多少次新日期——如实反映机台冲突是职责，不是扣分项</div>
+    <div class="li">注塑问题的数量——报出来的问题才修得掉</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>负责人是解决问题的人，不是犯错的人</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-asm"><div class="role">装配组长 ×2<span class="en">Assembly leaders</span></div>
+    <div class="mission">整改在你手里变成现实——确认、修复、自检，一环不缺。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">收到整改问题：确认并给出预计完成日</div>
+    <div class="li">带组完成修复，鼓励组员认领部门问题</div>
+    <div class="li">下次试模前完成自检——别让模具带着问题上机</div></div>
+  <div class="sec"><h2>你的达标线 · How you're measured</h2>
+    <div class="li">整改确认 + 预计完成日 <span class="clock">1 天内</span></div>
+    <div class="li">下次试模前自检完成</div>
+    <div class="li">预计完成日兑现（估得准也是本事）</div>
+    <div class="li">部门待领问题 <span class="clock">2 天内</span>认领</div>
+    <div class="bar-note"><b>按时率 ≥85% = 达标 ¥400。</b>两个组各算各的——你只跟自己的组比。组员做的每一步都要录进系统，那是你达标的前提。</div></div>
+  <div class="sec"><h2>你能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥400 / 月<span class="sub">达标即得</span></span>
+      <span class="coin">积分 ×2<span class="sub"><span class="star">★焦点</span>问题修复</span></span>
+      <span class="coin">¥500 提名<span class="sub">当月最佳修复</span></span>
+      <span class="coin">入库署名<span class="sub">解法进经验库 = 3 个大修复的分</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">修一轮还是修两轮——难题迭代正常，隐瞒复发才是犯规</div>
+    <div class="li">谁造成的问题——只统计谁解决了</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>负责人是解决问题的人，不是犯错的人</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-des"><div class="role">设计组长<span class="en">Design leader</span></div>
+    <div class="mission">图纸是一切的源头——改得快、传得全，试模才不空转。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">设计变更：与 PM 内审后快速出修订版，上传图纸</div>
+    <div class="li">设计类问题（DFM / 模具设计）由设计组认领解决</div>
+    <div class="li">把踩过的设计坑写进经验库，避免下一副模具重犯</div></div>
+  <div class="sec"><h2>你的达标线 · How you're measured</h2>
+    <div class="li">设计变更修订 <span class="clock">2 天内</span>完成并上传图纸</div>
+    <div class="li">设计类待领问题 <span class="clock">2 天内</span>认领</div>
+    <div class="li">变更必须附图纸文件（CAD 默认技术级保密，不会外流）</div>
+    <div class="bar-note"><b>按时率 ≥85% = 达标 ¥400。</b>你的达标 = 设计组全组的数据完整。</div></div>
+  <div class="sec"><h2>你能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥400 / 月<span class="sub">达标即得</span></span>
+      <span class="coin">预防分最大户<span class="sub">设计经验入库 = 3 个大修复</span></span>
+      <span class="coin">¥500 提名<span class="sub">当月最佳修复</span></span>
+      <span class="coin">部门奖 ¥1000<span class="sub">全组趋势最佳</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">客户改了几版需求——客户变更不算你的账</div>
+    <div class="li">设计问题的数量——报出来、修掉、写进库，比零报告值钱得多</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>负责人是解决问题的人，不是犯错的人</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-qc"><div class="role">质检部长<span class="en">QC leader — referee 裁判</span></div>
+    <div class="mission">你是本制度的裁判——你的验证结论，是所有人分数的地基。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">试模现场检验样品，记录尺寸与外观问题</div>
+    <div class="li">验证整改效果并记录结论——通过才计分，这一关只有你能盖章</div>
+    <div class="li">试模完成后上传测量报告，供市场部发客户</div></div>
+  <div class="sec"><h2>你的服务线 · How you're measured（裁判条款）</h2>
+    <div class="li">测量报告 <span class="clock">2 天内</span>上传</div>
+    <div class="li">验证结论在验证试模当场记录</div>
+    <div class="bar-note"><b>只考核速度与完整，从不考核结论方向。</b>没人看你的通过率——通过率是事实，不是指标。裁判不参与竞赛，所以裁判不可被收买。</div></div>
+  <div class="sec"><h2>你能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥250 / 月<span class="sub">裁判津贴，服务达标即得</span></span>
+      <span class="coin">被依赖<span class="sub">你慢一天，全厂的分停一天——大家都盼着你</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">你判过/判不过多少——结论方向永远不进考核</div>
+    <div class="li">发现问题的数量——查得严是资产，不是麻烦</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>下次试模就是裁判，而你是裁判的眼睛</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-mkt"><div class="role">市场部<span class="en">Marketing — referee 裁判 + 客户之声</span></div>
+    <div class="mission">你们是客户在厂里的声音——日期变更你们把关，客户文件你们递出。</div></div>
+  <div class="sec"><h2>你们的职责 · What you do</h2>
+    <div class="li">创建项目立项：客户、零件、需求摘要，一次录全</div>
+    <div class="li">日期变更审批：对照客户交期，批准或退回（这是裁判职责）</div>
+    <div class="li">客户反馈以问题形式录入（写清零件与现象）</div>
+    <div class="li">下载客户可见文件（测量报告等）发送客户</div>
+    <div class="li">周五投票：你们的票 ×2——你们听得到客户的声音</div></div>
+  <div class="sec"><h2>部长的服务线 · How the leader is measured</h2>
+    <div class="li">日期变更 <span class="clock">1 天内</span>批准或退回</div>
+    <div class="li">立项信息完整、客户反馈问题写清实质内容</div>
+    <div class="bar-note"><b>只考核响应速度与记录完整，从不考核批准率。</b>该退就退——客户交期是你们守的门。销售业绩另算，不在本制度内。</div></div>
+  <div class="sec"><h2>你们能赚什么 · What you can earn</h2>
+    <div class="earn">
+      <span class="coin">¥250 / 月<span class="sub">部长裁判津贴，服务达标即得</span></span>
+      <span class="coin">话语权 ×2<span class="sub">周五投票双倍票权</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">批准了多少、退回了多少——方向永远不进考核</div>
+    <div class="li">客户反馈的多少——如实传达是职责</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>裁判不参与竞赛，所以裁判不可被收买</b></div>
+</div>
+
+<div class="page">
+  <div class="banner b-crew"><div class="role">组员（装配 · 注塑 · 设计 · 质检）<span class="en">Crew — every department</span></div>
+    <div class="mission">系统里的每一条记录都是你干活的证据——录进去，就算数。</div></div>
+  <div class="sec"><h2>你的职责 · What you do</h2>
+    <div class="li">看到问题：拍照登记，十秒钟</div>
+    <div class="li">部门待领问题：想干就认领——认领是加分，不是认错</div>
+    <div class="li">做了的活，当天录进系统——做了没录 = 没做</div></div>
+  <div class="sec"><h2>现在怎么算 · How it works for you now</h2>
+    <div class="li">第一阶段先考核组长——组长达标靠全组数据完整，你录得及时，组长记你的好</div>
+    <div class="li">你的每一次认领、每一个验证通过的修复，系统都记在你名下，随时可查</div>
+    <div class="bar-note"><b>白纸黑字：</b>如实填写永不追责 · 安静月不吃亏 · 没有自动处罚 · 组员奖励制度（第二阶段）在组长阶段跑通后推出——你现在攒的记录到时全部有效。</div></div>
+  <div class="sec"><h2>你现在就能赚什么 · What you can earn today</h2>
+    <div class="earn">
+      <span class="coin">¥500 最佳修复<span class="sub">对全员开放——修得漂亮就提名你</span></span>
+      <span class="coin">入库署名<span class="sub">你的解法进经验库，全厂看得到你的名字</span></span>
+      <span class="coin">部门聚餐<span class="sub">部门赢了 ¥1000，全组一起吃</span></span></div></div>
+  <div class="sec notm"><h2>系统不看什么 · What we never measure</h2>
+    <div class="li">谁造成的问题——只统计谁解决了</div>
+    <div class="li">你报了多少问题——报得多说明眼睛尖</div></div>
+  <div class="foot">手机打开系统，首页就是你的待办 · <b>负责人是解决问题的人，不是犯错的人</b></div>
+</div>
+
+</body>
+</html>

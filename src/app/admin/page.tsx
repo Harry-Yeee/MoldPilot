@@ -2,7 +2,14 @@ import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
 import { AdminClientsBatchEditor } from "@/app/admin/admin-clients-batch-editor";
 import { AdminUsersBatchEditor } from "@/app/admin/admin-users-batch-editor";
+import { KpiRulesPanel } from "@/app/admin/kpi-rules-panel";
+import { KpiScoresPanel } from "@/app/admin/kpi-scores-panel";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
+import { defaultKpiRules, kpiLabels } from "@/domain/mold-trial/kpi-rules";
+import { pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { getCurrentLanguage } from "@/i18n/server";
+import { computeMonthlyScores } from "@/server/kpi-scores";
+import { ensureDefaultKpiRules, isScoreboardEnabled } from "@/server/kpi-settings";
 import { protectedAdminRoleCode, protectedAdminRolePermissionCodes } from "@/domain/mold-trial/admin-safety";
 import { permissionDefinitions } from "@/domain/mold-trial/permission-policy";
 import { compareInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
@@ -122,11 +129,15 @@ export default async function AdminPage({ searchParams }: PageProps) {
     requestedTabValue === "machines" ||
     requestedTabValue === "customers" ||
     requestedTabValue === "clients" ||
+    requestedTabValue === "rules" ||
+    requestedTabValue === "scores" ||
     requestedTabValue === "users"
       ? requestedTabValue === "customers"
         ? "clients"
         : requestedTabValue
       : "users";
+  const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
+  const requestedMonthValue = params == null ? null : messageValue(params, "month");
 
   let data: Awaited<ReturnType<typeof loadAdminData>> | null = null;
   let loadError: string | null = null;
@@ -155,6 +166,8 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const canManageRoles = hasPermissionCode(permissionCodes, "admin.manage_roles");
   const canManageCustomers = hasPermissionCode(permissionCodes, "admin.manage_customers");
   const canManageMachines = hasPermissionCode(permissionCodes, "admin.manage_machines");
+  const canManageKpiRules = hasPermissionCode(permissionCodes, "kpi.rules.manage");
+  const canViewKpiScores = hasPermissionCode(permissionCodes, "kpi.scores.view_all");
   const activeTab =
     requestedTab === "users" && canManageUsers
       ? "users"
@@ -164,18 +177,29 @@ export default async function AdminPage({ searchParams }: PageProps) {
           ? "machines"
         : requestedTab === "roles" && canManageRoles
           ? "roles"
+        : requestedTab === "rules" && canManageKpiRules
+          ? "rules"
+        : requestedTab === "scores" && canViewKpiScores
+          ? "scores"
           : canManageUsers
             ? "users"
             : canManageCustomers
               ? "clients"
               : canManageMachines
                 ? "machines"
-                : "roles";
+                : canManageRoles
+                  ? "roles"
+                  : canManageKpiRules
+                    ? "rules"
+                    : canViewKpiScores
+                      ? "scores"
+                      : "users";
   const adminRedirectTo = `/admin?tab=${activeTab}`;
   const usersRedirectTo = "/admin?tab=users";
   const customersRedirectTo = "/admin?tab=clients";
   const machinesRedirectTo = "/admin?tab=machines";
   const rolesRedirectTo = "/admin?tab=roles";
+  const rulesRedirectTo = "/admin?tab=rules";
   const sortedRoles = [...(data?.roles ?? [])].sort((left, right) => {
     if (left.code === protectedAdminRoleCode) {
       return -1;
@@ -195,6 +219,50 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const activeUserRoleOptions = sortedRoles.filter((role) => role.active || role.code === protectedAdminRoleCode);
   const activeUsers = (data?.users ?? []).filter((user) => user.status === "ACTIVE");
   const activeClientOwnerOptions = activeUsers;
+
+  // KPI tabs load their own data lazily (scores are expensive to compute).
+  const now = new Date();
+  const scoresMonth =
+    requestedMonthValue != null && /^\d{4}-\d{2}$/.test(requestedMonthValue)
+      ? requestedMonthValue
+      : `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const scoresMonthDate = new Date(`${scoresMonth}-01T00:00:00.000Z`);
+  const prevMonthDate = new Date(Date.UTC(scoresMonthDate.getUTCFullYear(), scoresMonthDate.getUTCMonth() - 1, 1));
+  const nextMonthDate = new Date(Date.UTC(scoresMonthDate.getUTCFullYear(), scoresMonthDate.getUTCMonth() + 1, 1));
+  const prevMonth = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  const nextMonth = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+
+  // The Rules panel and the Scores label lookup read the kpi_rules table
+  // directly (no engine-style fallback), so make sure it is populated before we
+  // query it — otherwise the registry is empty and the scoreboard shows raw codes.
+  if (data != null && (canManageKpiRules || canViewKpiScores) && (activeTab === "rules" || activeTab === "scores")) {
+    await ensureDefaultKpiRules();
+  }
+
+  const kpiRuleRows =
+    data != null && activeTab === "rules" && canManageKpiRules
+      ? await prisma.kpiRule.findMany({ include: { updatedBy: { select: { displayName: true, chineseName: true } } } })
+      : [];
+  const kpiScores =
+    data != null && activeTab === "scores" && canViewKpiScores
+      ? await computeMonthlyScores(scoresMonth, now).catch(() => null)
+      : null;
+  const kpiScoreboardEnabled =
+    data != null && activeTab === "scores" && canViewKpiScores ? await isScoreboardEnabled() : false;
+  const kpiRuleLabels: Record<string, { en: string; zh: string }> =
+    kpiScores == null
+      ? {}
+      : {
+          // Seed from the code defaults so the scoreboard always renders friendly
+          // labels, then let any DB rows (admin-edited copy) override them.
+          ...Object.fromEntries(defaultKpiRules.map((rule) => [rule.code, { en: rule.labelEn, zh: rule.labelZh }])),
+          ...Object.fromEntries(
+            (await prisma.kpiRule.findMany({ select: { code: true, labelEn: true, labelZh: true } })).map((rule) => [
+              rule.code,
+              { en: rule.labelEn, zh: rule.labelZh }
+            ])
+          )
+        };
 
   function roleHasPermission(
     role: (typeof sortedRoles)[number],
@@ -284,6 +352,19 @@ export default async function AdminPage({ searchParams }: PageProps) {
             ) : (
               <span className="adminTab adminTabDisabled">{t("admin.rolesPermissions")}</span>
             )}
+            {canManageKpiRules ? (
+              <Link className={activeTab === "rules" ? "adminTab adminTabActive" : "adminTab"} href={rulesRedirectTo}>
+                {pickLabel(kpiLabels.rulesTab, locale)}
+              </Link>
+            ) : null}
+            {canViewKpiScores ? (
+              <Link
+                className={activeTab === "scores" ? "adminTab adminTabActive" : "adminTab"}
+                href={`/admin?tab=scores&month=${scoresMonth}`}
+              >
+                {pickLabel(kpiLabels.scoresTab, locale)}
+              </Link>
+            ) : null}
           </nav>
 
           {activeTab === "users" && canManageUsers ? (
@@ -757,6 +838,53 @@ export default async function AdminPage({ searchParams }: PageProps) {
             </section>
           ) : activeTab === "roles" ? (
             <BlockedAction headingId="permissions-heading" title={t("admin.permissionMatrix")} />
+          ) : null}
+
+          {activeTab === "rules" && canManageKpiRules ? (
+            <KpiRulesPanel
+              redirectTo={rulesRedirectTo}
+              locale={locale}
+              rules={kpiRuleRows.map((rule) => ({
+                id: rule.id,
+                code: rule.code,
+                labelEn: rule.labelEn,
+                labelZh: rule.labelZh,
+                hours: rule.hours,
+                roleScope: rule.roleScope,
+                active: rule.active,
+                sortOrder: rule.sortOrder,
+                updatedByName:
+                  rule.updatedBy == null
+                    ? null
+                    : locale === "ZH_CN" && rule.updatedBy.chineseName != null
+                      ? rule.updatedBy.chineseName
+                      : rule.updatedBy.displayName,
+                // A "real edit" bumps updatedAt past createdAt; on a fresh seed
+                // the two are equal, so we treat that as "never changed" and
+                // hide the misleading seed timestamp.
+                everEdited: rule.updatedById != null && rule.updatedAt.getTime() > rule.createdAt.getTime(),
+                updatedAt: rule.updatedAt.toISOString()
+              }))}
+            />
+          ) : null}
+
+          {activeTab === "scores" && canViewKpiScores ? (
+            kpiScores == null ? (
+              <section className="notice noticeError" role="alert">
+                <strong>{t("common.actionFailed")}</strong>
+                <span>{pickLabel(kpiLabels.noData, locale)}</span>
+              </section>
+            ) : (
+              <KpiScoresPanel
+                scores={kpiScores}
+                ruleLabels={kpiRuleLabels}
+                scoreboardEnabled={kpiScoreboardEnabled}
+                locale={locale}
+                redirectTo={`/admin?tab=scores&month=${scoresMonth}`}
+                prevMonth={prevMonth}
+                nextMonth={nextMonth}
+              />
+            )
           ) : null}
         </>
       )}

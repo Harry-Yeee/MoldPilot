@@ -49,6 +49,7 @@ export const en = {
   "auth.newPassword": "New password",
   "auth.password": "Password",
   "auth.savePassword": "Save Password",
+  "auth.setNewPasswordToContinue": "Set a new password to continue",
   "auth.temporaryPassword": "Temporary password",
   "auth.temporaryPasswordNotice": "Temporary password must be changed.",
   "auth.temporaryPasswordHelp": "Update your password before opening normal MoldPilot pages.",

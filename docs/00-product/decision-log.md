@@ -21,6 +21,43 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-07: KPI Phase-1 Implementation Decisions (Rules Panel + Scoreboard)
+
+Locked while building the KPI data layer (see `docs/06-kpi/kpi-system-design.md` §9 for what shipped):
+
+- **Deadlines are configured in literal HOURS** (admin Rules tab, range 1–336). Weekends and holidays count; "24h" means 24 clock hours, not one workday. Revisit with a rest-day pause option only if the pilot shows weekend unfairness.
+- **Mid-month rule changes re-score the entire current month.** The nightly recompute always uses current rule values; there is no per-month rule versioning yet. The Rules panel states this warning; every change is ActivityLogged with before/after.
+- **The staff scoreboard launches OFF.** `scoreboard_enabled` defaults to false for ~2 months of quiet baseline gathering; admins always preview `/score` with a visible badge; the toggle lives in the admin Scores tab and is logged.
+- **Scored roles only**: PM, Injection, Assembly, QC, Marketing (Design when the role exists). ADMIN, GM, and VIEWER are never scored — the referee-of-referees does not play, and system accounts must not pollute scorecards.
+- **No cash price on individual issues** (reaffirmed in implementation): points are severity-weighted and verified-only; the Hot-3 double-points multiplier is stubbed at 1 until the weekly Hot-3 vote ships.
+- **Design KPI rules are seeded dormant** (`design.change_revision`, `design.inbox_claim`) and activate with the Design role onboarding (prompt 08).
+- Event extraction prefers **excluding an event over guessing a timestamp** — undercounting is safe under the <5-events floor; guessing corrupts fairness.
+
+### 2026-07-05: KPI Design Principles — Owner Is The Fixer, Not The Culprit
+
+Core principle for the future KPI system (owner decision, recorded before any KPI implementation):
+
+- The issue owner is the person responsible for FIXING the problem, never a fault attribution. Claiming an issue from the Department Inbox is positive work, not a confession.
+- Individual metrics reward claiming and resolving: issues resolved, fix time, verification pass rate. A person who claims and closes many issues is a top performer.
+- Fault/cause data lives ONLY at the category level (missed-trial reason categories, issue types, responsible areas) and is read as DEPARTMENT/PROCESS trends for management, never as personal blame counts.
+- Rationale: any metric that punishes the fixer teaches people to hide problems, which poisons the honest data the entire tracker exists to collect.
+
+Open questions the KPI design must answer before launch (owner's requirements):
+
+1. Fairness / anti-gaming: how do we prevent metric gaming — claiming trivial issues to farm counts, splitting one issue into many, closing without a real fix?
+2. Anti-manufactured mistakes: how do we prevent someone intentionally creating (or causing) an issue in order to claim and "heroically" fix it?
+3. Mistakes must become process: how do we ensure closed issues feed back into workflow/checklist improvements so the same mistake cannot recur — so the system gets smarter, not just busier?
+
+Candidate mechanisms already in the data model to build on (not yet designed as KPI rules):
+
+- Verification gate: an issue only counts as truly done when VERIFIED at a later trial (`verifiedAtTrialEventId`) — fake fixes fail verification, which naturally punishes close-without-fix gaming.
+- Severity weighting: LOW/MEDIUM/HIGH/CRITICAL already recorded; trivial claims can be worth proportionally little.
+- Self-dealing flag: issues where creator == reporter == claimer can be surfaced for review in KPI reports (detects manufactured-mistake farming without forbidding legitimate self-reporting).
+- Recurrence tracking: same issueType recurring on the same mold/customer signals a process gap, not an individual failure — feeds a periodic lessons review with `rootCause`/`correctiveAction` fields.
+- Human final judgment: KPI reports inform managers; no automatic scoring/discipline (Phase 1 non-scope already excludes automatic discipline). Transparency — everyone sees the same numbers — is itself the anti-cheat: peers audit what managers miss.
+
+Pilot quick-start must state in both languages: "The issue owner is the fixer, not the culprit / 负责人是解决问题的人，不是犯错的人."
+
 ### 2026-07-03: Phase 1 UI Supports English And Simplified Chinese
 
 MoldPilot Phase 1 supports switching the normal pilot interface between English (`en`) and Simplified Chinese (`zh-CN`).

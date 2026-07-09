@@ -4,16 +4,21 @@ One prompt = one Codex session = one branch. Do not mix features.
 
 ## Order (dependencies matter)
 
-| # | Prompt | Depends on |
-|---|--------|-----------|
-| 0 | `00-ui-foundation.md` — shared components + design tokens | — |
-| 1 | `01-file-attachments.md` — upload/storage/download infrastructure | 0 |
-| 2 | `02-mobile-me-pwa.md` — mobile "My Plate" page + PWA | 0 |
-| 3 | `03-trial-photos.md` — camera photo capture on issues | 1, 2 |
-| 4 | `04-qc-measurement-report.md` — QC report upload, Marketing download | 1 |
-| 5 | `05-daily-digest.md` — daily email digest | 2 (links to /me) |
+| # | Prompt | Depends on | Status |
+|---|--------|-----------|--------|
+| 0 | `00-ui-foundation.md` — shared components + design tokens | — | Done |
+| 1 | `01-file-attachments.md` — upload/storage/download infrastructure | 0 | Done (+ lightbox, CAD/video/ppt/zip types, video Range streaming, 320mb action bodies) |
+| 2 | `02-mobile-me-pwa.md` — mobile task list + PWA | 0 | Done (tasks inline on `/` mobile; department inbox with claim flow added) |
+| 3 | `03-trial-photos.md` — photos on issues (desktop forms) | 1 | Done (client-side downscale, count chips, shared lightbox galleries) |
+| 4 | `04-qc-measurement-report.md` — QC report upload, Marketing download | 1 | Done (report state per trial, Customer files section, dashboard missing-report count) |
+| 6 | `06-trial-date-confirmation.md` — PM→Injection→Marketing date handshake | 2 | Done (state machine, 3 phone sections, trial panel badges) |
+| 7 | `07-trial-calendar.md` — month view + machine load + phone agenda | 6 | Done (/calendar grid, amber/red machine load, 7-day phone agenda) |
+| — | KPI phase-1 data layer (no prompt file; specced by `docs/06-kpi/`) | 6, 7 | Done (rule registry Rules tab, scoring engine, admin Scores tab, flag-gated /score, simulator + snapshot scripts) |
+| 8 | Design role onboarding (prompt not yet written) | — | Queued (design KPI rules seeded dormant, waiting on this) |
+| 9 | Lessons library (`docs/06-kpi/lessons-library-design.md`) | 8 + monthly meeting ritual | Design locked, build in phase 2 |
+| 5 | `05-daily-digest.md` — daily email digest | 2 | Pilot week (needs SMTP) |
 
-Prompts 3 and 4 can run in parallel after 1 and 2 are merged.
+All original roadmap prompts (0–7) are built. Remaining order: 8 → /kpi company dashboard → 9, digest during pilot week.
 
 ## Review checklist before merging each feature
 

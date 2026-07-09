@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>认领不是认错 · Claiming is not confessing</title>
+<style>
+  @page { size: A3 portrait; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 12mm 14mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .hero { text-align: center; padding: 8mm 0 6mm; }
+  .hero .zh { font-size: 52pt; font-weight: 800; color: #1d4f91; letter-spacing: 1mm; }
+  .hero .en { font-size: 14pt; color: #536579; margin-top: 3mm; }
+  .hero .motto { display: inline-block; margin-top: 5mm; font-size: 15pt; font-weight: 700; color: #085041; background: #e1f5ee; border: 0.5mm solid #5dcaa5; border-radius: 3mm; padding: 2.5mm 8mm; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; margin: 7mm 0; }
+  .card { border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 5mm; text-align: center; }
+  .card .big { font-size: 17pt; font-weight: 700; line-height: 1.4; }
+  .card .en { font-size: 9pt; color: #536579; margin-top: 2mm; line-height: 1.45; }
+  .card.blue .big { color: #0c447c; } .card.blue { background: #e6f1fb; border-color: #85b7eb; }
+  .card.teal .big { color: #085041; } .card.teal { background: #e1f5ee; border-color: #5dcaa5; }
+  .card.gray .big { color: #444441; } .card.gray { background: #f1efe8; border-color: #b4b2a9; }
+  .flow { display: flex; align-items: center; justify-content: center; gap: 4mm; margin: 6mm 0 8mm; }
+  .step { background: #1d4f91; color: white; border-radius: 3mm; padding: 4mm 6mm; text-align: center; }
+  .step .zh { font-size: 15pt; font-weight: 700; }
+  .step .en { font-size: 8pt; opacity: 0.9; margin-top: 1mm; }
+  .step.final { background: #0f6e56; }
+  .arrow { font-size: 20pt; color: #8a97a6; font-weight: 700; }
+  .contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; margin: 0 0 7mm; }
+  .old, .new { border-radius: 3mm; padding: 5mm 6mm; }
+  .old { background: #fcebeb; border: 0.4mm solid #f09595; }
+  .new { background: #e1f5ee; border: 0.4mm solid #5dcaa5; }
+  .old .t { color: #791f1f; } .new .t { color: #085041; }
+  .contrast .t { font-size: 13pt; font-weight: 700; margin-bottom: 2.5mm; }
+  .contrast .line { font-size: 12.5pt; line-height: 1.7; }
+  .contrast .en { font-size: 8.5pt; color: #536579; margin-top: 2mm; line-height: 1.5; }
+  .guarantees { border: 0.6mm solid #1d4f91; border-radius: 3mm; background: #eef5ff; padding: 5mm 7mm; margin-bottom: 7mm; }
+  .guarantees .t { font-size: 15pt; font-weight: 800; color: #0c447c; margin-bottom: 3mm; }
+  .guarantees .g { display: flex; gap: 4mm; align-items: baseline; margin-bottom: 2.5mm; }
+  .guarantees .g .zh { font-size: 13pt; font-weight: 600; }
+  .guarantees .g .en { font-size: 8.5pt; color: #536579; }
+  .guarantees .mark { color: #0f6e56; font-size: 14pt; font-weight: 800; }
+  .how { display: flex; align-items: center; justify-content: space-between; background: #182230; color: white; border-radius: 3mm; padding: 5mm 8mm; }
+  .how .zh { font-size: 16pt; font-weight: 700; }
+  .how .en { font-size: 9pt; opacity: 0.85; margin-top: 1.5mm; }
+  .how .steps { font-size: 13pt; font-weight: 700; color: #9fe1cb; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="zh">认领不是认错</div>
+  <div class="en">Claiming an issue is not confessing to it</div>
+  <div class="motto">负责人是解决问题的人，不是犯错的人 · The owner is the fixer, not the culprit</div>
+</div>
+
+<div class="three">
+  <div class="card blue">
+    <div class="big">认领的意思是：<br>"这个问题，我来解决"</div>
+    <div class="en">Claiming means: "I'll handle this one."</div>
+  </div>
+  <div class="card gray">
+    <div class="big">认领不代表：<br>"是我造成的"</div>
+    <div class="en">It never means: "I caused it."</div>
+  </div>
+  <div class="card teal">
+    <div class="big">系统只统计谁解决了问题<br>从不统计谁造成了问题</div>
+    <div class="en">The system counts who fixed it — never who caused it.</div>
+  </div>
+</div>
+
+<div class="flow">
+  <div class="step"><div class="zh">认领</div><div class="en">Claim</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="zh">修复</div><div class="en">Fix</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="zh">下次试模验证</div><div class="en">Verified at the next trial</div></div>
+  <div class="arrow">→</div>
+  <div class="step final"><div class="zh">计入你的成绩</div><div class="en">Counted as your credit — auditable by anyone</div></div>
+</div>
+
+<div class="contrast">
+  <div class="old">
+    <div class="t">以前 The old way</div>
+    <div class="line">出了问题 → 互相推 → 没人管 → 试模失败 → 大家挨骂</div>
+    <div class="en">A problem appears → everyone pushes it away → nobody handles it → the trial fails → everyone gets blamed.</div>
+  </div>
+  <div class="new">
+    <div class="t">现在 The new way</div>
+    <div class="line">出了问题 → 有人认领 → 修复被验证 → 认领的人加分</div>
+    <div class="en">A problem appears → someone claims it → the fix is verified → the claimer gets the credit.</div>
+  </div>
+</div>
+
+<div class="guarantees">
+  <div class="t">白纸黑字的保证 · Guarantees, in writing</div>
+  <div class="g"><span class="mark">✓</span><span class="zh">如实填写原因，永不追责。</span><span class="en">Honest data is never punished.</span></div>
+  <div class="g"><span class="mark">✓</span><span class="zh">系统启用前的旧账，一笔勾销。</span><span class="en">Launch amnesty: everything before day one is history.</span></div>
+  <div class="g"><span class="mark">✓</span><span class="zh">没有人会因为认领问题被批评——需要追问的，是长期无人认领的问题。</span><span class="en">Nobody is criticized for claiming; only issues nobody claims get chased.</span></div>
+  <div class="g"><span class="mark">✓</span><span class="zh">每一个分数都可以点开查证，任何人都能看到依据。</span><span class="en">Every score is auditable down to the records — by anyone.</span></div>
+</div>
+
+<div class="how">
+  <div>
+    <div class="zh">怎么认领？</div>
+    <div class="en">How to claim</div>
+  </div>
+  <div class="steps">手机打开系统 → 部门待领 → 点"认领" · 三步，十秒</div>
+</div>
+
+</body>
+</html>

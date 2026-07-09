@@ -1,17 +1,52 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Button, StatusBadge, BottomSheet, FormField, DateInput, Select, Textarea, TextInput } from "@/components/ui";
-import { myPlateLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import {
+  Button,
+  ConfirmationBadge,
+  StatusBadge,
+  BottomSheet,
+  FormField,
+  DateInput,
+  Select,
+  Textarea,
+  TextInput
+} from "@/components/ui";
+import { IssuePhotoCountChip, IssuePhotoGallery } from "@/components/attachments/issue-photo-gallery";
+import {
+  fileVisibilityLabels,
+  measurementReportLabels,
+  myPlateLabels,
+  pickLabel,
+  type Locale
+} from "@/domain/mold-trial/labels";
 import type {
+  ApproveDateChangeRow,
   ComingUpRow,
+  ConfirmTrialDateRow,
   IssueLifecycleRow,
+  MachineOption,
   MyOpenIssueRow,
   MyPlateData,
   NeedsReasonRow,
-  PlateOption
+  PlateOption,
+  QcReportToUploadRow,
+  ReturnedDateRow
 } from "@/server/my-plate";
 import { closeTrialIssue, resolveAutoMissedTrial, updateTrialIssue } from "@/server/mold-trial-actions";
+import {
+  approveTrialDateChange,
+  confirmTrialDate,
+  proposeTrialDateChange,
+  redateReturnedTrial,
+  rejectTrialDateChange
+} from "@/server/date-confirmation-actions";
+import { uploadMeasurementReport } from "@/server/qc-report-actions";
+
+/** QC_REPORT accept list — pdf/office/csv/slides, same as the desktop report panel. */
+const REPORT_ACCEPT = "application/pdf,.pdf,.xlsx,.xls,.docx,.csv,.pptx,.ppt";
+/** Visibilities the uploader may pick for a report — customer-safe (default) or internal draft. */
+const REPORT_VISIBILITIES = ["CUSTOMER_SAFE", "INTERNAL"] as const;
 
 const TIME_PRESETS = [15, 30, 60, 120] as const;
 
@@ -67,6 +102,7 @@ function AccordionCard({
   dateValue,
   overdue,
   primaryAction,
+  headerExtra,
   details
 }: {
   projectCode: string;
@@ -79,6 +115,8 @@ function AccordionCard({
   dateValue?: string | null;
   overdue?: boolean;
   primaryAction?: ReactNode;
+  /** Extra content in the header badge row (e.g. a photo-count chip). */
+  headerExtra?: ReactNode;
   details: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -103,6 +141,7 @@ function AccordionCard({
             <span className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <StatusBadge status={statusLabel} />
               {severityLabel == null ? null : <StatusBadge status={severityLabel} />}
+              {headerExtra}
               {dateValue == null ? null : (
                 <span className={overdue ? "text-sm font-bold text-status-missed" : "text-sm font-bold text-neutral-600"}>
                   {dateLabel}: {dateValue}
@@ -153,7 +192,8 @@ function SimpleCard({
   dateValue,
   overdue,
   statusLabel,
-  action
+  action,
+  extra
 }: {
   projectCode: string;
   customerShortName: string;
@@ -163,6 +203,8 @@ function SimpleCard({
   overdue?: boolean;
   statusLabel?: string;
   action?: ReactNode;
+  /** Extra badge-row content (e.g. a small date-confirmation pill). */
+  extra?: ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between gap-2 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card">
@@ -178,6 +220,7 @@ function SimpleCard({
               {dateValue}
             </span>
           )}
+          {extra}
         </span>
       </div>
       {action == null ? null : <div className="flex items-center">{action}</div>}
@@ -260,6 +303,254 @@ function NeedsReasonCard({
   );
 }
 
+/* -------------------- Trial date confirmation handshake ---------------------- */
+
+/** Injection: confirm a planned trial date with a machine, or propose a new date. */
+function ConfirmTrialDateCard({
+  row,
+  locale,
+  machineOptions,
+  todayInput,
+  redirectTo
+}: {
+  row: ConfirmTrialDateRow;
+  locale: Locale;
+  machineOptions: MachineOption[];
+  todayInput: string;
+  redirectTo: string;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [proposeOpen, setProposeOpen] = useState(false);
+
+  const action = (
+    <Button type="button" variant="primary" size="lg" onClick={() => setConfirmOpen(true)}>
+      {label("confirmDate", locale)}
+    </Button>
+  );
+
+  return (
+    <>
+      <SimpleCard
+        projectCode={row.projectCode}
+        customerShortName={row.customerShortName}
+        moldCode={row.moldCode}
+        title={row.title}
+        statusLabel={row.statusValue === "PLANNED" ? undefined : row.statusLabel}
+        dateValue={row.plannedDate}
+        overdue={row.overdue}
+        action={action}
+      />
+
+      <BottomSheet
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={`${label("confirmDate", locale)} · ${row.trialCode}`}
+      >
+        <form action={confirmTrialDate} className="grid gap-3">
+          <input type="hidden" name="projectCode" value={row.projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={row.trialEventId} />
+          <FormField label={label("currentPlannedDate", locale)} htmlFor={`confirm-date-${row.trialEventId}`}>
+            <span id={`confirm-date-${row.trialEventId}`} className="text-sm font-bold text-neutral-800">
+              {row.plannedDate ?? "—"}
+            </span>
+          </FormField>
+          <FormField label={label("machine", locale)} htmlFor={`confirm-machine-${row.trialEventId}`}>
+            <Select id={`confirm-machine-${row.trialEventId}`} name="injectionMachineId" defaultValue="" required>
+              <option value="" disabled>
+                {label("chooseMachine", locale)}
+              </option>
+              {machineOptions.map((machine) => (
+                <option key={machine.value} value={machine.value}>
+                  {machine.label}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <div className="pt-1">
+            <Button type="submit" variant="primary" size="lg" className="w-full">
+              {label("confirmDate", locale)}
+            </Button>
+          </div>
+        </form>
+        <div className="pt-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              setConfirmOpen(false);
+              setProposeOpen(true);
+            }}
+          >
+            {label("proposeDifferentDate", locale)}
+          </Button>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={proposeOpen}
+        onClose={() => setProposeOpen(false)}
+        title={`${label("proposeDifferentDate", locale)} · ${row.trialCode}`}
+      >
+        <form action={proposeTrialDateChange} className="grid gap-3">
+          <input type="hidden" name="projectCode" value={row.projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={row.trialEventId} />
+          <FormField label={label("currentPlannedDate", locale)} htmlFor={`propose-current-${row.trialEventId}`}>
+            <span id={`propose-current-${row.trialEventId}`} className="text-sm font-bold text-neutral-800">
+              {row.plannedDate ?? "—"}
+            </span>
+          </FormField>
+          <FormField label={label("proposedDate", locale)} htmlFor={`propose-date-${row.trialEventId}`}>
+            <DateInput id={`propose-date-${row.trialEventId}`} name="proposedDate" defaultValue={todayInput} required />
+          </FormField>
+          <FormField label={label("proposeReasonLabel", locale)} htmlFor={`propose-reason-${row.trialEventId}`}>
+            <Textarea id={`propose-reason-${row.trialEventId}`} name="proposedReason" rows={3} required />
+          </FormField>
+          <SheetActions locale={locale} />
+        </form>
+      </BottomSheet>
+    </>
+  );
+}
+
+/** Marketing: approve or reject an Injection counter-proposal against the target. */
+function ApproveDateChangeCard({
+  row,
+  locale,
+  redirectTo
+}: {
+  row: ApproveDateChangeRow;
+  locale: Locale;
+  redirectTo: string;
+}) {
+  const [rejectOpen, setRejectOpen] = useState(false);
+
+  const gapText =
+    row.targetGapDays == null
+      ? null
+      : row.targetGapDays === 0
+        ? label("onTarget", locale)
+        : row.targetGapDays > 0
+          ? `${row.targetGapDays} ${label("daysBeforeTarget", locale)}`
+          : `${Math.abs(row.targetGapDays)} ${label("daysAfterTarget", locale)}`;
+
+  return (
+    <>
+      <div className="grid gap-3 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card">
+        <div className="grid gap-1">
+          <span className="text-[0.8125rem] font-bold text-neutral-500 [overflow-wrap:anywhere]">
+            {row.moldCode || row.projectCode} · {row.customerShortName}
+          </span>
+          <span className="text-[0.9375rem] font-bold text-neutral-900 [overflow-wrap:anywhere]">{row.title}</span>
+        </div>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+          <DetailLine term={label("currentPlannedDate", locale)}>{row.plannedDate ?? "—"}</DetailLine>
+          <DetailLine term={label("proposedDate", locale)}>{row.proposedDate ?? "—"}</DetailLine>
+          <DetailLine term={label("customerTargetDate", locale)}>{row.customerTargetDate ?? "—"}</DetailLine>
+          <p className="m-0 grid gap-0.5">
+            <span className="text-[0.75rem] font-bold text-neutral-500">{label("targetGap", locale)}</span>
+            <span
+              className={`text-sm font-bold ${row.proposedAfterTarget ? "text-status-missed" : "text-neutral-800"}`}
+            >
+              {gapText ?? "—"}
+            </span>
+          </p>
+        </dl>
+        {row.proposedReason == null ? null : (
+          <DetailLine term={label("proposeReasonLabel", locale)}>{row.proposedReason}</DetailLine>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <form action={approveTrialDateChange}>
+            <input type="hidden" name="projectCode" value={row.projectCode} />
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input type="hidden" name="trialEventId" value={row.trialEventId} />
+            <Button type="submit" variant="primary" size="lg">
+              {label("approve", locale)}
+            </Button>
+          </form>
+          <Button type="button" variant="secondary" size="lg" onClick={() => setRejectOpen(true)}>
+            {label("reject", locale)}
+          </Button>
+        </div>
+      </div>
+
+      <BottomSheet
+        open={rejectOpen}
+        onClose={() => setRejectOpen(false)}
+        title={`${label("reject", locale)} · ${row.trialCode}`}
+      >
+        <form action={rejectTrialDateChange} className="grid gap-3">
+          <input type="hidden" name="projectCode" value={row.projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={row.trialEventId} />
+          <FormField label={label("rejectionReason", locale)} htmlFor={`reject-reason-${row.trialEventId}`}>
+            <Textarea id={`reject-reason-${row.trialEventId}`} name="rescheduleRejectReason" rows={3} required />
+          </FormField>
+          <SheetActions locale={locale} />
+        </form>
+      </BottomSheet>
+    </>
+  );
+}
+
+/** PM: a trial Marketing returned — shows the reason and a set-new-date action. */
+function ReturnedDateCard({
+  row,
+  locale,
+  todayInput,
+  redirectTo
+}: {
+  row: ReturnedDateRow;
+  locale: Locale;
+  todayInput: string;
+  redirectTo: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const action = (
+    <Button type="button" variant="primary" size="lg" onClick={() => setOpen(true)}>
+      {label("setNewDate", locale)}
+    </Button>
+  );
+
+  return (
+    <>
+      <AccordionCard
+        projectCode={row.projectCode}
+        customerShortName={row.customerShortName}
+        moldCode={row.moldCode}
+        title={row.title}
+        statusLabel={label("returnedToPm", locale)}
+        dateLabel={label("plannedDate", locale)}
+        dateValue={row.plannedDate}
+        primaryAction={action}
+        details={
+          <>
+            {row.rejectReason == null ? null : (
+              <DetailLine term={label("rejectionReason", locale)}>{row.rejectReason}</DetailLine>
+            )}
+            <div className="flex flex-wrap items-center gap-2">{action}</div>
+          </>
+        }
+      />
+      <BottomSheet open={open} onClose={() => setOpen(false)} title={`${label("setNewDate", locale)} · ${row.trialCode}`}>
+        <form action={redateReturnedTrial} className="grid gap-3">
+          <input type="hidden" name="projectCode" value={row.projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={row.trialEventId} />
+          <FormField label={label("newPlannedDate", locale)} htmlFor={`redate-${row.trialEventId}`}>
+            <DateInput id={`redate-${row.trialEventId}`} name="plannedDate" defaultValue={todayInput} required />
+          </FormField>
+          <SheetActions locale={locale} />
+        </form>
+      </BottomSheet>
+    </>
+  );
+}
+
 /* ------------------------------- My open issues ------------------------------ */
 
 function MyOpenIssueCard({
@@ -298,6 +589,7 @@ function MyOpenIssueCard({
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={doneAction}
+        headerExtra={<IssuePhotoCountChip count={row.photoCount} locale={locale} />}
         details={
           <>
             {row.description == null ? null : (
@@ -306,6 +598,7 @@ function MyOpenIssueCard({
             {row.partCavity == null ? null : (
               <DetailLine term={label("partCavity", locale)}>{row.partCavity}</DetailLine>
             )}
+            {row.photos.length === 0 ? null : <IssuePhotoGallery photos={row.photos} locale={locale} />}
             <div className="flex flex-wrap items-center gap-2">
               {doneAction}
               <Button type="button" variant="secondary" size="lg" onClick={() => setStatusOpen(true)}>
@@ -677,7 +970,7 @@ function PmConfirmReadyCard({
 
 /* ---------------------------------- Coming up -------------------------------- */
 
-function ComingUpCard({ row }: { row: ComingUpRow }) {
+function ComingUpCard({ row, locale }: { row: ComingUpRow; locale: Locale }) {
   return (
     <SimpleCard
       projectCode={row.projectCode}
@@ -689,7 +982,97 @@ function ComingUpCard({ row }: { row: ComingUpRow }) {
       statusLabel={row.statusValue === "PLANNED" ? undefined : row.statusLabel}
       dateValue={row.plannedDate}
       overdue={row.overdue}
+      // Small date-confirmation badge so the PM sees at a glance whether the date
+      // is still pending, confirmed, awaiting Marketing, or returned.
+      extra={<ConfirmationBadge status={row.dateConfirmationStatus} locale={locale} />}
     />
+  );
+}
+
+/* ---------------------------- QC reports to upload --------------------------- */
+
+/**
+ * A recently completed trial missing its measurement report. The primary action
+ * opens a BottomSheet with a file input + visibility + optional note that posts
+ * to `uploadMeasurementReport`. A native file input is the right control here:
+ * this is upload-of-an-existing-file (a PDF/Excel produced outside the system),
+ * not record creation, so the phone's file picker (Files / cloud / scan) handles
+ * it well — no need to deep-link to the project page.
+ */
+function QcReportToUploadCard({
+  row,
+  locale,
+  redirectTo
+}: {
+  row: QcReportToUploadRow;
+  locale: Locale;
+  redirectTo: string;
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const reportLabel = (key: keyof typeof measurementReportLabels): string =>
+    pickLabel(measurementReportLabels[key], locale);
+
+  const action = (
+    <Button type="button" variant="primary" size="lg" onClick={() => setSheetOpen(true)}>
+      {reportLabel("upload")}
+    </Button>
+  );
+
+  return (
+    <>
+      <SimpleCard
+        projectCode={row.projectCode}
+        customerShortName={row.customerShortName}
+        moldCode={row.moldCode}
+        title={row.title}
+        statusLabel={reportLabel("missing")}
+        dateValue={row.actualDate}
+        action={action}
+      />
+      <BottomSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={`${reportLabel("upload")} · ${row.trialCode}`}
+      >
+        <form action={uploadMeasurementReport} className="grid gap-3" encType="multipart/form-data">
+          <input type="hidden" name="trialEventId" value={row.trialEventId} />
+          <input type="hidden" name="projectCode" value={row.projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+
+          <FormField label={reportLabel("file")} htmlFor={`qc-report-file-${row.trialEventId}`} hint={reportLabel("reportHint")}>
+            <input
+              id={`qc-report-file-${row.trialEventId}`}
+              name="file"
+              type="file"
+              required
+              accept={REPORT_ACCEPT}
+              className="w-full min-h-11 rounded-lg border border-neutral-400 bg-white px-2.5 py-2 text-neutral-900 font-normal file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:font-bold file:text-brand-600"
+            />
+          </FormField>
+
+          <FormField label={reportLabel("visibility")} htmlFor={`qc-report-visibility-${row.trialEventId}`}>
+            <Select id={`qc-report-visibility-${row.trialEventId}`} name="visibility" defaultValue="CUSTOMER_SAFE" required>
+              {REPORT_VISIBILITIES.map((option) => (
+                <option key={option} value={option}>
+                  {pickLabel(fileVisibilityLabels[option], locale)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+
+          <FormField label={reportLabel("note")} htmlFor={`qc-report-note-${row.trialEventId}`}>
+            <Textarea id={`qc-report-note-${row.trialEventId}`} name="note" rows={2} />
+          </FormField>
+
+          <div className="pt-1">
+            <Button type="submit" variant="primary" size="lg" className="w-full">
+              {reportLabel("submit")}
+            </Button>
+          </div>
+        </form>
+      </BottomSheet>
+    </>
   );
 }
 
@@ -708,6 +1091,31 @@ export function MyPlateSections({ data, locale, todayInput, viewerUsername, redi
             areaOptions={data.options.responsibleAreas}
             redirectTo={redirectTo}
           />
+        ))}
+      </Section>
+
+      <Section title={label("confirmTrialDates", locale)} count={data.confirmTrialDates.length}>
+        {data.confirmTrialDates.map((row) => (
+          <ConfirmTrialDateCard
+            key={row.key}
+            row={row}
+            locale={locale}
+            machineOptions={data.options.activeMachines}
+            todayInput={todayInput}
+            redirectTo={redirectTo}
+          />
+        ))}
+      </Section>
+
+      <Section title={label("approveDateChanges", locale)} count={data.approveDateChanges.length}>
+        {data.approveDateChanges.map((row) => (
+          <ApproveDateChangeCard key={row.key} row={row} locale={locale} redirectTo={redirectTo} />
+        ))}
+      </Section>
+
+      <Section title={label("returnedDates", locale)} count={data.returnedDates.length}>
+        {data.returnedDates.map((row) => (
+          <ReturnedDateCard key={row.key} row={row} locale={locale} todayInput={todayInput} redirectTo={redirectTo} />
         ))}
       </Section>
 
@@ -756,7 +1164,16 @@ export function MyPlateSections({ data, locale, todayInput, viewerUsername, redi
 
       <Section title={label("comingUp", locale)} count={data.comingUp.length}>
         {data.comingUp.map((row) => (
-          <ComingUpCard key={row.key} row={row} />
+          <ComingUpCard key={row.key} row={row} locale={locale} />
+        ))}
+      </Section>
+
+      <Section
+        title={pickLabel(measurementReportLabels.qcReportsToUpload, locale)}
+        count={data.qcReportsToUpload.length}
+      >
+        {data.qcReportsToUpload.map((row) => (
+          <QcReportToUploadCard key={row.key} row={row} locale={locale} redirectTo={redirectTo} />
         ))}
       </Section>
     </div>

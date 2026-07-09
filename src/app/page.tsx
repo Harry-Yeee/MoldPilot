@@ -6,33 +6,52 @@ import { MyPlateSections } from "@/app/me/my-plate-sections";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
 import { EmptyState, MessageBanner, SectionHeading } from "@/components/ui";
-import { dashboardSummaryLabels, myPlateLabels, navLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { TrialAgenda } from "@/app/calendar/trial-agenda";
+import {
+  calendarLabels,
+  dashboardSummaryLabels,
+  myPlateLabels,
+  navLabels,
+  pickLabel,
+  type Locale
+} from "@/domain/mold-trial/labels";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
 import { createTranslator } from "@/i18n";
 import { getCurrentLanguage, getDictionary } from "@/i18n/server";
 import { createMoldTrialProject } from "@/server/mold-trial-actions";
 import { getMoldTrialDashboardData } from "@/server/mold-trial-dashboard";
+import { getTrialAgendaData, type TrialAgendaData } from "@/server/calendar";
 import { getMyPlateData, type MyPlateData } from "@/server/my-plate";
 import { priorityOptions } from "@/server/dev-options";
 import { getCurrentUser } from "@/server/current-user";
 import { getActiveCustomerOptions } from "@/server/customer-options";
 import { getEffectivePermissionCodes } from "@/server/permissions";
 import { getActivePmUserOptions } from "@/server/user-options";
+import { isScoreboardEnabled } from "@/server/kpi-settings";
 
 export const dynamic = "force-dynamic";
 
 function emptyPlate(): MyPlateData {
   return {
     needsReason: [],
+    confirmTrialDates: [],
+    approveDateChanges: [],
+    returnedDates: [],
     myOpenIssues: [],
     departmentInbox: [],
     assemblyAcknowledge: [],
     assemblySelfCheck: [],
     pmConfirmReady: [],
     comingUp: [],
+    qcReportsToUpload: [],
     totalCount: 0,
-    options: { missedTrialReasons: [], responsibleAreas: [], issueStatuses: [] }
+    options: { missedTrialReasons: [], responsibleAreas: [], issueStatuses: [], activeMachines: [] }
   };
+}
+
+/** The 7-day agenda for the mobile "This week's trials" section; empty on failure. */
+function emptyAgenda(now: Date): TrialAgendaData {
+  return { fromDate: now.toISOString().slice(0, 10), days: [] };
 }
 
 async function loadDashboard(now: Date): Promise<{
@@ -43,6 +62,7 @@ async function loadDashboard(now: Date): Promise<{
   databaseError: string | null;
   myPlate: MyPlateData;
   myPlateError: string | null;
+  agenda: TrialAgendaData;
 }> {
   // Resolve the user first, then load dashboard data and the personal task list
   // concurrently. A my-plate failure is isolated (it resolves to an error string
@@ -59,10 +79,15 @@ async function loadDashboard(now: Date): Promise<{
       myPlateError: error instanceof Error ? error.message : "Unable to load your tasks."
     }));
 
+  // The mobile "This week's trials" agenda is non-critical: a failure resolves to
+  // an empty agenda rather than blanking the dashboard.
+  const agendaPromise: Promise<TrialAgendaData> = getTrialAgendaData(now).catch(() => emptyAgenda(now));
+
   try {
-    const [[data, activePmUsers, activeCustomers], myPlateResult] = await Promise.all([
+    const [[data, activePmUsers, activeCustomers], myPlateResult, agenda] = await Promise.all([
       Promise.all([getMoldTrialDashboardData(currentUser.id), getActivePmUserOptions(), getActiveCustomerOptions()]),
-      myPlatePromise
+      myPlatePromise,
+      agendaPromise
     ]);
 
     return {
@@ -72,10 +97,11 @@ async function loadDashboard(now: Date): Promise<{
       data,
       databaseError: null,
       myPlate: myPlateResult.myPlate,
-      myPlateError: myPlateResult.myPlateError
+      myPlateError: myPlateResult.myPlateError,
+      agenda
     };
   } catch (error) {
-    const myPlateResult = await myPlatePromise;
+    const [myPlateResult, agenda] = await Promise.all([myPlatePromise, agendaPromise]);
 
     return {
       activePmUsers: [],
@@ -93,12 +119,14 @@ async function loadDashboard(now: Date): Promise<{
           atLimitCount: 0,
           overLimitCount: 0,
           openCriticalIssueCount: 0,
-          pendingFollowUpCount: 0
+          pendingFollowUpCount: 0,
+          completedTrialsMissingReportCount: 0
         }
       },
       databaseError: error instanceof Error ? error.message : "Unable to load database records.",
       myPlate: myPlateResult.myPlate,
-      myPlateError: myPlateResult.myPlateError
+      myPlateError: myPlateResult.myPlateError,
+      agenda
     };
   }
 }
@@ -116,7 +144,7 @@ export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
   const now = new Date();
   const todayInput = now.toISOString().slice(0, 10);
-  const { activePmUsers, activeCustomers, currentUser, data, databaseError, myPlate, myPlateError } =
+  const { activePmUsers, activeCustomers, currentUser, data, databaseError, myPlate, myPlateError, agenda } =
     await loadDashboard(now);
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
   const t = createTranslator(await getDictionary());
@@ -133,6 +161,11 @@ export default async function Home({ searchParams }: PageProps) {
     hasPermissionCode(permissionCodes, "admin.manage_users") ||
     hasPermissionCode(permissionCodes, "admin.manage_roles") ||
     hasPermissionCode(permissionCodes, "admin.manage_customers");
+  // The "My score" button shows for everyone when the scoreboard is enabled;
+  // admins always see it (they preview the staff-facing page before opening it).
+  const canViewAllScores = hasPermissionCode(permissionCodes, "kpi.scores.view_all");
+  const scoreboardEnabled = await isScoreboardEnabled().catch(() => false);
+  const showScoreButton = scoreboardEnabled || canViewAllScores;
 
   return (
     <main className="shell">
@@ -143,14 +176,27 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
         <div className="pageHeaderActions">
           <AccountMenu currentUser={currentUser} />
-          <a className="buttonLink hidden md:inline-flex" href="/me">
-            {pickLabel(navLabels.myTasks, locale)}
-          </a>
-          {canOpenAdmin ? (
-            <a className="buttonLink" href="/admin">
-              {pickLabel(navLabels.admin, locale)}
+          <nav
+            className="dashboardNavActions"
+            aria-label={`${pickLabel(navLabels.admin, locale)} / ${pickLabel(navLabels.myTasks, locale)}`}
+          >
+            {canOpenAdmin ? (
+              <a className="buttonLink" href="/admin">
+                {pickLabel(navLabels.admin, locale)}
+              </a>
+            ) : null}
+            <a className="buttonLink hidden md:inline-flex" href="/calendar">
+              {pickLabel(navLabels.calendar, locale)}
             </a>
-          ) : null}
+            {showScoreButton ? (
+              <a className="buttonLink hidden md:inline-flex" href="/score">
+                {pickLabel(navLabels.myScore, locale)}
+              </a>
+            ) : null}
+            <a className="buttonLink hidden md:inline-flex" href="/me">
+              {pickLabel(navLabels.myTasks, locale)}
+            </a>
+          </nav>
           <div className="summaryStrip dashboardSummary" aria-label="Trial summary">
             <span>
               <strong>{summary.activeMoldCount}</strong>
@@ -217,6 +263,10 @@ export default async function Home({ searchParams }: PageProps) {
           <strong>{summary.pendingFollowUpCount}</strong>
           {pickLabel(dashboardSummaryLabels.pendingFollowUp, locale)}
         </span>
+        <span>
+          <strong>{summary.completedTrialsMissingReportCount}</strong>
+          {pickLabel(dashboardSummaryLabels.missingQcReport, locale)}
+        </span>
       </section>
 
       {/*
@@ -250,6 +300,21 @@ export default async function Home({ searchParams }: PageProps) {
             redirectTo="/"
           />
         )}
+      </section>
+
+      {/*
+        Phone-only: a compact "This week's trials" agenda below the task sections.
+        Shows all projects' planned trials for today + next 7 days (read-only). The
+        title links to /calendar, which on a phone renders the full agenda. Reuses
+        the same server-rendered TrialAgenda as the /calendar phone view.
+      */}
+      <section className="mb-6 grid gap-3 md:hidden" aria-labelledby="this-week-heading">
+        <SectionHeading id="this-week-heading">
+          <a href="/calendar" className="underline">
+            {pickLabel(calendarLabels.thisWeekTitle, locale)}
+          </a>
+        </SectionHeading>
+        <TrialAgenda agenda={agenda} locale={locale} todayKey={todayInput} />
       </section>
 
       <div className="hidden md:block">

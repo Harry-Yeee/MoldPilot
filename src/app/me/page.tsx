@@ -18,14 +18,18 @@ function messageValue(searchParams: Record<string, string | string[] | undefined
 function emptyPlate(): MyPlateData {
   return {
     needsReason: [],
+    confirmTrialDates: [],
+    approveDateChanges: [],
+    returnedDates: [],
     myOpenIssues: [],
     departmentInbox: [],
     assemblyAcknowledge: [],
     assemblySelfCheck: [],
     pmConfirmReady: [],
     comingUp: [],
+    qcReportsToUpload: [],
     totalCount: 0,
-    options: { missedTrialReasons: [], responsibleAreas: [], issueStatuses: [] }
+    options: { missedTrialReasons: [], responsibleAreas: [], issueStatuses: [], activeMachines: [] }
   };
 }
 

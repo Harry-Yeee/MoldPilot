@@ -51,6 +51,7 @@ export const zhCN = {
   "auth.newPassword": "新密码",
   "auth.password": "密码",
   "auth.savePassword": "保存密码",
+  "auth.setNewPasswordToContinue": "设置新密码后继续",
   "auth.temporaryPassword": "临时密码",
   "auth.temporaryPasswordNotice": "临时密码必须修改。",
   "auth.temporaryPasswordHelp": "请先更新密码，再进入 MoldPilot 正常页面。",

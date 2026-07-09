@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
 import { createTranslator } from "@/i18n";
 import { getDictionary } from "@/i18n/server";
@@ -30,6 +31,15 @@ export default async function ChangePasswordPage({ searchParams }: PageProps) {
         <div>
           <p className="eyebrow">MoldPilot Account</p>
           <h1>{t("auth.changePassword")}</h1>
+          {currentUser.forcePasswordChange ? (
+            <p className="backLink" aria-hidden={false}>
+              {t("auth.setNewPasswordToContinue")}
+            </p>
+          ) : (
+            <Link className="backLink" href="/">
+              ← {t("common.backToDashboard")}
+            </Link>
+          )}
         </div>
         <AccountMenu currentUser={currentUser} />
       </section>

@@ -136,6 +136,93 @@ describe("dashboard summary", () => {
     assert.equal(data.rows.find((row) => row.projectCode === "MP-SEED-008")?.assemblyReadyDate, "2026-06-16");
   });
 
+  test("counts completed trials missing a measurement report", () => {
+    const data = buildMoldTrialDashboard([
+      {
+        ...baseProject,
+        projectCode: "MP-REPORT-001",
+        status: "WAITING_VERIFICATION",
+        // Two completed trials; only trial "t1" has a live report.
+        trialEvents: [
+          { ...completedTrial(1), id: "t1" },
+          { ...completedTrial(2), id: "t2" }
+        ],
+        measurementReports: [
+          {
+            id: "rep-1",
+            entityType: "TRIAL_EVENT",
+            entityId: "t1",
+            fileType: "QC_REPORT",
+            deletedAt: null,
+            uploadedAt: new Date("2026-06-05T00:00:00.000Z"),
+            uploaderName: "Gong",
+            visibility: "CUSTOMER_SAFE"
+          }
+        ]
+      },
+      {
+        ...baseProject,
+        projectCode: "MP-REPORT-002",
+        status: "ACTIVE",
+        // Pending-follow-up is eligible and has no report -> missing.
+        trialEvents: [
+          {
+            ...completedTrial(1),
+            id: "t3",
+            status: "PENDING_FOLLOW_UP",
+            outcomeDisposition: "PENDING_CUSTOMER_FEEDBACK"
+          }
+        ]
+      },
+      {
+        ...baseProject,
+        projectCode: "MP-REPORT-003",
+        status: "WAITING_TRIAL",
+        // A planned trial never needs a report.
+        trialEvents: [
+          {
+            trialCode: "T0",
+            sequenceNumber: 1,
+            plannedDate: "2026-07-03",
+            actualDate: null,
+            status: "PLANNED",
+            result: null,
+            outcomeDisposition: null,
+            countsAgainstLimit: false
+          }
+        ]
+      }
+    ]);
+
+    // t2 (no report) + t3 (pending-follow-up, no report) = 2; t1 has a report; planned ignored.
+    assert.equal(data.summary.completedTrialsMissingReportCount, 2);
+  });
+
+  test("a soft-deleted report leaves its completed trial counted as missing", () => {
+    const data = buildMoldTrialDashboard([
+      {
+        ...baseProject,
+        projectCode: "MP-REPORT-004",
+        status: "WAITING_VERIFICATION",
+        trialEvents: [{ ...completedTrial(1), id: "t9" }],
+        measurementReports: [
+          {
+            id: "rep-9",
+            entityType: "TRIAL_EVENT",
+            entityId: "t9",
+            fileType: "QC_REPORT",
+            deletedAt: new Date("2026-06-06T00:00:00.000Z"),
+            uploadedAt: new Date("2026-06-05T00:00:00.000Z"),
+            uploaderName: "Gong",
+            visibility: "CUSTOMER_SAFE"
+          }
+        ]
+      }
+    ]);
+
+    assert.equal(data.summary.completedTrialsMissingReportCount, 1);
+  });
+
   test("uses mold code as primary identifier once present and falls back to tracking id for blank intake", () => {
     const data = buildMoldTrialDashboard([
       {

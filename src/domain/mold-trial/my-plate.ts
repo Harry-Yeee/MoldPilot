@@ -12,6 +12,7 @@
  * PM == role `PM`.
  */
 
+import type { DateConfirmationStatus } from "@/domain/mold-trial/date-confirmation";
 import type { RoleCode } from "@/domain/mold-trial/types";
 
 /** Prisma `TrialIssueStatus` enum values (DB form) relevant to plate filtering. */
@@ -47,6 +48,10 @@ export type PlateViewer = {
 export type PlateTrialRecord = {
   status: TrialStatusDbValue;
   plannedDate: Date | null;
+  /** Actual completion date; drives the QC report-upload recency window. */
+  actualDate?: Date | null;
+  /** Date-confirmation handshake state; drives the three Feature 6 sections. */
+  dateConfirmationStatus?: DateConfirmationStatus;
   projectPlanningPmId: string | null;
   projectTechnicalPmId: string | null;
 };
@@ -67,7 +72,14 @@ export type PlateIssueRecord = {
 };
 
 const OPEN_ISSUE_EXCLUDED_STATUSES: ReadonlySet<IssueStatusDbValue> = new Set(["VERIFIED", "CLOSED"]);
-const directDepartmentInboxGroupByRole: Partial<Record<RoleCode, string>> = {
+
+/**
+ * Roles whose "Department inbox" is exactly one department group. PM is handled
+ * separately (it spans pm/planning/technical and is gated on project PM
+ * assignment). Exported so the server query layer reuses the same map instead of
+ * re-declaring it.
+ */
+export const directDepartmentInboxGroupByRole: Partial<Record<RoleCode, string>> = {
   ASSEMBLY: "assembly",
   INJECTION: "injection",
   MARKETING: "marketing",
@@ -114,6 +126,58 @@ export function isAssemblyActionableIssue(viewer: PlateViewer, issue: PlateIssue
  */
 export function belongsToNeedsReasonSection(viewer: PlateViewer, trial: PlateTrialRecord): boolean {
   return trial.status === "AUTO_MISSED_REASON_REQUIRED" && isViewerProjectPm(viewer, trial);
+}
+
+/**
+ * Injection — "Confirm trial dates": planned/at-risk trials still awaiting the
+ * date-confirmation handshake. Injection owns confirmation, so the section is
+ * not project-scoped (Injection serves every project's machines). Recording a
+ * result works regardless; this only surfaces the confirm/propose action.
+ */
+export function belongsToConfirmTrialDatesSection(viewer: PlateViewer, trial: PlateTrialRecord): boolean {
+  if (viewer.roleCode !== "INJECTION") {
+    return false;
+  }
+
+  if (trial.status !== "PLANNED" && trial.status !== "AT_RISK") {
+    return false;
+  }
+
+  return trial.dateConfirmationStatus === "PENDING_CONFIRMATION";
+}
+
+/**
+ * Marketing — "Approve date changes": trials whose Injection counter-proposal is
+ * awaiting a Marketing decision. Marketing owns the customer target date, so
+ * this is not project-scoped. Only planned/at-risk trials participate.
+ */
+export function belongsToApproveDateChangesSection(viewer: PlateViewer, trial: PlateTrialRecord): boolean {
+  if (viewer.roleCode !== "MARKETING") {
+    return false;
+  }
+
+  if (trial.status !== "PLANNED" && trial.status !== "AT_RISK") {
+    return false;
+  }
+
+  return trial.dateConfirmationStatus === "RESCHEDULE_PROPOSED";
+}
+
+/**
+ * PM — "Returned dates": trials Marketing returned to the PM, on a project where
+ * the viewer is planning or technical PM. The PM coordinates and sets a new
+ * date, which restarts the handshake.
+ */
+export function belongsToReturnedDatesSection(viewer: PlateViewer, trial: PlateTrialRecord): boolean {
+  if (viewer.roleCode !== "PM" || !isViewerProjectPm(viewer, trial)) {
+    return false;
+  }
+
+  if (trial.status !== "PLANNED" && trial.status !== "AT_RISK") {
+    return false;
+  }
+
+  return trial.dateConfirmationStatus === "RETURNED_TO_PM";
 }
 
 /**
@@ -214,6 +278,47 @@ export function belongsToComingUpSection(
   const planned = startOfUtcDay(trial.plannedDate);
 
   return planned.getTime() >= startOfToday.getTime() && planned.getTime() <= windowEnd.getTime();
+}
+
+/**
+ * Trial statuses for which QC uploads a measurement report. Kept as a local
+ * constant (rather than importing from `measurement-report.ts`) so `my-plate.ts`
+ * stays free of value-level dependencies — `measurement-report.ts` already
+ * imports the `TrialStatusDbValue` *type* from here, and a reverse value import
+ * would create a runtime cycle. The two lists are asserted equal in tests.
+ */
+const qcReportEligibleStatuses: ReadonlySet<TrialStatusDbValue> = new Set(["COMPLETED", "PENDING_FOLLOW_UP"]);
+
+/**
+ * "QC: reports to upload": for QC users, recently completed (or pending-follow-up)
+ * trials whose actual date lands within the last `windowDays` days (inclusive of
+ * today). Whether the report is actually *missing* is a data join the server
+ * applies (only trials without a live QC_REPORT are passed in); this pure rule
+ * owns the role + status + recency gate. Trials with no actual date are excluded.
+ */
+export function belongsToQcReportsToUploadSection(
+  viewer: PlateViewer,
+  trial: PlateTrialRecord,
+  now: Date,
+  windowDays = 14
+): boolean {
+  if (viewer.roleCode !== "QC") {
+    return false;
+  }
+
+  if (!qcReportEligibleStatuses.has(trial.status)) {
+    return false;
+  }
+
+  if (trial.actualDate == null) {
+    return false;
+  }
+
+  const startOfToday = startOfUtcDay(now);
+  const windowStart = addUtcDays(startOfToday, -windowDays);
+  const actual = startOfUtcDay(trial.actualDate);
+
+  return actual.getTime() >= windowStart.getTime() && actual.getTime() <= startOfToday.getTime();
 }
 
 /**

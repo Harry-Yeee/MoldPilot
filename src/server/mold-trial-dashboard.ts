@@ -29,6 +29,7 @@ export async function getMoldTrialDashboardData(actorUserId?: string) {
       },
       trialEvents: {
         select: {
+          id: true,
           trialCode: true,
           sequenceNumber: true,
           plannedDate: true,
@@ -39,6 +40,24 @@ export async function getMoldTrialDashboardData(actorUserId?: string) {
           countsAgainstLimit: true
         },
         orderBy: [{ sequenceNumber: "asc" }, { plannedDate: "asc" }]
+      },
+      // Live measurement reports (QC_REPORT filed against a trial event), so the
+      // dashboard can flag completed trials still missing their report.
+      fileAttachments: {
+        where: {
+          entityType: "TRIAL_EVENT",
+          fileType: "QC_REPORT",
+          deletedAt: null
+        },
+        select: {
+          id: true,
+          entityType: true,
+          entityId: true,
+          fileType: true,
+          deletedAt: true,
+          uploadedAt: true,
+          visibility: true
+        }
       },
       trialIssues: {
         select: {
@@ -67,5 +86,21 @@ export async function getMoldTrialDashboardData(actorUserId?: string) {
     orderBy: [{ projectCode: "asc" }]
   });
 
-  return buildMoldTrialDashboard(projects);
+  return buildMoldTrialDashboard(
+    projects.map((project) => ({
+      ...project,
+      // Map QC_REPORT rows into the pure domain shape; uploaderName is irrelevant
+      // to the missing-report count, so a placeholder keeps the query narrow.
+      measurementReports: project.fileAttachments.map((attachment) => ({
+        id: attachment.id,
+        entityType: attachment.entityType,
+        entityId: attachment.entityId,
+        fileType: attachment.fileType,
+        deletedAt: attachment.deletedAt,
+        uploadedAt: attachment.uploadedAt,
+        uploaderName: "",
+        visibility: attachment.visibility
+      }))
+    }))
+  );
 }

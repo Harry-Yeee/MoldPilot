@@ -39,6 +39,160 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-07: KPI Phase-1 Data Layer (Rules Registry, Scoring Engine, Scoreboard)
+
+Context:
+
+The KPI system design (`docs/06-kpi/`) needed its data machinery before the pilot baseline month could start. Owner also wanted admin-editable deadline rules and a staff scoreboard that stays hidden during data gathering.
+
+Tried:
+
+New `KpiRule` + `SystemSetting` tables (hand-authored migration); pure scoring engine (`kpi-scoring.ts`) + event extraction from real records (`kpi-events.ts`); admin Rules tab (hours editable, changes logged, mid-month-rescore warning); admin Scores tab with item-level audit drilldown; `/score` personal page matching the scorecard poster, gated by `scoreboard_enabled` (default off, admins preview); `scripts/run-kpi-snapshot.mjs` and `scripts/simulate-kpi-data.mjs` (persona test data).
+
+Result:
+
+Works after one fix round: ActivityLog `entity_id` is uuid — two call sites passed the setting KEY string (crash on toggle); boolean rules initially rendered nonsense "Due at pending" copy; Admin polluted scorecards because the simulator created issues as admin; some simulated timestamps preceded their anchors; Rules tab headings clipped and behavior names looked editable.
+
+Why:
+
+Event attribution and layout details matter as much as the engine. Non-scored roles must be excluded at the engine level, not hidden in UI.
+
+Decision:
+
+Deadlines are literal hours (weekends count). Rule changes re-score the current month (no versioning yet). ADMIN/GM/VIEWER are never scored. Exclude-over-guess for unreliable event timestamps — the <5-events floor makes undercounting safe. Never pass non-uuid strings as ActivityLog entity ids.
+
+Verification:
+
+tsc clean; 387 domain tests; simulator reproduces personas (zhong 92% hit, wang 75% miss, bill 92%, gong 100%); toggle round-trip logged.
+
+Related Docs:
+
+`docs/06-kpi/kpi-system-design.md` section 9, decision log 2026-07-07 entry, `docs/07-training/monthly-scorecard-example-poster.html` (UI spec for /score).
+
+### 2026-07-05: Trial Date Confirmation Handshake And Trial Calendar
+
+Context:
+
+Owner workflow decision: PM proposes a trial date; Injection must confirm it with a machine or counter-propose; Marketing guards the customer target date on changes; rejections return to the PM. Injection also needed a machine-load view for planning.
+
+Tried:
+
+`TrialDateConfirmationStatus` state machine on TrialEvent (pure domain + five server actions); three new phone task sections (Confirm trial dates / Approve date changes / Returned dates — the Marketing card shows current date, proposed date, customer target, and the day gap); trial-panel badges; then `/calendar` month grid with per-day per-machine load warnings (amber at 3, red at 4+ on one machine), a day detail panel reusing the propose-change flow, and a 7-day phone agenda shared with the mobile dashboard.
+
+Result:
+
+Implemented. All PM date-set call sites reset the handshake (create, first T0, add trial, missed-record, auto-missed resolve, re-date).
+
+Why:
+
+Dates only become trustworthy when the machine owner confirms them, and the calendar is only useful over confirmed dates. The workflow must never block reality — results stay recordable in any confirmation state.
+
+Decision:
+
+Approval writes `proposed_date` into `planned_date` in the same transaction so the auto-missed cutoff follows automatically. No drag-and-drop on the calendar; phones get an agenda, never a month grid.
+
+Verification:
+
+360 domain tests at the time; full walkthrough bill to wang to yvonne to bill to wang.
+
+Related Docs:
+
+`docs/05-feature-prompts/06-trial-date-confirmation.md`, `07-trial-calendar.md`.
+
+### 2026-07-04: Attachment Infrastructure, Issue Photos, Lightbox, Extended File Types, QC Reports
+
+Context:
+
+Phase 1 needed evidence: photos on issues, customer-facing QC measurement reports, and industry file types (CAD/video) with IP-safe visibility rules.
+
+Tried:
+
+Generic attachment layer (disk storage under `MOLDPILOT_STORAGE_DIR`, soft delete, per-type allowlists and size caps, streaming download route with visibility enforcement); photos riding the issue form with client-side canvas downscale; thumbnail grids plus one shared Lightbox; CAD (STEP/IGS/DWG/DXF), video (Range streaming, inline player), ppt/zip; measurement-report workflow (amber Missing until QC uploads; Marketing downloads customer-safe files named `project_trial_measurement-report.ext`; dashboard missing-report count).
+
+Result:
+
+Works. Two findings changed course: Next.js server actions default to a 1 MB body limit — uploads over ~1 MB were silently doomed until `bodySizeLimit: "320mb"`; and browsers send generic MIME types for CAD, so those validate by extension.
+
+Why:
+
+A defect without a photo is a story; with a photo it is evidence. Customer Safe must never be a default — native CAD leaking to a customer is the worst incident the file system could cause.
+
+Decision:
+
+Visibility defaults by type (CAD/video default Technical); photo failures never roll back the issue they ride on; measurement reports get their fixed filename at upload time.
+
+Verification:
+
+256 to 300 domain tests across the three builds; manual walkthroughs including Marketing receiving 403 on Technical files.
+
+Related Docs:
+
+`docs/05-feature-prompts/01-file-attachments.md`, `03-trial-photos.md`, `04-qc-measurement-report.md`; schema-v0 FileAttachment section.
+
+### 2026-07-04: Environment Lessons — Turbopack Cache, Offline Store, Sync-Conflict Duplicates
+
+Context:
+
+Three environment incidents cost real debugging time and will recur if forgotten.
+
+Tried:
+
+Investigated a forever-hanging `/me` compile, repeated Prisma "Unknown argument" runtime errors, and mystery files named like `client 2.js`.
+
+Result:
+
+(1) The Turbopack persistent cache had bloated to 763 MB with 30-50 second compactions, largely because the 1.1 GB, 25k-file `.moldpilot-offline` store lived inside the watched project root. Fixed by deleting `.next` and relocating the offline cache to `~/.moldpilot-offline` (scripts now default there and refuse to write inside the repo). (2) The dev server holds the old generated Prisma client after migrations — always restart `pnpm dev` after `prisma generate`. (3) Files with a ` 2.` suffix appear when the Cowork sandbox and the Mac write the same path concurrently — the sync layer saves conflict copies and the canonical file may be stale; fix by stopping the dev server, deleting the affected generated directory, and regenerating on the Mac.
+
+Why:
+
+Build tooling treats the project root as its world; anything huge or externally mutated inside it becomes tooling pain.
+
+Decision:
+
+Keep multi-gigabyte artifacts out of the project root. Treat restart-after-generate as a rule. Treat any ` 2.` suffixed file as a sync-conflict smell worth investigating immediately.
+
+Verification:
+
+`/me` compiles in seconds after the fix; the KPI tabs loaded after clean regeneration.
+
+Related Docs:
+
+README offline dependency cache section.
+
+### 2026-07-05: Trial Issue Owner Labels And Dashboard Action Group Polish
+
+Context:
+
+The trial issue owner dropdown was showing display name, Chinese name, and username, which made normal issue assignment harder to scan. On the dashboard, Admin and My tasks appeared as separate header rows for Admin users instead of a single action group.
+
+Tried:
+
+Added an issue-specific owner label helper that renders active users as `Role / Display Name / Chinese Name` and wired it into the Add Trial Issue form plus the Edit Trial Issue modal. Grouped the dashboard Admin and My tasks buttons in one flex nav action area without changing permission visibility, login behavior, or server-side workflow rules.
+
+Result:
+
+Implemented as UI polish only.
+
+Why:
+
+Issue assignment should quickly show who belongs to which role/department while keeping usernames out of normal labels. Header actions should feel like one compact nav cluster when both actions are available.
+
+Decision:
+
+Keep the existing bilingual user option helper for Admin/client/PM selectors that still need username clarity, and use the new owner-specific helper only for TrialIssue ownership selectors.
+
+Verification:
+
+- `CI=true node --test tests/domain/*.test.ts` passed.
+- `pnpm exec prisma validate` passed.
+- `pnpm typecheck` passed.
+- `pnpm pilot:check` passed after rerunning outside the sandbox for localhost/PostgreSQL access.
+
+Related Docs:
+
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/02-schema/permissions-matrix.md`
+
 ### 2026-07-03: Bilingual UI Foundation
 
 Context:

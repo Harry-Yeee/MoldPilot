@@ -24,7 +24,7 @@ When PM (or anyone reporting an issue) files or edits an issue on the desktop pr
 2. **Desktop issue form**: add `ImageCaptureField` to the existing issue create/edit UI on the project detail page. Submission = existing create/update-issue server action + attachment uploads (extend the action to accept files; keep issue creation transactional — if issue creation fails, no orphan files; if a photo upload fails, the issue still saves and the form reports which photos to retry).
 3. **Display**:
    - Issue rows (project detail + /me "My open issues") show a small photo-count chip when photos exist.
-   - Issue detail/expanded view: thumbnail grid (lazy-loaded `<img>` from the download route, inline disposition); tap/click opens full size in a new tab. No custom lightbox.
+   - Issue detail/expanded view: thumbnail grid (lazy-loaded `<img>` from the download route, inline disposition); tap/click opens the shared `Lightbox` component (`src/components/attachments/Lightbox.tsx`) — issue galleries pass their own image array.
 4. **Permissions**: reuse `attachment.upload` — anyone who can create/edit an issue and has upload permission can attach photos. Deleting a photo follows attachment delete rules.
 
 ## UI quality bar

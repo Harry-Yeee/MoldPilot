@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { measurementReportState } from "@/domain/mold-trial/measurement-report";
+import type { TrialStatusDbValue } from "@/domain/mold-trial/my-plate";
 import { compareInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
 import { evaluateTrialLimit } from "@/domain/mold-trial/trial-limit";
 import { prisma } from "@/lib/prisma";
@@ -45,6 +47,14 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
       },
       trialEvents: {
+        include: {
+          dateConfirmedBy: {
+            select: {
+              displayName: true,
+              username: true
+            }
+          }
+        },
         orderBy: [{ sequenceNumber: "asc" }, { plannedDate: "asc" }]
       },
       processValues: {
@@ -162,7 +172,37 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     notFound();
   }
 
-  const [activityLogs, activeInjectionMachines] = await Promise.all([
+  const issueIds = project.trialIssues.map((issue) => issue.id);
+  const trialEventIds = project.trialEvents.map((trial) => trial.id);
+
+  // Ids of every QC_REPORT ever filed against this project's trial events
+  // (including soft-deleted ones), so replace/upload entries surface in the
+  // activity timeline. Fetched before the main batch since the activity-log
+  // query needs the id list up front.
+  const measurementReportAttachmentIds =
+    trialEventIds.length === 0
+      ? []
+      : (
+          await prisma.fileAttachment.findMany({
+            where: {
+              moldTrialProjectId: project.id,
+              entityType: "TRIAL_EVENT",
+              entityId: { in: trialEventIds },
+              fileType: "QC_REPORT"
+            },
+            select: { id: true }
+          })
+        ).map((attachment) => attachment.id);
+  const measurementReportIdsForActivity = measurementReportAttachmentIds;
+
+  const [
+    activityLogs,
+    activeInjectionMachines,
+    projectAttachments,
+    issuePhotoRows,
+    measurementReportRows,
+    customerSafeRows
+  ] = await Promise.all([
     prisma.activityLog.findMany({
     where: {
       OR: [
@@ -175,7 +215,15 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
           entityType: "TrialLimitAdjustment",
           entityId: { in: project.trialLimitAdjustments.map((adjustment) => adjustment.id) }
         },
-        { entityType: "FileAttachment", entityId: { in: project.fileAttachments.map((attachment) => attachment.id) } }
+        {
+          entityType: "FileAttachment",
+          entityId: {
+            in: [
+              ...project.fileAttachments.map((attachment) => attachment.id),
+              ...measurementReportIdsForActivity
+            ]
+          }
+        }
       ]
     },
     include: {
@@ -189,8 +237,99 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     }),
     prisma.injectionMachine.findMany({
       where: { active: true }
+    }),
+    prisma.fileAttachment.findMany({
+      where: {
+        moldTrialProjectId: project.id,
+        entityType: "MOLD_TRIAL_PROJECT",
+        deletedAt: null
+      },
+      include: {
+        uploadedBy: {
+          select: { displayName: true, username: true }
+        }
+      },
+      orderBy: [{ uploadedAt: "desc" }]
+    }),
+    // TRIAL_PHOTO attachments filed against this project's issues, oldest first
+    // so galleries read in capture order. Grouped by issue id below.
+    issueIds.length === 0
+      ? Promise.resolve([])
+      : prisma.fileAttachment.findMany({
+          where: {
+            moldTrialProjectId: project.id,
+            entityType: "TRIAL_ISSUE",
+            entityId: { in: issueIds },
+            fileType: "TRIAL_PHOTO",
+            deletedAt: null
+          },
+          include: {
+            uploadedBy: {
+              select: { displayName: true, username: true }
+            }
+          },
+          orderBy: [{ uploadedAt: "asc" }]
+        }),
+    // Live QC measurement reports filed against this project's trial events.
+    // Newest-wins selection happens in the pure domain layer per trial.
+    trialEventIds.length === 0
+      ? Promise.resolve([])
+      : prisma.fileAttachment.findMany({
+          where: {
+            moldTrialProjectId: project.id,
+            entityType: "TRIAL_EVENT",
+            entityId: { in: trialEventIds },
+            fileType: "QC_REPORT",
+            deletedAt: null
+          },
+          include: {
+            uploadedBy: { select: { displayName: true, username: true } }
+          },
+          orderBy: [{ uploadedAt: "desc" }]
+        }),
+    // Every non-deleted CUSTOMER_SAFE attachment on the project, for the
+    // Marketing "Customer files" section (measurement reports surfaced first).
+    prisma.fileAttachment.findMany({
+      where: {
+        moldTrialProjectId: project.id,
+        visibility: "CUSTOMER_SAFE",
+        deletedAt: null
+      },
+      include: {
+        uploadedBy: { select: { displayName: true, username: true } }
+      },
+      orderBy: [{ uploadedAt: "desc" }]
     })
   ]);
+
+  // Group issue photos by issue id (entityId) for O(1) per-issue lookup in the page.
+  const issuePhotosByIssueId = new Map<string, typeof issuePhotoRows>();
+  for (const photo of issuePhotoRows) {
+    const list = issuePhotosByIssueId.get(photo.entityId) ?? [];
+    list.push(photo);
+    issuePhotosByIssueId.set(photo.entityId, list);
+  }
+
+  // Measurement-report state per trial event, resolved through the pure domain
+  // rule (newest non-deleted QC_REPORT wins). Only eligible statuses are ever
+  // anything other than NOT_REQUIRED.
+  const reportAttachments = measurementReportRows.map((row) => ({
+    id: row.id,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    fileType: row.fileType,
+    deletedAt: row.deletedAt,
+    uploadedAt: row.uploadedAt,
+    uploaderName: row.uploadedBy.displayName,
+    visibility: row.visibility
+  }));
+  const measurementReportByTrialId = new Map<string, ReturnType<typeof measurementReportState>>();
+  for (const trial of project.trialEvents) {
+    measurementReportByTrialId.set(
+      trial.id,
+      measurementReportState({ status: trial.status as TrialStatusDbValue }, trial.id, reportAttachments)
+    );
+  }
 
   const limit = evaluateTrialLimit({
     baseTrialLimit: project.baseTrialLimit,
@@ -216,6 +355,10 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     project,
     activityLogs,
     activeInjectionMachines: [...activeInjectionMachines].sort(compareInjectionMachineNo),
+    projectAttachments,
+    issuePhotosByIssueId,
+    measurementReportByTrialId,
+    customerSafeAttachments: customerSafeRows,
     limit
   };
 }

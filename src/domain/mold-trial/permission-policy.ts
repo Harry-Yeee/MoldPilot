@@ -26,6 +26,24 @@ export const permissionDefinitions = [
     description: "Add or change later planned trial dates with required reason."
   },
   {
+    code: "trial.date.confirm",
+    name: "Confirm trial date",
+    processGroup: "Trial Scheduling",
+    description: "Confirm a planned trial date with an injection machine."
+  },
+  {
+    code: "trial.date.propose_change",
+    name: "Propose trial date change",
+    processGroup: "Trial Scheduling",
+    description: "Counter-propose a different planned trial date with a reason."
+  },
+  {
+    code: "trial.date.approve_change",
+    name: "Approve trial date change",
+    processGroup: "Trial Scheduling",
+    description: "Approve or reject a proposed trial date change against the customer target."
+  },
+  {
     code: "trial.missed.record",
     name: "Record missed trial",
     processGroup: "Trial Execution",
@@ -104,6 +122,42 @@ export const permissionDefinitions = [
     description: "Close or cancel mold trial project with reason."
   },
   {
+    code: "attachment.upload",
+    name: "Upload attachments",
+    processGroup: "Attachments",
+    description: "Upload trial photos, reports, and other project files."
+  },
+  {
+    code: "attachment.delete",
+    name: "Delete attachments",
+    processGroup: "Attachments",
+    description: "Soft-delete attachments (uploader or admin only, enforced server-side)."
+  },
+  {
+    code: "attachment.download.internal",
+    name: "Download internal attachments",
+    processGroup: "Attachments",
+    description: "Download internal, technical, and restricted attachments."
+  },
+  {
+    code: "attachment.download.customer_safe",
+    name: "Download customer-safe attachments",
+    processGroup: "Attachments",
+    description: "Download customer-safe attachments intended for client sharing."
+  },
+  {
+    code: "qc.measurement_report.upload",
+    name: "Upload measurement report",
+    processGroup: "QC Reports",
+    description: "Upload the finished QC measurement report for a completed trial."
+  },
+  {
+    code: "qc.measurement_report.replace",
+    name: "Replace measurement report",
+    processGroup: "QC Reports",
+    description: "Replace a completed trial's measurement report, soft-deleting the previous file."
+  },
+  {
     code: "admin.manage_users",
     name: "Manage users",
     processGroup: "Administration",
@@ -132,6 +186,18 @@ export const permissionDefinitions = [
     name: "Manage report templates",
     processGroup: "Administration",
     description: "Manage fixed process-sheet and report template assignments."
+  },
+  {
+    code: "kpi.rules.manage",
+    name: "Manage KPI rules",
+    processGroup: "KPI",
+    description: "Edit the KPI habit-rule registry (deadlines in hours, active toggles)."
+  },
+  {
+    code: "kpi.scores.view_all",
+    name: "View all KPI scores",
+    processGroup: "KPI",
+    description: "View every user's monthly scorecard and toggle staff scoreboard visibility."
   }
 ] as const;
 
@@ -164,7 +230,7 @@ export const roleCodeByDbRoleCode = Object.fromEntries(
 ) as Record<string, RoleCode>;
 
 export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCode[]> = {
-  GM: ["trial.issue.create", "trial.issue.close"],
+  GM: ["trial.issue.create", "trial.issue.close", "attachment.download.internal", "kpi.scores.view_all"],
   PM: [
     "project.intake.create",
     "project.basic.edit",
@@ -182,20 +248,43 @@ export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCod
     "trial.limit.set_custom",
     "trial.design_change.report",
     "trial.design_change.approve_extra_trial",
-    "project.close"
+    "project.close",
+    "attachment.upload",
+    "attachment.download.internal"
   ],
-  MARKETING: ["project.intake.create", "trial.issue.create", "trial.process_sheet.export_pdf", "trial.design_change.report"],
+  MARKETING: [
+    "project.intake.create",
+    "trial.date.approve_change",
+    "trial.issue.create",
+    "trial.process_sheet.export_pdf",
+    "trial.design_change.report",
+    "attachment.upload",
+    "attachment.download.customer_safe"
+  ],
   INJECTION: [
     "trial.schedule.reschedule",
+    "trial.date.confirm",
+    "trial.date.propose_change",
     "trial.missed.record",
     "trial.record.completed",
     "trial.issue.create",
     "trial.issue.edit_root_cause",
-    "trial.process_sheet.edit"
+    "trial.process_sheet.edit",
+    "attachment.upload",
+    "attachment.download.internal"
   ],
-  ASSEMBLY: ["trial.issue.assembly_acknowledge"],
-  QC: ["trial.missed.record", "trial.record.completed", "trial.issue.create", "trial.issue.qc_verify"],
-  VIEWER: [],
+  ASSEMBLY: ["trial.issue.assembly_acknowledge", "attachment.upload", "attachment.download.internal"],
+  QC: [
+    "trial.missed.record",
+    "trial.record.completed",
+    "trial.issue.create",
+    "trial.issue.qc_verify",
+    "attachment.upload",
+    "attachment.download.internal",
+    "qc.measurement_report.upload",
+    "qc.measurement_report.replace"
+  ],
+  VIEWER: ["attachment.download.internal"],
   ADMIN: permissionDefinitions.map((permission) => permission.code)
 };
 

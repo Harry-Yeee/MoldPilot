@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validateSelectedCustomerForProject } from "@/domain/mold-trial/customers";
 import { validateAutoMissedResolution, type AutoMissedResolutionMode } from "@/domain/mold-trial/auto-missed";
+import { clearedProposalFields } from "@/domain/mold-trial/date-confirmation";
 import { selectCurrentPlannedTrial } from "@/domain/mold-trial/current-trial";
 import { createInternalTrackingCode, normalizeClientProjectRef } from "@/domain/mold-trial/identifiers";
 import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
@@ -72,6 +73,7 @@ import {
 } from "@/server/mold-trial-codecs";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { getCurrentUser } from "@/server/current-user";
+import { storeIssuePhotos } from "@/server/issue-photo-storage";
 import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-trial-limit-service";
 import { requirePermission, requirePermissions } from "@/server/permissions";
 import { createSimplePdfBuffer } from "@/server/simple-pdf";
@@ -359,6 +361,24 @@ function values(formData: FormData, key: string): string[] {
 
 function indexedValues(formData: FormData, key: string): string[] {
   return formData.getAll(key).map((raw) => (typeof raw === "string" ? raw.trim() : ""));
+}
+
+/** All non-empty File entries submitted under `key` (e.g. issue photos). */
+function fileValues(formData: FormData, key: string): File[] {
+  return formData.getAll(key).filter((raw): raw is File => raw instanceof File && raw.size > 0);
+}
+
+/**
+ * Build a redirect message for an issue that saved but had one or more photos
+ * fail to attach, naming the failed files. Returns null when nothing failed so
+ * the caller keeps the plain success message.
+ */
+function photoWarningSuffix(failures: readonly { fileName: string }[]): string | null {
+  if (failures.length === 0) {
+    return null;
+  }
+  const names = failures.map((failure) => failure.fileName).join(", ");
+  return `${failures.length} photo(s) could not be attached: ${names}.`;
 }
 
 function parseMoldTrialPartRows(formData: FormData): MoldTrialPartInput[] {
@@ -1065,6 +1085,7 @@ export async function createMoldTrialProject(formData: FormData) {
             sequenceNumber: 1,
             plannedDate: firstPlannedTrialDate,
             status: "PLANNED",
+            dateConfirmationStatus: "PENDING_CONFIRMATION",
             countsAgainstLimit: false,
             createdById: actor.id
           }
@@ -1350,6 +1371,7 @@ export async function setFirstPlannedTrialDate(formData: FormData) {
           sequenceNumber,
           plannedDate,
           status: "PLANNED",
+          dateConfirmationStatus: "PENDING_CONFIRMATION",
           countsAgainstLimit: false,
           createdById: actor.id
         }
@@ -1485,7 +1507,12 @@ export async function recordMissedTrial(formData: FormData) {
           planReasonCategory: "OTHER",
           planReasonDetail: `Replanned after missed trial: ${value(formData, "explanation")}`,
           sourceArea: "PLANNING",
-          requestedById: actor.id
+          requestedById: actor.id,
+          // PM re-dated the trial: the confirmation handshake restarts.
+          dateConfirmationStatus: "PENDING_CONFIRMATION",
+          dateConfirmedById: null,
+          dateConfirmedAt: null,
+          ...clearedProposalFields()
         }
       });
 
@@ -1620,7 +1647,12 @@ export async function resolveAutoMissedTrial(formData: FormData) {
             requestedById: actor.id,
             autoMissedResolvedAt: new Date(),
             autoMissedResolvedById: actor.id,
-            autoMissedResolution: "MISSED_CONFIRMED"
+            autoMissedResolution: "MISSED_CONFIRMED",
+            // PM set a new planned date: the confirmation handshake restarts.
+            dateConfirmationStatus: "PENDING_CONFIRMATION",
+            dateConfirmedById: null,
+            dateConfirmedAt: null,
+            ...clearedProposalFields()
           }
         });
 
@@ -2471,6 +2503,7 @@ export async function addNewPlannedTrial(formData: FormData) {
           sequenceNumber: nextSequenceNumber,
           plannedDate,
           status: "PLANNED",
+          dateConfirmationStatus: "PENDING_CONFIRMATION",
           planReasonCategory,
           planReasonDetail,
           sourceArea,
@@ -2585,7 +2618,11 @@ export async function createTrialIssue(formData: FormData) {
     const severity = toDbEnum(severityRaw, severityValues, "issue severity");
     const status = toDbEnum(statusRaw, issueCreateStatusValues, "issue status for creation", "OPEN");
 
-    await prisma.$transaction(async (tx) => {
+    // Photos ride along in the same submission; capture them before the issue
+    // transaction so we can attach them right after it commits.
+    const photoFiles = fileValues(formData, "photos");
+
+    const createdIssue = await prisma.$transaction(async (tx) => {
       if (foundAtTrialEventId != null) {
         const foundAtTrial = await tx.trialEvent.findFirst({
           where: {
@@ -2635,11 +2672,31 @@ export async function createTrialIssue(formData: FormData) {
           affectedPartId: issue.affectedPartId
         }
       });
+
+      return issue;
     });
+
+    // Store photos only after the issue commits: a failed/invalid photo never
+    // rolls back the saved issue; the failed filenames surface as a warning.
+    const photoResult =
+      photoFiles.length === 0
+        ? { storedCount: 0, failures: [] }
+        : await storeIssuePhotos({
+            actorId: actor.id,
+            projectId: project.id,
+            projectCode: project.projectCode,
+            issueId: createdIssue.id,
+            files: photoFiles
+          });
 
     revalidatePath("/");
     revalidatePath(fallback);
-    redirectWithMessage(fallback, "success", "Trial issue created.");
+    const warning = photoWarningSuffix(photoResult.failures);
+    redirectWithMessage(
+      fallback,
+      warning == null ? "success" : "error",
+      warning == null ? "Trial issue created." : `Trial issue created. ${warning}`
+    );
   } catch (error) {
     if (isRedirectSignal(error)) {
       throw error;
@@ -2739,6 +2796,10 @@ export async function editTrialIssue(formData: FormData) {
       redirectWithMessage(fallback, "error", firstValidationMessage(validation));
     }
 
+    // New photos ride along in the same submission; existing photos are managed
+    // separately (delete via the attachment list), so an edit only ever adds.
+    const photoFiles = fileValues(formData, "photos");
+
     await prisma.$transaction(async (tx) => {
       const updated = await tx.trialIssue.update({
         where: { id: issue.id },
@@ -2793,9 +2854,25 @@ export async function editTrialIssue(formData: FormData) {
       });
     });
 
+    const photoResult =
+      photoFiles.length === 0
+        ? { storedCount: 0, failures: [] }
+        : await storeIssuePhotos({
+            actorId: actor.id,
+            projectId: issue.moldTrialProjectId,
+            projectCode,
+            issueId: issue.id,
+            files: photoFiles
+          });
+
     revalidatePath("/");
     revalidatePath(fallback);
-    redirectWithMessage(fallback, "success", "Trial issue edited.");
+    const warning = photoWarningSuffix(photoResult.failures);
+    redirectWithMessage(
+      fallback,
+      warning == null ? "success" : "error",
+      warning == null ? "Trial issue edited." : `Trial issue edited. ${warning}`
+    );
   } catch (error) {
     if (isRedirectSignal(error)) {
       throw error;

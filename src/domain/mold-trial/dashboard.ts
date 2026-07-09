@@ -1,7 +1,13 @@
 import { evaluateTrialLimit } from "./trial-limit.ts";
 import { formatPartSummary } from "./parts.ts";
 import { formatMoldWorkingIdentifier, formatOptionalIdentifier } from "./identifiers.ts";
+import {
+  canUploadMeasurementReport,
+  newestMeasurementReport,
+  type MeasurementReportAttachment
+} from "./measurement-report.ts";
 import { trialStageLabel } from "./trial-panel.ts";
+import type { TrialStatusDbValue } from "./my-plate.ts";
 import type { DesignChangeEvent, TrialEvent, TrialLimitState } from "./types.ts";
 
 type DatabaseProjectStatus =
@@ -82,6 +88,8 @@ export type MoldTrialDashboardProject = {
     active: boolean;
   }>;
   trialEvents: Array<{
+    /** Trial event id, used to match measurement-report attachments to the trial. */
+    id?: string;
     trialCode: DatabaseTrialCode;
     sequenceNumber: number;
     plannedDate: DateValue;
@@ -91,6 +99,13 @@ export type MoldTrialDashboardProject = {
     outcomeDisposition: DatabaseTrialOutcomeDisposition | null;
     countsAgainstLimit: boolean;
   }>;
+  /**
+   * Non-deleted QC_REPORT attachments filed against this project's trial events
+   * (entityType TRIAL_EVENT), used to flag completed trials still missing their
+   * measurement report. Optional so callers/tests that do not care about report
+   * tracking can omit it (treated as "no reports uploaded").
+   */
+  measurementReports?: MeasurementReportAttachment[];
   trialIssues: Array<{
     severity: DatabaseSeverity;
     status: DatabaseIssueStatus;
@@ -144,6 +159,7 @@ export type MoldTrialDashboardSummary = {
   overLimitCount: number;
   openCriticalIssueCount: number;
   pendingFollowUpCount: number;
+  completedTrialsMissingReportCount: number;
 };
 
 export type MoldTrialDashboardData = {
@@ -359,7 +375,31 @@ export function buildMoldTrialDashboard(projects: readonly MoldTrialDashboardPro
               trial.outcomeDisposition === "PENDING_CUSTOMER_FEEDBACK"
           ).length,
         0
+      ),
+      completedTrialsMissingReportCount: projects.reduce(
+        (count, project) => count + countCompletedTrialsMissingReport(project),
+        0
       )
     }
   };
+}
+
+/**
+ * Completed (or pending-follow-up) trials on a project that still have no
+ * non-deleted measurement report. A trial without an id can never be matched to
+ * a report, so it is conservatively counted as missing. Trials in other statuses
+ * do not require a report and are ignored.
+ */
+function countCompletedTrialsMissingReport(project: MoldTrialDashboardProject): number {
+  const reports = project.measurementReports ?? [];
+
+  return project.trialEvents.filter((trial) => {
+    if (!canUploadMeasurementReport(trial.status as TrialStatusDbValue)) {
+      return false;
+    }
+    if (trial.id == null) {
+      return true;
+    }
+    return newestMeasurementReport(reports, trial.id) == null;
+  }).length;
 }

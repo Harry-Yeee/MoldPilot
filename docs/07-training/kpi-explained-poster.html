@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>你的贡献如何被计算 · How your contribution is measured</title>
+<style>
+  @page { size: A3 landscape; margin: 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 420mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 8mm 10mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1.2mm solid #1d4f91; padding-bottom: 3.5mm; margin-bottom: 4.5mm; }
+  .header h1 { font-size: 27pt; color: #1d4f91; }
+  .header .sub { font-size: 11pt; color: #536579; margin-top: 1.5mm; }
+  .header .right { text-align: right; font-size: 11pt; color: #405367; line-height: 1.6; }
+  .header .right b { color: #a52626; }
+  .cols { display: grid; grid-template-columns: 1.25fr 1fr; gap: 5mm; margin-bottom: 4.5mm; }
+  .panel { border: 0.4mm solid #d6dde6; border-radius: 3mm; overflow: hidden; background: #fbfcfd; }
+  .panel-head { background: #1d4f91; color: white; padding: 2.8mm 4mm; }
+  .panel-head .zh { font-size: 14.5pt; font-weight: 700; }
+  .panel-head .en { font-size: 8.5pt; opacity: 0.9; margin-left: 3mm; }
+  .panel-body { padding: 3mm 4mm; }
+  .rolerow { display: flex; gap: 3.5mm; padding: 2.2mm 0; border-bottom: 0.3mm solid #e5e9ef; align-items: flex-start; }
+  .rolerow:last-child { border-bottom: none; }
+  .rolechip { flex-shrink: 0; width: 30mm; font-size: 9.5pt; font-weight: 700; padding: 1.2mm 2.5mm; border-radius: 2mm; border: 0.4mm solid; text-align: center; }
+  .r-pm { color: #0c447c; background: #e6f1fb; border-color: #85b7eb; }
+  .r-inj { color: #633806; background: #faeeda; border-color: #ef9f27; }
+  .r-asm { color: #27500a; background: #eaf3de; border-color: #97c459; }
+  .r-des { color: #085041; background: #e1f5ee; border-color: #5dcaa5; }
+  .r-all { color: #444441; background: #f1efe8; border-color: #b4b2a9; }
+  .rolerow .txt { font-size: 10pt; line-height: 1.5; }
+  .clock { color: #a52626; font-weight: 700; }
+  .barlogic { margin-top: 2.5mm; background: #eef5ff; border: 0.4mm solid #85b7eb; border-radius: 2.5mm; padding: 2.8mm 4mm; }
+  .barlogic .line { font-size: 10.5pt; line-height: 1.7; }
+  .barlogic b { color: #0c447c; }
+  .pts { display: grid; gap: 2.4mm; }
+  .ptrow { display: flex; justify-content: space-between; align-items: center; background: white; border: 0.4mm solid #e5e9ef; border-radius: 2.5mm; padding: 2.4mm 3.5mm; }
+  .ptrow .zh { font-size: 11pt; font-weight: 600; }
+  .ptrow .en { font-size: 7.5pt; color: #8a97a6; display: block; margin-top: 0.4mm; font-weight: 400; }
+  .ptrow .val { font-size: 14pt; font-weight: 800; color: #0f6e56; white-space: nowrap; margin-left: 4mm; }
+  .ptrow.gate .val { color: #a52626; }
+  .money { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4mm; margin-bottom: 4.5mm; }
+  .pool { border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3mm 3.5mm; background: white; text-align: center; }
+  .pool .amt { font-size: 17pt; font-weight: 800; color: #1d4f91; }
+  .pool .zh { font-size: 10.5pt; font-weight: 700; margin-top: 1mm; }
+  .pool .note { font-size: 8pt; color: #536579; margin-top: 1mm; line-height: 1.45; }
+  .bottom { display: grid; grid-template-columns: 1.15fr 1fr; gap: 5mm; }
+  .guarantees { border: 0.6mm solid #1d4f91; border-radius: 3mm; background: #eef5ff; padding: 3mm 4.5mm; }
+  .guarantees .t { font-size: 12.5pt; font-weight: 800; color: #0c447c; margin-bottom: 1.8mm; }
+  .guarantees .g { font-size: 10pt; line-height: 1.75; }
+  .guarantees .g b { color: #0f6e56; }
+  .refbox { border: 0.5mm solid #7f77dd; border-radius: 3mm; background: #eeedfe; padding: 3mm 4.5mm; }
+  .refbox .t { font-size: 12.5pt; font-weight: 800; color: #3c3489; margin-bottom: 1.8mm; }
+  .refbox .g { font-size: 10pt; line-height: 1.75; color: #26215c; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>你的贡献如何被计算</h1>
+    <div class="sub">How the system measures your contribution — MoldPilot 达标线 + 经验库积分 · the monthly bar + the points economy</div>
+  </div>
+  <div class="right">
+    只考核你能控制的事：<b>按时响应、数据真实</b><br>
+    从不考核你控制不了的事：试模成败、问题多少<br>
+    We measure what you control — never luck.
+  </div>
+</div>
+
+<div class="cols">
+  <div class="panel">
+    <div class="panel-head"><span class="zh">① 每月达标线</span><span class="en">The monthly bar — what counts for your role</span></div>
+    <div class="panel-body">
+      <div class="rolerow"><span class="rolechip r-pm">PM ×2 + 助理</span>
+        <span class="txt">未试模 <span class="clock">1天内</span>填写原因 · 退回日期 <span class="clock">1天内</span>重排 · 试模结果 <span class="clock">1天内</span>录入 · 未通过必登记问题</span></div>
+      <div class="rolerow"><span class="rolechip r-inj">注塑组长</span>
+        <span class="txt"><span class="clock">1天内</span>确认试模日期 + 机台（冲突则说明原因提议新日期）· 完成试模录入工艺参数</span></div>
+      <div class="rolerow"><span class="rolechip r-asm">装配组长 ×2</span>
+        <span class="txt"><span class="clock">1天内</span>确认整改 + 预计完成日 · 下次试模前完成自检 · 预计日期兑现</span></div>
+      <div class="rolerow"><span class="rolechip r-des">设计组长</span>
+        <span class="txt"><span class="clock">2天内</span>完成设计变更修订并上传图纸 · 设计类问题由设计组认领解决</span></div>
+      <div class="rolerow"><span class="rolechip r-all">所有人</span>
+        <span class="txt"><span class="clock">2天内</span>认领本部门待领问题 · 缺陷必须附照片</span></div>
+      <div class="barlogic">
+        <div class="line"><b>按时完成率 ≥ 85% = 达标 → ¥400。</b>15 件事做好 13 件就够——不要求完美，要求习惯。</div>
+        <div class="line">当月适用事项<b>不足 5 件：视为达标</b>——安静的月份不吃亏。未达标：<b>没有处罚</b>，只是拿不到当月达标奖。</div>
+        <div class="line"><b>组长的达标 = 全组数据完整。</b>组员做了但没录入 = 没做。教会全组用系统，就是组长的赢法。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="zh">② 积分怎么算</span><span class="en">Points — the mistake economy</span></div>
+    <div class="panel-body pts">
+      <div class="ptrow"><span><span class="zh">解决问题按严重度计分</span><span class="en">severity weights</span></span><span class="val">低1 · 中2 · 高3 · 严重5</span></div>
+      <div class="ptrow gate"><span><span class="zh">验证后才计分——下次试模就是裁判</span><span class="en">verified-only: the next trial is the judge</span></span><span class="val">未验证 = 0</span></div>
+      <div class="ptrow"><span><span class="zh">本周焦点（周五投票选出）修复</span><span class="en">Hot-3 fixes count double</span></span><span class="val">×2</span></div>
+      <div class="ptrow"><span><span class="zh">解法写入经验库（署名）</span><span class="en">library entry = prevention credit</span></span><span class="val">= 3个高分修复</span></div>
+      <div class="ptrow gate"><span><span class="zh">同模具 90 天内复发 → 记入耐久率</span><span class="en">90-day durability — real fixes last</span></span><span class="val">功劳不收回</span></div>
+      <div class="ptrow gate"><span><span class="zh">自己创建、自己认领 → 自动标记复核</span><span class="en">self-created + self-claimed = flagged</span></span><span class="val">防刷分</span></div>
+      <div class="ptrow"><span><span class="zh">第一阶段发钱看达标线；积分用于最佳修复评选与第二阶段班组奖励</span><span class="en">phase 1 pays the bar; points power phase 2</span></span><span class="val">先习惯</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="money">
+  <div class="pool"><div class="amt">¥400</div><div class="zh">达标奖 · 每人每月</div><div class="note">7 位组长/PM，达标即得，互不竞争——帮同事永远不亏</div></div>
+  <div class="pool"><div class="amt">¥250</div><div class="zh">裁判津贴</div><div class="note">质检部长 + 市场部长，服务达标即得</div></div>
+  <div class="pool"><div class="amt">¥1000</div><div class="zh">部门奖</div><div class="note">对比自己前三月进步最大的部门，用于全组聚餐——组长替全组赢</div></div>
+  <div class="pool"><div class="amt">¥500</div><div class="zh">当月最佳修复</div><div class="note">3 个提名，照片 + 故事，例会评选</div></div>
+  <div class="pool"><div class="amt">滚存</div><div class="zh">季度大奖池</div><div class="note">当月未发完的奖金滚入季度池——持续达标者的大红包</div></div>
+</div>
+
+<div class="bottom">
+  <div class="guarantees">
+    <div class="t">白纸黑字的底线 · The floor rules</div>
+    <div class="g"><b>✓</b> 如实填写原因，永不追责 — honest data is never punished
+      <br><b>✓</b> 每个分数都能点开查证，任何人可查 — every number is auditable by anyone
+      <br><b>✓</b> 没有自动处罚，最终由人裁决 — no automatic discipline; humans decide
+      <br><b>✓</b> 老板同一套规则：否决必须书面写明理由 — the CEO plays by the same logged rules</div>
+  </div>
+  <div class="refbox">
+    <div class="t">裁判条款 · The referee clause</div>
+    <div class="g">质检与市场部是本制度的<b>裁判</b>：只考核<b>响应速度与记录完整</b>（报告 ≤2天 · 日期审批 ≤1天），<b>从不考核结论方向</b>——不看通过率、不看批准率。裁判不参与竞赛，所以裁判不可被收买。
+      <br>QC and Marketing are referees: measured on speed and completeness, never on which way they decide — and never in the competition.</div>
+  </div>
+</div>
+
+</body>
+</html>

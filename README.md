@@ -7,6 +7,26 @@ Plan trial -> trial happens or is missed -> record reason/result -> track issues
 -> set next trial date -> count completed trials against the limit
 ```
 
+## Shipped modules (status 2026-07-07)
+
+- **Trial control loop** — intake, scheduling, results, issues, corrections, trial limits, digital process sheets, activity log, bilingual EN/zh-CN UI.
+- **Phone task list + PWA** — role-scoped tasks inline on the mobile dashboard (`/` below the KPI numbers); department inbox with claim flow; installable to the home screen. Phone = view and complete assigned items; all creation is desktop.
+- **File attachments** — photos (thumbnail grids + lightbox), CAD (STEP/IGS/DWG/DXF), video (inline playback, Range streaming), Office/ZIP; per-type size caps; visibility tiers with IP-safe defaults (CAD/video default TECHNICAL; CUSTOMER_SAFE is never a default).
+- **Trial issue photos** — client-side downscale, photos ride the issue form, count chips + galleries everywhere.
+- **QC measurement reports** — per completed trial: amber "Missing" until QC uploads; Marketing downloads customer-safe files as `<project>_<trial>_measurement-report.<ext>`; dashboard missing-report count.
+- **Date confirmation handshake** — PM proposes → Injection confirms with a machine or counter-proposes → Marketing approves/returns date changes (customer-target gap shown); never blocks recording reality.
+- **Trial calendar** — `/calendar` month grid with per-day machine-load warnings (amber ≥3, red ≥4 on one machine); phones get a 7-day agenda; "This week's trials" on the mobile dashboard.
+- **KPI phase-1 data layer** — admin Rules tab (deadline hours editable, changes logged), scoring engine (85% habit bar, <5-events floor, severity-weighted verified-only points), admin Scores tab with item-level audit drilldown, personal `/score` page gated by the staff-scoreboard toggle (default OFF for quiet baseline gathering). Design docs: `docs/06-kpi/`. Training posters: `docs/07-training/`.
+
+### KPI & operations scripts
+
+```bash
+node scripts/simulate-kpi-data.mjs [--reset]  # generate ~6 weeks of MP-SIM- test activity with known persona scores
+node scripts/run-kpi-snapshot.mjs             # persist daily KpiSnapshot rows (schedule nightly via launchd in production)
+node scripts/debug-my-plate.mjs <username>    # explain why an issue does/doesn't appear on someone's task list
+python3 scripts/migrate-and-verify.py         # migrate + seed + typecheck + tests in one go (restart dev server after)
+```
+
 ## Stack
 
 - Next.js + TypeScript

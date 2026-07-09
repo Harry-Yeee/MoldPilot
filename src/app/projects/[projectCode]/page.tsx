@@ -2,7 +2,13 @@ import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
 import { BlockedAction, hasAllPermissionCodes, hasPermissionCode } from "@/app/permission-ui";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
+import { AttachmentList } from "@/components/attachments/AttachmentList";
+import { AttachmentUploader } from "@/components/attachments/AttachmentUploader";
+import { ImageCaptureField } from "@/components/attachments/image-capture-field";
+import { IssuePhotoCountChip, IssuePhotoGallery, type IssuePhoto } from "@/components/attachments/issue-photo-gallery";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
+import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
+import { MeasurementReportPanel } from "@/app/projects/[projectCode]/measurement-report-panel";
 import { ProcessSheetEditor } from "@/app/projects/[projectCode]/process-sheet-editor";
 import { TrialIssueRowActions } from "@/app/projects/[projectCode]/trial-issue-row-actions";
 import { formatPartSummary } from "@/domain/mold-trial/parts";
@@ -15,7 +21,13 @@ import {
   trialStageLabel,
   trialVerificationStatusOptions
 } from "@/domain/mold-trial/trial-panel";
-import { formatBilingualUserOption } from "@/domain/mold-trial/users";
+import { formatBilingualUserOption, formatIssueOwnerUserOption } from "@/domain/mold-trial/users";
+import { attachmentLabels, issuePhotoLabels, myPlateLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import {
+  daysBetweenProposedAndTarget,
+  isProposedDateAfterTarget,
+  type DateConfirmationStatus
+} from "@/domain/mold-trial/date-confirmation";
 import { createTranslator, translateLabel, type Dictionary } from "@/i18n";
 import { getDictionary } from "@/i18n/server";
 import {
@@ -27,6 +39,13 @@ import {
   updateMoldTrialProjectIdentifiers,
   updateMoldTrialParts
 } from "@/server/mold-trial-actions";
+import {
+  approveTrialDateChange,
+  confirmTrialDate,
+  proposeTrialDateChange,
+  redateReturnedTrial,
+  rejectTrialDateChange
+} from "@/server/date-confirmation-actions";
 import {
   issueSourceOptions,
   issueStatusOptions,
@@ -177,7 +196,7 @@ function UserOptions({
       {includeBlank ? <option value="">{t("common.unassigned")}</option> : null}
       {users.map((user) => (
         <option key={user.username} value={user.username}>
-          {formatBilingualUserOption(user)}
+          {formatIssueOwnerUserOption(user)}
         </option>
       ))}
     </>
@@ -369,11 +388,234 @@ function AutoMissedResolutionForms({
   );
 }
 
+/** The date-confirmation slice of a trial the desktop confirmation block needs. */
+type ConfirmationTrial = {
+  id?: string;
+  plannedDate?: Date | string | null;
+  dateConfirmationStatus: DateConfirmationStatus;
+  proposedDate?: Date | string | null;
+  proposedReason?: string | null;
+  rescheduleRejectReason?: string | null;
+  machineNoSnapshot?: string | null;
+  machine?: string | null;
+  dateConfirmedBy?: { displayName: string } | null;
+};
+
+const confirmationBadgeToneClass: Record<"amber" | "green" | "red", string> = {
+  amber: "bg-amber-100 text-amber-800",
+  green: "bg-green-100 text-green-800",
+  red: "bg-red-100 text-red-800"
+};
+
+/**
+ * Desktop trial-panel confirmation badge + inline actions. The badge reflects the
+ * handshake state; the actions offered depend on the state and the viewer's
+ * permissions (Injection confirms/proposes on pending trials, Marketing
+ * approves/rejects a proposal, the PM re-dates a returned trial). Never blocks
+ * result recording — this is advisory only.
+ */
+function TrialDateConfirmationBlock({
+  canApprove,
+  canConfirm,
+  canProposeChange,
+  canRedate,
+  dictionary,
+  injectionMachines,
+  locale,
+  projectCode,
+  redirectTo,
+  trial,
+  customerTargetDate
+}: {
+  canApprove: boolean;
+  canConfirm: boolean;
+  canProposeChange: boolean;
+  canRedate: boolean;
+  dictionary: Dictionary;
+  injectionMachines: ProjectDetail["activeInjectionMachines"];
+  locale: Locale;
+  projectCode: string;
+  redirectTo: string;
+  trial: ConfirmationTrial;
+  customerTargetDate: Date | string | null;
+}) {
+  const t = createTranslator(dictionary);
+  const cLabel = (key: keyof typeof myPlateLabels): string => pickLabel(myPlateLabels[key], locale);
+
+  if (trial.id == null) {
+    return null;
+  }
+
+  const status = trial.dateConfirmationStatus;
+  const badge = ((): { text: string; tone: "amber" | "green" | "red" } => {
+    switch (status) {
+      case "CONFIRMED": {
+        const who = trial.dateConfirmedBy?.displayName;
+        const machine = trial.machineNoSnapshot ?? trial.machine;
+        const suffix = [who, machine].filter((part) => part != null && String(part).length > 0).join(" · ");
+        return {
+          text: suffix.length === 0 ? cLabel("dateConfirmed") : `${cLabel("dateConfirmed")} · ${suffix}`,
+          tone: "green"
+        };
+      }
+      case "RESCHEDULE_PROPOSED":
+        return { text: cLabel("changeAwaitingMarketing"), tone: "amber" };
+      case "RETURNED_TO_PM":
+        return { text: cLabel("returnedToPm"), tone: "red" };
+      case "PENDING_CONFIRMATION":
+      default:
+        return { text: cLabel("datePendingConfirmation"), tone: "amber" };
+    }
+  })();
+
+  const gapDays = daysBetweenProposedAndTarget(trial.proposedDate, customerTargetDate);
+  const gapText =
+    gapDays == null
+      ? null
+      : gapDays === 0
+        ? cLabel("onTarget")
+        : gapDays > 0
+          ? `${gapDays} ${cLabel("daysBeforeTarget")}`
+          : `${Math.abs(gapDays)} ${cLabel("daysAfterTarget")}`;
+  const afterTarget = isProposedDateAfterTarget(trial.proposedDate, customerTargetDate);
+
+  return (
+    <section className="panelActionBlock" aria-label="Trial date confirmation">
+      <h3>{cLabel("confirmTrialDates")}</h3>
+      <p className="m-0">
+        <span
+          className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-bold ${confirmationBadgeToneClass[badge.tone]}`}
+        >
+          {badge.text}
+        </span>
+      </p>
+
+      {status === "PENDING_CONFIRMATION" && canConfirm ? (
+        <form action={confirmTrialDate} className="formGrid compactPanelForm">
+          <input type="hidden" name="projectCode" value={projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={trial.id} />
+          <label>
+            {cLabel("machine")}
+            <select name="injectionMachineId" defaultValue="" required>
+              <option value="" disabled>
+                {cLabel("chooseMachine")}
+              </option>
+              {injectionMachines.map((machine) => (
+                <option key={machine.id} value={machine.id}>
+                  {formatInjectionMachineLabel(machine)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="formActions">
+            <button type="submit">{cLabel("confirmDate")}</button>
+          </div>
+        </form>
+      ) : null}
+
+      {status === "PENDING_CONFIRMATION" && canProposeChange ? (
+        <form action={proposeTrialDateChange} className="formGrid compactPanelForm">
+          <input type="hidden" name="projectCode" value={projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={trial.id} />
+          <label>
+            {cLabel("proposedDate")}
+            <input name="proposedDate" type="date" required />
+          </label>
+          <label className="fullSpan">
+            {cLabel("proposeReasonLabel")}
+            <textarea name="proposedReason" rows={2} required />
+          </label>
+          <div className="formActions">
+            <button type="submit">{cLabel("proposeDifferentDate")}</button>
+          </div>
+        </form>
+      ) : null}
+
+      {status === "RESCHEDULE_PROPOSED" ? (
+        <div className="trialPanelFacts">
+          <span>
+            {cLabel("currentPlannedDate")}
+            <strong>{formatDate(trial.plannedDate)}</strong>
+          </span>
+          <span>
+            {cLabel("proposedDate")}
+            <strong>{formatDate(trial.proposedDate)}</strong>
+          </span>
+          <span>
+            {cLabel("customerTargetDate")}
+            <strong>{formatDate(customerTargetDate)}</strong>
+          </span>
+          <span>
+            {cLabel("targetGap")}
+            <strong className={afterTarget ? "text-status-missed" : undefined}>{gapText ?? "—"}</strong>
+          </span>
+        </div>
+      ) : null}
+
+      {status === "RESCHEDULE_PROPOSED" && trial.proposedReason != null ? (
+        <p className="m-0">
+          <strong>{cLabel("proposeReasonLabel")}:</strong> {trial.proposedReason}
+        </p>
+      ) : null}
+
+      {status === "RESCHEDULE_PROPOSED" && canApprove ? (
+        <div className="formActions" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <form action={approveTrialDateChange}>
+            <input type="hidden" name="projectCode" value={projectCode} />
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input type="hidden" name="trialEventId" value={trial.id} />
+            <button type="submit">{cLabel("approve")}</button>
+          </form>
+        </div>
+      ) : null}
+
+      {status === "RESCHEDULE_PROPOSED" && canApprove ? (
+        <form action={rejectTrialDateChange} className="formGrid compactPanelForm">
+          <input type="hidden" name="projectCode" value={projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={trial.id} />
+          <label className="fullSpan">
+            {cLabel("rejectionReason")}
+            <textarea name="rescheduleRejectReason" rows={2} required />
+          </label>
+          <div className="formActions">
+            <button type="submit">{cLabel("reject")}</button>
+          </div>
+        </form>
+      ) : null}
+
+      {status === "RETURNED_TO_PM" && trial.rescheduleRejectReason != null ? (
+        <p className="m-0">
+          <strong>{cLabel("rejectionReason")}:</strong> {trial.rescheduleRejectReason}
+        </p>
+      ) : null}
+
+      {status === "RETURNED_TO_PM" && canRedate ? (
+        <form action={redateReturnedTrial} className="formGrid compactPanelForm">
+          <input type="hidden" name="projectCode" value={projectCode} />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <input type="hidden" name="trialEventId" value={trial.id} />
+          <label>
+            {cLabel("setNewDate")}
+            <input name="plannedDate" type="date" required />
+          </label>
+          <div className="formActions">
+            <button type="submit">{cLabel("setNewDate")}</button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
 function TrialIssuePanelForm({
   activeParts,
   activeUserOptions,
   dictionary,
   defaultOwnerUsername,
+  locale,
   marketingIssueDefaults,
   projectCode,
   redirectTo,
@@ -383,6 +625,7 @@ function TrialIssuePanelForm({
   activeUserOptions: readonly ActiveUserOption[];
   dictionary: Dictionary;
   defaultOwnerUsername: string;
+  locale: Locale;
   marketingIssueDefaults: boolean;
   projectCode: string;
   redirectTo: string;
@@ -464,6 +707,10 @@ function TrialIssuePanelForm({
         {t("field.description")}
         <textarea name="description" rows={2} />
       </label>
+      <div className="fullSpan grid gap-1">
+        <span className="text-sm font-bold text-neutral-700">{pickLabel(issuePhotoLabels.photos, locale)}</span>
+        <ImageCaptureField name="photos" locale={locale} />
+      </div>
       <div className="formActions">
         <button type="submit">{t("common.addTrialIssue")}</button>
       </div>
@@ -616,8 +863,39 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     );
   }
 
-  const { project, activityLogs, limit } = detail;
+  const { project, activityLogs, limit, issuePhotosByIssueId, measurementReportByTrialId } = detail;
   const redirectTo = `/projects/${project.projectCode}`;
+  // Measurement-report status line for a completed trial, or null when the trial
+  // is not eligible (planned/missed trials show nothing).
+  const measurementReportPanelState = (
+    trialEventId: string | undefined
+  ): { kind: "MISSING" } | { kind: "UPLOADED"; attachmentId: string; uploadedAt: string; uploadedBy: string } | null => {
+    if (trialEventId == null) {
+      return null;
+    }
+    const state = measurementReportByTrialId.get(trialEventId);
+    if (state == null || state.kind === "NOT_REQUIRED") {
+      return null;
+    }
+    if (state.kind === "MISSING") {
+      return { kind: "MISSING" };
+    }
+    return {
+      kind: "UPLOADED",
+      attachmentId: state.attachmentId,
+      uploadedAt: state.uploadedAt instanceof Date ? state.uploadedAt.toISOString() : String(state.uploadedAt),
+      uploadedBy: state.uploadedBy
+    };
+  };
+  // Display-shaped issue photos keyed by issue id, for the row chip + detail gallery.
+  const issuePhotosForIssue = (issueId: string): IssuePhoto[] =>
+    (issuePhotosByIssueId.get(issueId) ?? []).map((photo) => ({
+      id: photo.id,
+      fileName: photo.fileName,
+      uploaderName: photo.uploadedBy.displayName,
+      uploadedAt:
+        photo.uploadedAt instanceof Date ? photo.uploadedAt.toISOString() : String(photo.uploadedAt)
+    }));
   const activeParts = project.parts.filter((part) => part.active);
   const partSummary = formatPartSummary(project.parts, project.partCode);
   const workingIdentifier = formatMoldWorkingIdentifier({
@@ -741,9 +1019,28 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const canResolveAutoMissedBlockedOrPaused = hasPermissionCode(permissionCodes, "trial.missed.record");
   const canRecordCompletedTrial = hasPermissionCode(permissionCodes, "trial.record.completed");
   const canAddNewPlannedTrial = hasPermissionCode(permissionCodes, "trial.schedule.reschedule");
+  const canConfirmTrialDate = hasPermissionCode(permissionCodes, "trial.date.confirm");
+  const canProposeTrialDateChange = hasPermissionCode(permissionCodes, "trial.date.propose_change");
+  const canApproveTrialDateChange = hasPermissionCode(permissionCodes, "trial.date.approve_change");
+  const canRedateReturnedTrial = hasPermissionCode(permissionCodes, "trial.schedule.reschedule");
   const canCreateIssue = hasPermissionCode(permissionCodes, "trial.issue.create");
   const canEditProcessSheet = hasPermissionCode(permissionCodes, "trial.process_sheet.edit");
   const canExportProcessSheet = hasPermissionCode(permissionCodes, "trial.process_sheet.export_pdf");
+  const canUploadAttachment = hasPermissionCode(permissionCodes, "attachment.upload");
+  const canAdminDeleteAttachment = hasPermissionCode(permissionCodes, "attachment.delete");
+  const canUploadMeasurementReport = hasPermissionCode(permissionCodes, "qc.measurement_report.upload");
+  const canDownloadCustomerSafe = hasPermissionCode(permissionCodes, "attachment.download.customer_safe");
+  const projectAttachments = detail.projectAttachments.map((attachment) => ({
+    id: attachment.id,
+    fileName: attachment.fileName,
+    fileType: attachment.fileType,
+    visibility: attachment.visibility,
+    contentType: attachment.contentType,
+    sizeBytes: attachment.sizeBytes,
+    uploadedAt: attachment.uploadedAt,
+    uploaderName: attachment.uploadedBy.displayName,
+    uploadedById: attachment.uploadedById
+  }));
   const marketingIssueDefaults = currentUser.roleCode === "MARKETING";
   const issueEditStatusOptions = [...issueStatusOptions, { value: "VERIFIED", label: "Verified" }];
   const issueActionPartOptions = activeParts.map((part) => ({
@@ -752,7 +1049,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   }));
   const issueActionUserOptions = activeUserOptions.map((user) => ({
     username: user.username,
-    label: formatBilingualUserOption(user)
+    label: formatIssueOwnerUserOption(user)
   }));
   const todayInputDate = inputDate(new Date());
 
@@ -1044,6 +1341,13 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               panel.trial?.id == null
                 ? []
                 : project.trialIssues.filter((issue) => issue.foundAtTrialEventId === panel.trial?.id);
+            const rawTrialEvent =
+              panel.trial?.id == null
+                ? null
+                : project.trialEvents.find((event) => event.id === panel.trial?.id) ?? null;
+            const showConfirmationBlock =
+              rawTrialEvent != null &&
+              (panel.trial?.status === "Planned" || panel.trial?.status === "At Risk");
 
             return (
             <details
@@ -1105,6 +1409,22 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                   />
                 ) : null}
 
+                {showConfirmationBlock && rawTrialEvent != null ? (
+                  <TrialDateConfirmationBlock
+                    canApprove={canApproveTrialDateChange}
+                    canConfirm={canConfirmTrialDate}
+                    canProposeChange={canProposeTrialDateChange}
+                    canRedate={canRedateReturnedTrial}
+                    customerTargetDate={project.customerTargetDate}
+                    dictionary={dictionary}
+                    injectionMachines={detail.activeInjectionMachines}
+                    locale={currentUser.locale}
+                    projectCode={project.projectCode}
+                    redirectTo={redirectTo}
+                    trial={rawTrialEvent}
+                  />
+                ) : null}
+
                 {panel.trial != null &&
                 (panel.trial.status === "Planned" ||
                   panel.trial.status === "At Risk" ||
@@ -1125,6 +1445,24 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                     )}
                   </section>
                 ) : null}
+
+                {(() => {
+                  const reportState = measurementReportPanelState(panel.trial?.id);
+                  if (reportState == null || panel.trial?.id == null) {
+                    return null;
+                  }
+                  return (
+                    <MeasurementReportPanel
+                      state={reportState}
+                      trialLabel={panel.title}
+                      trialEventId={panel.trial.id}
+                      projectCode={project.projectCode}
+                      redirectTo={redirectTo}
+                      canUpload={canUploadMeasurementReport}
+                      locale={currentUser.locale}
+                    />
+                  );
+                })()}
 
                 <section className="panelActionBlock issuePanelBlock">
                   <h3>{t("project.trialIssues")}</h3>
@@ -1149,13 +1487,25 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                             </td>
                           </tr>
                         ) : (
-                          issuesForPanel.map((issue) => (
+                          issuesForPanel.map((issue) => {
+                            const issuePhotos = issuePhotosForIssue(issue.id);
+                            return (
                             <tr
                               key={issue.id}
                               className={trialIssueRowStatusClass(issue.status)}
                               data-issue-status={issue.status}
                             >
-                              <td>{issue.title}</td>
+                              <td>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{issue.title}</span>
+                                  <IssuePhotoCountChip count={issuePhotos.length} locale={currentUser.locale} />
+                                </div>
+                                {issuePhotos.length === 0 ? null : (
+                                  <div className="pt-2">
+                                    <IssuePhotoGallery photos={issuePhotos} locale={currentUser.locale} />
+                                  </div>
+                                )}
+                              </td>
                               <td>{labelForTranslated(dictionary, "issueType", issueTypeLabels, issue.issueType)}</td>
                               <td>{labelForTranslated(dictionary, "severity", severityLabels, issue.severity)}</td>
                               <td>
@@ -1186,6 +1536,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                                   issueSourceOptions={issueSourceOptions}
                                   issueStatusOptions={issueEditStatusOptions}
                                   issueTypeOptions={issueTypeOptions}
+                                  locale={currentUser.locale}
                                   projectCode={project.projectCode}
                                   redirectTo={redirectTo}
                                   requiresNonOwnerCloseReason={issue.ownerUserId !== currentUser.id}
@@ -1194,7 +1545,8 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                                 />
                               </td>
                             </tr>
-                          ))
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -1208,6 +1560,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                             activeUserOptions={activeUserOptions}
                             dictionary={dictionary}
                             defaultOwnerUsername={defaultIssueOwnerUsername}
+                            locale={currentUser.locale}
                             marketingIssueDefaults={marketingIssueDefaults}
                             projectCode={project.projectCode}
                             redirectTo={redirectTo}
@@ -1274,6 +1627,51 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         projectCode={project.projectCode}
         redirectTo={redirectTo}
       />
+
+      <section className="workSurface" aria-labelledby="files-heading">
+        <details>
+          <summary className="surfaceHeader cursor-pointer list-none">
+            <div>
+              <h2 id="files-heading">{pickLabel(attachmentLabels.filesTitle, currentUser.locale)}</h2>
+              <span>
+                {pickLabel(attachmentLabels.filesSubtitle, currentUser.locale)} ({projectAttachments.length})
+              </span>
+            </div>
+          </summary>
+          <div className="grid gap-4 p-4 sm:p-[18px]">
+            <AttachmentList
+              attachments={projectAttachments}
+              currentUserId={currentUser.id}
+              canAdminDelete={canAdminDeleteAttachment}
+              redirectTo={redirectTo}
+              locale={currentUser.locale}
+            />
+            {canUploadAttachment ? (
+              <AttachmentUploader
+                projectId={project.id}
+                entityType="MOLD_TRIAL_PROJECT"
+                entityId={project.id}
+                redirectTo={redirectTo}
+                locale={currentUser.locale}
+              />
+            ) : null}
+          </div>
+        </details>
+      </section>
+
+      {canDownloadCustomerSafe ? (
+        <CustomerFilesSection
+          files={detail.customerSafeAttachments.map((attachment) => ({
+            id: attachment.id,
+            fileName: attachment.fileName,
+            fileType: attachment.fileType,
+            sizeBytes: attachment.sizeBytes,
+            uploadedAt: attachment.uploadedAt,
+            uploaderName: attachment.uploadedBy.displayName
+          }))}
+          locale={currentUser.locale}
+        />
+      ) : null}
 
       <section className="workSurface" aria-labelledby="planning-history-heading">
         <div className="surfaceHeader">

@@ -29,6 +29,8 @@ Admin, later/minimal
 
 Most work should happen from the Mold Trial Detail page.
 
+On the dashboard/header, Admin and My tasks should appear as sibling buttons in one nav/action group when both are visible. Desktop should show them in one horizontal row with consistent spacing; small screens may wrap when needed.
+
 ## Shared Display Rules
 
 ### Language
@@ -331,6 +333,7 @@ Trial Panel behavior:
 - T1 and later show prior unresolved issues as a verification list with Addressed, Pending, Not Verified, or Closed status.
 - Each trial panel shows issues found in that trial as a compact table with Edit and Close Issue actions.
 - Add Trial Issue uses the full available trial-panel width, not a half-width column.
+- TrialIssue owner selectors show active users as `Role / Display Name / Chinese Name`, such as `PM / Bill / 王比尔`; if Chinese name is blank, show `-` in that position and do not show username unless duplicate disambiguation is intentionally added.
 - Edit opens a modal/popup for the simple issue fields.
 - Close Issue opens a focused modal requiring fix summary, approximate fix time, and closed date defaulting to today.
 - If the closer is not the issue owner, the close modal requires a non-owner close reason explaining why the owner did not close it.
