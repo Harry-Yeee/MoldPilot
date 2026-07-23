@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分数怎么来，钱怎么发 · How scores work, how money flows</title>
+<style>
+  @page { size: A3 portrait; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 10mm 12mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .hero { text-align: center; padding: 3mm 0 5mm; }
+  .hero .zh { font-size: 32pt; font-weight: 800; color: #1d4f91; }
+  .hero .en { font-size: 11pt; color: #536579; margin-top: 2mm; }
+  h2 { font-size: 15pt; font-weight: 800; color: #0c447c; margin: 4.5mm 0 2.5mm; }
+  h2 .en { font-size: 9pt; font-weight: 400; color: #536579; margin-left: 3mm; }
+  .bar { display: grid; grid-template-columns: 52mm 1fr; gap: 5mm; align-items: center; background: #eef5ff; border: 0.5mm solid #85b7eb; border-radius: 3mm; padding: 4mm 5mm; }
+  .bar .big { text-align: center; }
+  .bar .big .n { font-size: 40pt; font-weight: 800; color: #0c447c; line-height: 1; }
+  .bar .big .l { font-size: 10pt; color: #185fa5; font-weight: 700; margin-top: 1mm; }
+  .bar ul { list-style: none; }
+  .bar li { font-size: 11pt; line-height: 1.65; padding-left: 6mm; position: relative; }
+  .bar li::before { content: "✓"; position: absolute; left: 0; color: #0f6e56; font-weight: 800; }
+  .bar li .en { font-size: 7.5pt; color: #536579; display: block; line-height: 1.3; }
+  table.clocks { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+  .clocks th, .clocks td { border: 0.3mm solid #d6dde6; padding: 1.8mm 3mm; font-size: 10pt; text-align: left; line-height: 1.4; }
+  .clocks th { background: #eef2f6; font-size: 9pt; color: #405367; }
+  .clocks td .en { display: block; font-size: 7pt; color: #536579; }
+  .clocks .h { background: #fff5db; color: #8a5a00; font-weight: 800; white-space: nowrap; text-align: center; }
+  .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .ex { border-radius: 3mm; padding: 4mm 5mm; }
+  .ex.good { background: #e1f5ee; border: 0.4mm solid #5dcaa5; }
+  .ex.bad { background: #fff5db; border: 0.4mm solid #f0c36a; }
+  .ex .name { font-size: 12pt; font-weight: 800; }
+  .ex.good .name { color: #085041; } .ex.bad .name { color: #8a5a00; }
+  .ex .math { font-size: 19pt; font-weight: 800; margin: 1.5mm 0; }
+  .ex.good .math { color: #0f6e56; } .ex.bad .math { color: #ba7517; }
+  .ex .note { font-size: 10pt; line-height: 1.55; }
+  .ex .en { font-size: 7.5pt; color: #536579; margin-top: 1.5mm; line-height: 1.35; }
+  .pts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3.5mm; }
+  .pt { border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3.5mm 4mm; }
+  .pt .t { font-size: 11pt; font-weight: 800; color: #182230; margin-bottom: 1mm; }
+  .pt .b { font-size: 9.5pt; line-height: 1.5; }
+  .pt .en { font-size: 7pt; color: #536579; margin-top: 1mm; line-height: 1.3; }
+  .pt em { font-style: normal; font-weight: 800; color: #6b3fa0; }
+  .pools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3.5mm; }
+  .pool { border-radius: 3mm; padding: 4mm; text-align: center; }
+  .pool .amt { font-size: 22pt; font-weight: 800; line-height: 1.1; }
+  .pool .t { font-size: 10.5pt; font-weight: 800; margin-top: 1mm; }
+  .pool .b { font-size: 8.5pt; line-height: 1.45; margin-top: 1.5mm; }
+  .pool.p1 { background: #eef5ff; border: 0.5mm solid #85b7eb; } .pool.p1 .amt, .pool.p1 .t { color: #0c447c; }
+  .pool.p2 { background: #eeedfe; border: 0.5mm solid #afa9ec; } .pool.p2 .amt, .pool.p2 .t { color: #3c3489; }
+  .pool.p3 { background: #e1f5ee; border: 0.5mm solid #5dcaa5; } .pool.p3 .amt, .pool.p3 .t { color: #085041; }
+  .pool.p4 { background: #faeeda; border: 0.5mm solid #fac775; } .pool.p4 .amt, .pool.p4 .t { color: #633806; }
+  .floor { background: #182230; color: white; border-radius: 3mm; padding: 4mm 5mm; margin-top: 4.5mm; }
+  .floor .t { font-size: 12pt; font-weight: 800; margin-bottom: 2mm; }
+  .floor .g { font-size: 10.5pt; line-height: 1.7; }
+  .floor .g b { color: #9fe1cb; }
+  .floor .en { font-size: 7.5pt; color: #c8d1dc; margin-top: 2mm; line-height: 1.4; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="zh">分数怎么来，钱怎么发</div>
+    <div class="en">How scores work, how money flows · 第一个月为校准月：只录数据，不发钱，不考核</div>
+  </div>
+
+  <h2>① 达标线<span class="en">The bar — a habit, not perfection</span></h2>
+  <div class="bar">
+    <div class="big"><div class="n">85%</div><div class="l">按时完成率 ≥ 85% = 达标 → ¥400</div></div>
+    <ul>
+      <li>15 件事做好 13 件就够——不要求完美，要求习惯<span class="en">13 of 15 on time is enough — habit, not perfection</span></li>
+      <li>当月不足 5 件事：直接视为达标——安静的月份不吃亏<span class="en">Fewer than 5 events = automatic pass. Quiet months never hurt you</span></li>
+      <li>未达标：<b>没有处罚</b>，只是拿不到当月达标奖。工资永远不扣<span class="en">Missing the bar costs nothing — the bonus just isn't earned. Wages are never touched</span></li>
+      <li>组长的达标 = 全组数据完整。组员做了但没录 = 没做<span class="en">A leader passes when the whole group's data is complete</span></li>
+    </ul>
+  </div>
+
+  <h2>② 每个角色的计时钟<span class="en">Your clocks — literal hours, weekends count</span></h2>
+  <table class="clocks">
+    <tr><th style="width:24mm">角色</th><th>计时的事</th><th style="width:22mm">时限</th></tr>
+    <tr><td><b>项目管理 PM</b></td><td>录入试模结果 · 缺失/自动缺失填写原因 · 退回日期重新排期<span class="en">Result recorded · missed-trial reason · returned date re-planned</span></td><td class="h">各 ≤24小时</td></tr>
+    <tr><td><b>注塑 Injection</b></td><td>确认试模日期 + 机台<span class="en">Date + machine confirmed</span></td><td class="h">≤24小时</td></tr>
+    <tr><td><b>装配 Assembly</b></td><td>确认整改 + 预计完成日（≤24小时）· 下次试模前完成自检<span class="en">Acknowledge ≤24h · self-check before next trial</span></td><td class="h">见左</td></tr>
+    <tr><td><b>设计 Design</b></td><td>设计变更修订完成 · 设计问题「我来处理」<span class="en">Revision turned around · design-inbox issues taken</span></td><td class="h">各 ≤48小时</td></tr>
+    <tr><td><b>所有部门 All</b></td><td>收件箱问题「我来处理」（≤48小时）· 缺陷必须附照片<span class="en">Inbox issues taken ≤48h · defects carry photos</span></td><td class="h">见左</td></tr>
+    <tr><td><b>裁判 Referees</b></td><td>质检：测量报告 ≤48小时 · 市场部：日期审批 ≤24小时——只考核速度与完整，<b>从不考核结论方向</b><span class="en">QC report ≤48h · Marketing date decision ≤24h — measured on speed and completeness, never on which way they decide</span></td><td class="h">服务线</td></tr>
+  </table>
+
+  <h2>③ 月底长什么样<span class="en">Two real examples</span></h2>
+  <div class="examples">
+    <div class="ex good"><div class="name">钟组长 · 装配A</div><div class="math">22 / 24 按时 = 92% ✓</div>
+      <div class="note">达标，¥400 到手。而且还有余量：下月再错 1 件仍然达标。</div>
+      <div class="en">Over the bar with room to miss one more. The score page shows this buffer.</div></div>
+    <div class="ex bad"><div class="name">王工 · 注塑</div><div class="math">9 / 12 按时 = 75% ✗</div>
+      <div class="note">未达标——没有处罚，没有扣款。系统会算给你看：接下来连续 8 件按时，就能回到 85%。</div>
+      <div class="en">No penalty — and the score page shows the road back: the next 8 on time returns him to the bar.</div></div>
+  </div>
+
+  <h2>④ 积分：解决问题的经济<span class="en">Points — the fix economy (no cash per issue, ever)</span></h2>
+  <div class="pts">
+    <div class="pt"><div class="t">按严重度计分</div><div class="b">低<em>1</em> · 中<em>2</em> · 高<em>3</em> · 严重<em>5</em>。严重度由质检在验证时定级。</div><div class="en">Severity weights; QC sets severity at verification</div></div>
+    <div class="pt"><div class="t">验证后才计分</div><div class="b">下次试模就是裁判。未验证 = 0 分。假整改过不了验证关。</div><div class="en">Verified-only. The next trial is the judge</div></div>
+    <div class="pt"><div class="t">复发看耐久</div><div class="b">同模具 90 天内复发 → 记入耐久率，但功劳不收回。藏着复发才是问题。</div><div class="en">90-day durability tracked; credit never clawed back</div></div>
+    <div class="pt"><div class="t">防刷分</div><div class="b">自己创建、自己处理 → 自动标记复核。单个问题永远不标价。</div><div class="en">Self-created + self-handled = flagged. No cash price on issues</div></div>
+  </div>
+
+  <h2>⑤ 四个奖池 · 每月约 ¥5000<span class="en">The four pools</span></h2>
+  <div class="pools">
+    <div class="pool p1"><div class="amt">¥400</div><div class="t">达标奖 ×7</div><div class="b">组长/PM 每人每月，达标即得，互不竞争——帮同事永远不亏</div></div>
+    <div class="pool p2"><div class="amt">¥250</div><div class="t">裁判津贴 ×2</div><div class="b">质检部长 + 市场部长，服务线达标即得</div></div>
+    <div class="pool p3"><div class="amt">¥1000</div><div class="t">进步部门奖</div><div class="b">对比自己前三月进步最大的部门——全组聚餐，组长替全组赢</div></div>
+    <div class="pool p4"><div class="amt">¥500</div><div class="t">当月最佳修复</div><div class="b">照片 + 故事，例会评选。第二阶段：经验库与每周焦点</div></div>
+  </div>
+
+  <div class="floor">
+    <div class="t">白纸黑字的底线 · The floor rules</div>
+    <div class="g"><b>只加不减</b>——奖金永远是加的，工资永远不扣。<b>如实填写，永不追责</b>——诚实的原因不受罚。<b>老板同一套规则</b>——CEO 的否决必须书面写明理由，全部记录在案。</div>
+    <div class="en">Bonus only, never a deduction · honest reasons are never punished · the CEO plays by the same logged rules, vetoes in writing only.</div>
+  </div>
+</body>
+</html>

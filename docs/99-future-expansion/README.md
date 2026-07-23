@@ -1,5 +1,32 @@
 # Future MoldPilot Expansion Notes
 
+## Active Future Concepts
+
+### SupplyDesk
+
+`SupplyDesk` is the confirmed working name for a separate purchasing collaboration
+subsystem. Its concept baseline covers purchase requests, RFQs, supplier quote
+versions, quote comparison and award approval, supplier-order progress, receiving,
+QC acceptance, discrepancies, and purchasing cost history.
+
+Source-of-truth concept:
+
+```text
+docs/99-future-expansion/supplydesk-concept.md
+```
+
+Training poster:
+
+```text
+docs/07-training/supplydesk-roles-poster.html
+docs/07-training/supplydesk-roles-poster.pdf
+docs/07-training/supplydesk-roles-poster.png
+```
+
+SupplyDesk remains outside the active MoldPilot Phase 1 scope. During exploration it
+should remain a bounded subsystem with its own supplier-facing security boundary;
+shared navigation or SSO can be considered later.
+
 ## Archived Expanded Vision
 
 The original broader MVP/control-tower proposal is backed up here:

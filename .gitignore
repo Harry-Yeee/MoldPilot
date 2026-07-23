@@ -6,6 +6,9 @@
 .pnpm-store/
 node_modules/
 storage/
+generated/
+__pycache__/
+*.pyc
 coverage/
 dist/
 build/

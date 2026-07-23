@@ -1,21 +1,7 @@
-services:
-  postgres:
-    image: postgres:16
-    container_name: moldpilot-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: moldpilot
-      POSTGRES_USER: moldpilot
-      POSTGRES_PASSWORD: moldpilot
-    ports:
-      - "5432:5432"
-    volumes:
-      - moldpilot-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U moldpilot -d moldpilot"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  moldpilot-postgres-data:
+# MoldPilot's Postgres moved to the shared LJ_ERP infrastructure (2026-07-17).
+# This stub includes the root compose so existing scripts (pnpm db:up / db:down,
+# pilot:* preflight) keep working unchanged from this directory. Container and
+# volume names are pinned in the root file, so this manages the SAME container.
+# Edit ../docker-compose.yml — not this file. (Previous version: git history.)
+include:
+  - ../docker-compose.yml

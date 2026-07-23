@@ -39,6 +39,276 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-23: Pre-Push Hygiene And Deployment Verification
+
+Context:
+
+The active repository had accumulated generated process-sheet PDFs, a tracked Python bytecode cache, a v1-to-v2 training-poster reorganization, and a large set of completed but uncommitted feature work. The repository needed a source-only, deployment-verifiable commit before adding a cloud remote.
+
+Tried:
+
+Added `generated/`, `__pycache__/`, and `*.pyc` to `.gitignore`; removed previously tracked generated exports and bytecode from Git tracking without deleting local files. Verified that all six deleted v1 posters were preserved byte-for-byte under `docs/07-training/archive-v1/`, reviewed the three v2 replacements, and repaired one stale development-log path. Ran Prisma validation, domain tests, typecheck, the migration-and-seed verifier, a production build, and the HTTP/DB smoke sweep. The first smoke attempt hit a stale dev server after its `.next` cache had been cleared; the server was restarted before rerunning. Because the interrupted smoke process could not reach its `finally` cleanup, the five affected seeded first-login flags were restored explicitly and verified.
+
+Result:
+
+Worked. Generated exports and runtime caches remain available locally but are excluded from future commits. The production build no longer traces the whole repository through attachment storage, and the fresh-server smoke sweep passed all 40 checks. The seeded users `bill`, `lin`, `viewer`, `wang`, and `yvonne` again require a password change on first login.
+
+Why:
+
+Git should contain reproducible source, migrations, tests, and documentation, not generated customer exports, bytecode, uploaded files, secrets, or database data. Next development and production commands share `.next`; deleting or rebuilding that directory beneath a running server invalidates the live process and produces misleading runtime failures.
+
+Decision:
+
+Keep `generated/`, Python caches, `.env`, `storage/`, uploads, and database backups outside Git. Stop the development server before clearing `.next` or running a production build, then start a fresh server for HTTP smoke verification. After any interrupted smoke run, verify that temporary fixture-state changes were restored before continuing.
+
+Verification:
+
+`pnpm exec prisma validate` passed. `python3 scripts/migrate-and-verify.py` completed migrations, seed verification, typecheck, and 546/546 domain tests. `pnpm build` passed without the attachment-storage NFT warning. A fresh-server `pnpm e2e:smoke` passed 40/40 checks, and a direct database read confirmed all five affected `forcePasswordChange` flags are `true`.
+
+Related Docs:
+
+- `docs/07-training/README.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+- `README.md`
+
+### 2026-07-17: End-To-End Smoke Harness Handles Fresh-Seed Login Gates
+
+Context:
+
+`pnpm e2e:smoke` forged valid session cookies for its role page sweep, but fresh seeded employee accounts still correctly had `forcePasswordChange = true`. Their requests were redirected to `/change-password`, so 13 authorization/page checks failed before reaching the intended screens. Two Admin sentinels also failed because rendered `&amp;` text was compared without decoding HTML entities.
+
+Tried:
+
+Kept the application login policy and seed state unchanged. The smoke runner now snapshots the tested users that are behind the first-login gate, temporarily clears only `forcePasswordChange`, and restores every changed flag in `finally`. Visible-text matching now decodes common named and numeric HTML entities before checking sentinels. Added source-level regression coverage for the narrow bypass, guaranteed cleanup path, and entity decoding.
+
+Result:
+
+Worked. The role sweep now reaches the intended pages while real login, password hashes, roles, permissions, and seeded first-login behavior remain unchanged. Cleanup is reported explicitly, and a restoration failure makes the smoke run fail.
+
+Why:
+
+A forged test session proves route authorization but does not represent completion of the first-login password workflow. Isolating that one fixture flag inside the smoke runner tests the requested pages without weakening the production guard or changing seed expectations.
+
+Decision:
+
+Keep first-login enforcement authoritative in the app. Any future forged-cookie page sweep must isolate and restore account workflow state rather than modifying authentication behavior.
+
+Verification:
+
+`pnpm e2e:smoke` passed 40/40 checks and logged restoration for all five temporarily changed employee accounts. `pnpm test` passed 523/523 tests, and `pnpm typecheck` passed.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/00-product/mvp-definition.md`
+- `docs/03-build/acceptance-tests.md`
+
+### 2026-07-14: Management Reports Implemented And Browser-Verified
+
+Context:
+
+The Reports contract was documented, but Admin/GM still had no management surface for monthly mold-trial workload, approval flow, issue health, trial-limit pressure, data gaps, and the already-built KPI Scorecards. Admin/GM also still needed navigation that did not send non-scored managers to an empty personal score page.
+
+Tried:
+
+Added `reports.management.view` to the named permission policy and seeded it for Admin/GM only. Built pure `Asia/Shanghai` month/range and aggregation helpers in `management-reports.ts`, then a batched explicit-select Prisma read service with separate report and Scorecards permission gates. Added a bilingual read-only `/reports` route with URL-backed Overview, Issues, and Scorecards tabs, compact operational metrics, Management Attention source links, issue filters/current backlog, and deliberate table-only horizontal scrolling. Reused `computeMonthlyScores`, the shared KPI rule-label loader, and `KpiScoresPanel`; Reports does not contain scoring math or Admin configuration controls. Added deterministic June/July fixtures plus stricter pilot checks and real Chrome role/language/mobile coverage.
+
+Result:
+
+Worked. The locked workload, T0, uniqueness, on-time denominator, earliest approval, target eligibility, low-loop, current limit, Open Critical, issue event/aging, completeness, and attention definitions are covered by pure tests. Admin and GM see Reports without My Score; scored staff retain My Score when enabled; a report-only grant does not serialize or render individual Scorecards. Reports loads no customer CRM/contact fields and preserves user-entered issue text in both languages. No Report model, schema change, migration, mutation form, or second KPI engine was added.
+
+Why:
+
+A read model over operational records is enough for the Phase 1 management meeting and keeps source records auditable. Pure aggregation makes the locked definitions testable, while the separate Scorecards gate prevents a broad report grant from leaking individual score data.
+
+Decision:
+
+Use `/reports` as the Phase 1 Admin/GM management surface. Current-state measures remain explicitly labeled Current; issue owners remain fixers, not culprits; completed runs are mold-trial workload, never factory utilization. Historical month-end reconstruction and a generic BI/report store remain out of scope.
+
+Verification:
+
+`CI=true node --test tests/domain/*.test.ts` passed 489/489. `pnpm exec prisma validate`, `pnpm exec next typegen`, `pnpm exec tsc --noEmit`, `pnpm prisma:seed`, `pnpm pilot:check`, and `pnpm pilot:e2e` passed. `pnpm pilot:workflow:e2e` passed the real Chrome walkthrough as Admin, GM, Injection, and Viewer, including report-only/Scorecards denial, English/Chinese switching, preserved issue text, and Overview/Issues containment at 360 px. The browser test initially found the wide Issues table contributing page-level overflow; the table kept its inner scroller and the Reports shell now clips only propagated page overflow. A Viewer account-label assertion was also aligned with the existing deduplicated `Viewer` identity.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/02-schema/schema-v0.md`
+- `docs/02-schema/permissions-matrix.md`
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+- `docs/05-feature-prompts/09-management-reports.md`
+- `docs/06-kpi/kpi-system-design.md`
+
+### 2026-07-14: Management Reports Contract Captured Before Implementation
+
+Context:
+
+Admin/GM were sent toward `My Score` even though those roles are intentionally not scored. Management also lacked one monthly surface for trial workload, issue resolution, trial-limit pressure, approvals, and the existing group/individual scorecard audits.
+
+Tried:
+
+Reviewed the current dashboard navigation, personal `/score` route, Admin Scores implementation, KPI design, permissions, operational schema, and acceptance coverage. Defined `/reports` as a read-only management surface with Overview, Issues, and reused Scorecards tabs. Locked month boundaries and workload/approval/issue definitions before asking Coder to aggregate them.
+
+Result:
+
+The product, permission, schema/read-model, UI, KPI, build-plan, acceptance, and pilot-checklist docs now agree on the Reports milestone. A standalone feature prompt records the implementation scope. No application code or database schema was changed in this documentation pass.
+
+Why:
+
+Operational counts are easy to mislabel: completed trials are trial workload, not factory utilization; issue owners are fixers, not culprits; current issue state cannot honestly reconstruct a historical month-end state. Defining those boundaries first prevents a polished dashboard from presenting misleading management conclusions.
+
+Decision:
+
+Implement `/reports` next for Admin/GM with `reports.management.view`. Keep staff `/score`; reuse `kpi.scores.view_all` for individual scorecards; use live operational aggregates plus existing KpiSnapshots; add no generic Report table in Phase 1.
+
+Verification:
+
+Documentation consistency review only. Code, migration, domain, typecheck, and browser verification remain for the Coder milestone.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/00-product/mvp-definition.md`
+- `docs/02-schema/permissions-matrix.md`
+- `docs/02-schema/schema-v0.md`
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+- `docs/06-kpi/kpi-system-design.md`
+- `docs/05-feature-prompts/09-management-reports.md`
+
+### 2026-07-14: Process Sheet Export Now Downloads A Reusable Customer-Safe Attachment
+
+Context:
+
+`exportProcessSheetPdf` generated a valid PDF but wrote it directly under `generated/process-sheet-exports`, created an incomplete `RESTRICTED` FileAttachment, and redirected with a success message. The browser never requested the protected attachment route, so clicking Export Customer PDF did not download anything and Marketing could not reuse the export from Customer Files.
+
+Tried:
+
+Changed the action to generate the PDF buffer once, persist it through `writeAttachmentFile()` with a server-generated attachment UUID, and create complete `PROCESS_SHEET_EXPORT` / `PROCESS_SHEET_PDF` metadata with `application/pdf`, actual size, and `CUSTOMER_SAFE` visibility. Replaced the redirecting form with a focused client export button that receives a serializable action result, fetches the protected attachment route with the authenticated session, validates status/MIME/size/`%PDF-` signature, triggers a browser download, refreshes project data, and shows local progress/result feedback.
+
+Result:
+
+Marketing, PM, and Admin retain the existing server-side export permission. Download authorization remains independently enforced by `/api/attachments/{id}`; Marketing's customer-safe permission does not grant Internal, Technical, or Restricted access. The generated export appears in Customer Files for reuse, and invalid or empty responses are rejected before a browser download link is clicked.
+
+Why:
+
+An export is only useful in the pilot when Chrome receives the file and the same approved customer-safe artifact remains available for later sending. Routing generated files through the attachment subsystem also keeps storage paths, metadata, authorization, and audit history consistent with uploaded reports.
+
+Decision:
+
+This restores the already-approved customer-safe Process Sheet PDF behavior. No schema, permission, or product-direction change was required.
+
+Verification:
+
+`CI=true node --test tests/domain/*.test.ts` passed with 477 tests. `pnpm exec prisma validate`, `pnpm typecheck`, `pnpm pilot:check`, and `pnpm pilot:e2e` passed. `pnpm pilot:workflow:e2e` passed the real Marketing browser flow: Chrome emitted and completed the `.pdf` download, the saved file was non-empty with a `%PDF-` signature, attachment metadata/ActivityLog counts and protected-route headers were correct, Customer Files refreshed with the export, and re-download created no duplicate records.
+
+Related Docs:
+
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+
+### 2026-07-14: My Tasks Uses The Shared Bilingual Language Source
+
+Context:
+
+The dashboard already read the `moldpilot_language` cookie, but `/me` derived its language from `User.locale`. The shared My Tasks client component also rendered English labels prepared by the server for trial status, issue status, severity, reason/status options, requester type, and generated titles such as `T0 trial`.
+
+Tried:
+
+Changed `/me` to read `getCurrentLanguage()`, added the shared Language Switcher in a wrapping mobile-safe header, and made `MyPlateSections` react directly to `useI18n()`. Stable enum/form values remain unchanged while visible labels pass through the existing dictionaries and `translateLabel()`. Generated trial titles now use the active language; user-entered mold/client/issue/note/file data remains untouched. Common task-action success messages are translated centrally on both `/me` and the dashboard.
+
+Result:
+
+The standalone and dashboard-embedded task panels now follow one cookie/provider language and switch together. Focused i18n, countdown, and My Plate tests plus direct TypeScript compilation passed. The browser workflow now checks Chinese and English task titles on both surfaces and asserts no header overlap or horizontal overflow at 360 px.
+
+Why:
+
+A database user locale can drift from the cookie/local-storage preference and cannot make an already-mounted client task panel react. Translating at render time keeps audit/business data stable and lets one shared component serve both task surfaces correctly.
+
+Decision:
+
+Keep `moldpilot_language` through LanguageProvider/getCurrentLanguage as the only UI-language source. Server-generated validation details that are not in the centralized workflow-message map continue to display their original text until their action APIs return stable message codes.
+
+Verification:
+
+`CI=true node --test tests/domain/*.test.ts` passed with 473 tests. `pnpm exec prisma validate`, `pnpm typecheck`, `pnpm pilot:check`, `pnpm pilot:e2e`, and `pnpm pilot:workflow:e2e` passed. The browser run also repaired two stale test assumptions discovered during verification: it now sets an explicit desktop viewport before desktop-only checks, and it recognizes the intentionally collapsed `Admin` account identity instead of waiting for lowercase username text.
+
+Related Docs:
+
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+
+### 2026-07-12: Pilot Preflight Updated For Design And KPI Group Membership
+
+Context:
+
+`python3 scripts/migrate-and-verify.py` stopped after a successful Prisma seed because the seed preflight still expected the earlier eight-role, seventeen-user account model and required every seeded user to have no `departmentGroupId`. The KPI leader-designation layer intentionally added the active Design role, Lin and Mei accounts, and reused `departmentGroupId` for KPI membership.
+
+Tried:
+
+Updated `scripts/pilot-preflight.mjs` to verify the current seed contract directly: nine active pilot roles, nineteen hashed-password users with expected Chinese names, exact KPI membership for scored users, unassigned non-scored users, Assembly A/B child-group hierarchy, designated KPI leaders, and no leader on the PM or Assembly parent groups.
+
+Result:
+
+The preflight now guards the implemented KPI structure instead of rejecting it as stale account-department data. This fixes the seed-stage false failure while keeping the verification strict enough to detect missing Design onboarding, incorrect membership, or broken leader assignments.
+
+Why:
+
+Seed verification must evolve with documented schema semantics. Removing the old assertion without replacing it would have hidden KPI fixture regressions; checking the exact intended structure turns the migration wrapper back into a useful end-to-end gate.
+
+### 2026-07-11: Rule — Agents Never Touch the Generated Prisma Client
+
+Context:
+
+Twice, the "patch the generated client .d.ts, prove tsc reaches 0, restore byte-for-byte" verification procedure used by sandbox agents raced the Mac's own `prisma generate` through the bidirectional file sync: once producing ` 2`/` 3` conflict-copy files with a stale canonical client, and once silently clobbering a freshly regenerated client with the restored old one (the seed then failed with "Unknown argument `parentGroupId`" — the tell was the error's available-options list missing the new `kpiLeaderId` field entirely).
+
+Decision:
+
+Sandbox agents must never write inside `node_modules` for any reason. After a schema change, agents run tsc, list the stale-client-only errors BY NAME (every one must reference only the new fields/models), and stop there. Regeneration happens exclusively on the owner's machine (`pnpm prisma:generate`, dev server stopped), verified by grepping the generated client for a new field name.
+
+Diagnostic tell for this failure class:
+
+A PrismaClientValidationError whose "available options" list is missing a field that exists in schema.prisma = stale generated client, not a code bug. Fix: stop dev server → delete the generated client dir → `pnpm prisma:generate` → grep for the new field → restart.
+
+Related Docs:
+
+Environment-lessons entry (2026-07-04) below.
+
+### 2026-07-11: KPI Leader-Designation Layer (Group Bars, Split Assembly, PM Individuals)
+
+Context:
+
+The scoring engine produced per-user scorecards, but nothing connected them to the prize rules ("¥400 to each leader whose GROUP hits the 85% bar"). Owner decision: Zhong and Pei run SEPARATE assembly groups with separate bars.
+
+Tried:
+
+Reused the existing `DepartmentGroup` hierarchy (`parentGroupId` + `groupType`) instead of inventing a parallel table: added `DepartmentGroup.kpiLeaderId` (FK users, ON DELETE SET NULL, hand-authored migration `20260711120000_kpi_leader_designation`); seed splits the `assembly` DEPARTMENT parent into `assembly-a` (钟组/zhong) + `assembly-b` (裴组/pei) GROUP children and assigns every scored user to one KPI group via `departmentGroupId`. New pure domain `kpi-leader-bar.ts` (`aggregateGroupScorecard` + `leaderBoardEntries`) sums member scorecards with the SAME 85% + <5 floor applied to the aggregate; `kpi-scores.ts` builds leader entries from real membership and keys DEPARTMENT_GROUP snapshots on real group ids; the Scores tab gained a "Leaders 组长达标" section (7 award rows + 2 referee rows, expandable member breakdown, ¥400/¥250 captions from constants). Simulator gives pei her own 3-issue set so assembly-b shows a real bar.
+
+Result:
+
+Works. 440 domain tests (432 baseline + 8 new leader-bar tests: aggregation math, floor-on-aggregate, empty group, PM-individual passthrough, member attribution). The Leaders section renders above the untouched per-user grid.
+
+Why:
+
+The hierarchy already modeled department→group; a parallel table would have duplicated it and risked diverging from issue routing. Keeping leader bars on `kpiLeaderId` + membership (never on `code`) is what lets the assembly split coexist with unchanged routing.
+
+Decision:
+
+Reuse the `DepartmentGroup` hierarchy for KPI leader bars. Issue routing stays at the PARENT level (`ownerGroup.code === "assembly"`, the department inbox map) and is untouched — children and `kpiLeaderId` are KPI-only. PMs are award-tier INDIVIDUALS: the `pm` group carries NO `kpiLeaderId`, so each PM's "leader bar" is their own user scorecard. Referees (QC, Marketing) aggregate the same way; their entries are the ¥250 service bars. The <5 floor is applied to the group AGGREGATE, not per member, so a genuinely quiet group floats while a busy group's misses bite.
+
+Verification:
+
+`node --test tests/domain/*.test.ts` → 440 pass (domain tests import no Prisma client). tsc: after the schema field was added, the only errors were stale-generated-client "kpiLeaderId does not exist" errors in seed.ts + kpi-scores.ts — proven to clear once the client regenerates (patch-prove-restore on the generated `.d.ts`, restored byte-for-byte, md5 verified); the client regenerates for real via `pnpm prisma:migrate` on the Mac. `node --check` clean on the simulator + snapshot scripts.
+
+Related Docs:
+
+- `docs/06-kpi/kpi-system-design.md` section 9 (build status), §3 award/referee tiers, §4 group-bar rule.
+- `docs/02-schema/schema-v0.md` DepartmentGroup (kpi_leader_id + parent/child vs routing).
+
 ### 2026-07-07: KPI Phase-1 Data Layer (Rules Registry, Scoring Engine, Scoreboard)
 
 Context:
@@ -67,7 +337,7 @@ tsc clean; 387 domain tests; simulator reproduces personas (zhong 92% hit, wang 
 
 Related Docs:
 
-`docs/06-kpi/kpi-system-design.md` section 9, decision log 2026-07-07 entry, `docs/07-training/monthly-scorecard-example-poster.html` (UI spec for /score).
+`docs/06-kpi/kpi-system-design.md` section 9, decision log 2026-07-07 entry, `docs/07-training/archive-v1/monthly-scorecard-example-poster.html` (archived UI spec for /score).
 
 ### 2026-07-05: Trial Date Confirmation Handshake And Trial Calendar
 

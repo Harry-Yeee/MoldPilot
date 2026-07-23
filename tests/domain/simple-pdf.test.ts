@@ -14,7 +14,7 @@ test("simple PDF generator renders mixed Chinese and English across multiple pag
   const buffer = await createSimplePdfBuffer(["客户: 示例客户", "", ...lines].join("\n"));
   const pdfDocument = await PDFDocument.load(buffer);
 
-  assert.equal(buffer.subarray(0, 4).toString("utf8"), "%PDF");
+  assert.equal(buffer.subarray(0, 5).toString("utf8"), "%PDF-");
   assert.ok(buffer.length > 10_000);
   assert.ok(pdfDocument.getPageCount() > 1);
 });

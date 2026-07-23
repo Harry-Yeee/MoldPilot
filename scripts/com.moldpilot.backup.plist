@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.moldpilot.backup</string>
+
+  <!-- EDIT the two paths below for the server Mac, then:
+       cp scripts/com.moldpilot.backup.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.moldpilot.backup.plist
+       Test immediately with: launchctl start com.moldpilot.backup -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/ipwaikei/Documents/LJ_ERP/MoldPilot/scripts/backup.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BACKUP_DIR</key>
+    <string>/Volumes/Backup/moldpilot</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/moldpilot-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/moldpilot-backup.err</string>
+</dict>
+</plist>

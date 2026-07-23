@@ -117,19 +117,49 @@ export function MonthGrid({ data, hrefForDay, locale, todayKey }: MonthGridProps
   );
 }
 
-/** Legend rendered under the grid explaining the amber/red load dots. */
+/**
+ * Order the date-confirmation swatches appear in the legend. These are the SAME
+ * four statuses `entryToneClass` colours the compact day-cell entries by, so the
+ * swatch colours are read straight from that map (single source of truth) and the
+ * legend can never drift from the grid.
+ */
+const CONFIRMATION_LEGEND: readonly DateConfirmationStatus[] = [
+  "CONFIRMED",
+  "PENDING_CONFIRMATION",
+  "RESCHEDULE_PROPOSED",
+  "RETURNED_TO_PM"
+];
+
+/**
+ * Legend rendered under the grid: the amber/red machine-load dots plus what the
+ * coloured day-cell entries mean. The entries are coloured by date-confirmation
+ * status (NOT trial-code type), so the swatches reuse `entryToneClass` verbatim
+ * (`bg-current` inherits that exact text colour) and the labels reuse the shared
+ * `dateConfirmationBadge` text — truthful and bilingual by construction.
+ */
 export function MachineLoadLegend({ locale }: { locale: Locale }) {
   return (
-    <div className="flex flex-wrap items-center gap-4 px-1 text-sm text-neutral-600">
-      <span className="font-bold text-neutral-700">{pickLabel(calendarLabels.legendTitle, locale)}:</span>
-      <span className="flex items-center gap-1.5">
-        <span className="inline-block h-2.5 w-2.5 rounded-full bg-status-at-risk" />
-        {pickLabel(calendarLabels.legendAmber, locale)}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="inline-block h-2.5 w-2.5 rounded-full bg-status-missed" />
-        {pickLabel(calendarLabels.legendRed, locale)}
-      </span>
+    <div className="flex flex-col gap-2 px-1 text-sm text-neutral-600">
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="font-bold text-neutral-700">{pickLabel(calendarLabels.legendTitle, locale)}:</span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-status-at-risk" />
+          {pickLabel(calendarLabels.legendAmber, locale)}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-status-missed" />
+          {pickLabel(calendarLabels.legendRed, locale)}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="font-bold text-neutral-700">{pickLabel(calendarLabels.legendDateStatusTitle, locale)}:</span>
+        {CONFIRMATION_LEGEND.map((status) => (
+          <span key={status} className="flex items-center gap-1.5">
+            <span className={`inline-block h-2.5 w-2.5 rounded-full bg-current ${entryToneClass[status]}`} />
+            {dateConfirmationBadge(status, locale).text}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

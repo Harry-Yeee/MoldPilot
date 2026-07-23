@@ -1,6 +1,6 @@
 # Lessons Library Design v1 (碰过的坑 — company memory)
 
-Owner: Harry · 2026-07-06 · Status: design locked, build in phase 2 (after /kpi dashboard, needs 2-3 months of issue volume + the monthly meeting ritual)
+Owner: Harry · 2026-07-06 · Status: design locked, build in phase 2 (after `/reports` Management Reports, needs 2-3 months of issue volume + the monthly meeting ritual)
 
 ## Core decision: issues ≠ lessons
 
@@ -65,4 +65,4 @@ Flow of volumes: ~150 voted/year → the solved+verified subset → monthly cura
 - Schema: Lesson + LessonIssueLink + LessonTag tables; consultation log; supersede chain. No changes to TrialIssue entry flow.
 - Permissions: lesson.curate (meeting roles/admin), lesson.view (all).
 - Candidate-nomination job rides the nightly KPI snapshot job.
-- Prompt number reserved: 09 (after 08 Design role and the /kpi dashboard).
+- Prompt number reserved: 10 (after 09 Management Reports).

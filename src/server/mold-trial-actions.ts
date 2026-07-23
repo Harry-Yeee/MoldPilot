@@ -19,15 +19,21 @@ import type {
   TrialResult as PrismaTrialResult,
   TrialStatus as PrismaTrialStatus
 } from "@prisma/client";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { validateSelectedCustomerForProject } from "@/domain/mold-trial/customers";
 import { validateAutoMissedResolution, type AutoMissedResolutionMode } from "@/domain/mold-trial/auto-missed";
 import { clearedProposalFields } from "@/domain/mold-trial/date-confirmation";
 import { selectCurrentPlannedTrial } from "@/domain/mold-trial/current-trial";
+import {
+  DUPLICATE_SUBMISSION_WINDOW_MS,
+  isDuplicateIssueSubmission,
+  isDuplicateMissedTrialSubmission,
+  isDuplicateTrialSubmission
+} from "@/domain/mold-trial/submission-guards";
 import { createInternalTrackingCode, normalizeClientProjectRef } from "@/domain/mold-trial/identifiers";
+import { computeDefaultIssueDueDate, defaultOwnerGroupCodeForIssueType } from "@/domain/mold-trial/issue-routing";
 import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
 import {
   buildCustomerSafeProcessSheetExport,
@@ -72,6 +78,7 @@ import {
   trialResultLabels
 } from "@/server/mold-trial-codecs";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
+import { writeAttachmentFile } from "@/server/attachment-storage";
 import { getCurrentUser } from "@/server/current-user";
 import { storeIssuePhotos } from "@/server/issue-photo-storage";
 import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-trial-limit-service";
@@ -1485,11 +1492,29 @@ export async function recordMissedTrial(formData: FormData) {
     const reasonCategory = toDbEnum(reasonCategoryRaw, missedTrialReasonValues, "missed-trial reason");
     const responsibleArea = toDbEnum(responsibleAreaRaw, responsibleAreaValues, "responsible area");
 
+    const now = new Date();
+    const duplicateWindowStart = new Date(now.getTime() - DUPLICATE_SUBMISSION_WINDOW_MS);
+
     await prisma.$transaction(async (tx) => {
+      // Double-tap guard: a second identical submit (same trial + new planned
+      // day) inside the window records nothing more — the first submit already
+      // wrote the MissedTrialEvent + re-plan and its ActivityLog.
+      const recentMissed = await tx.missedTrialEvent.findMany({
+        where: { trialEventId: delayedTrial.id, createdAt: { gte: duplicateWindowStart } },
+        select: { trialEventId: true, newPlannedDate: true, createdAt: true }
+      });
+      if (
+        recentMissed.some((existing) =>
+          isDuplicateMissedTrialSubmission(existing, { trialEventId: delayedTrial.id, newPlannedDate }, now)
+        )
+      ) {
+        return;
+      }
+
       const missed = await tx.missedTrialEvent.create({
         data: {
           moldTrialProjectId: project.id,
-          trialEventId: delayedTrial?.id,
+          trialEventId: delayedTrial.id,
           plannedDate,
           newPlannedDate,
           reasonCategory,
@@ -1593,6 +1618,13 @@ export async function resolveAutoMissedTrial(formData: FormData) {
       redirectWithMessage(fallback, "error", "Auto-missed trial event is required.");
     }
 
+    // Idempotency guard: once this auto-missed trial has been resolved (the
+    // column is stamped), a second submit is a graceful success — no duplicate
+    // MissedTrialEvent, no duplicate ActivityLog, no second re-plan.
+    if (trial.autoMissedResolvedAt != null) {
+      redirectWithMessage(fallback, "success", "Auto-missed trial already resolved.");
+    }
+
     if (trial.status !== "AUTO_MISSED_REASON_REQUIRED") {
       redirectWithMessage(fallback, "error", "Only auto-missed trials can be resolved from this panel.");
     }
@@ -1622,22 +1654,12 @@ export async function resolveAutoMissedTrial(formData: FormData) {
         redirectWithMessage(fallback, "error", "Confirmed missed trial requires new planned date.");
       }
 
-      await prisma.$transaction(async (tx) => {
-        const missed = await tx.missedTrialEvent.create({
-          data: {
-            moldTrialProjectId: project.id,
-            trialEventId: trial.id,
-            plannedDate: trial.plannedDate,
-            newPlannedDate,
-            reasonCategory,
-            responsibleArea,
-            explanation,
-            createdById: actor.id
-          }
-        });
-
-        const resolved = await tx.trialEvent.update({
-          where: { id: trial.id },
+      const missedOutcome = await prisma.$transaction(async (tx) => {
+        // Precondition guard: resolve the trial only while it is still awaiting a
+        // reason and unresolved. A concurrent/second submit finds count === 0 and
+        // writes no MissedTrialEvent, no project change, no ActivityLog.
+        const claimed = await tx.trialEvent.updateMany({
+          where: { id: trial.id, status: "AUTO_MISSED_REASON_REQUIRED", autoMissedResolvedAt: null },
           data: {
             plannedDate: newPlannedDate,
             status: "PLANNED",
@@ -1653,6 +1675,23 @@ export async function resolveAutoMissedTrial(formData: FormData) {
             dateConfirmedById: null,
             dateConfirmedAt: null,
             ...clearedProposalFields()
+          }
+        });
+
+        if (claimed.count === 0) {
+          return { resolved: false as const };
+        }
+
+        const missed = await tx.missedTrialEvent.create({
+          data: {
+            moldTrialProjectId: project.id,
+            trialEventId: trial.id,
+            plannedDate: trial.plannedDate,
+            newPlannedDate,
+            reasonCategory,
+            responsibleArea,
+            explanation,
+            createdById: actor.id
           }
         });
 
@@ -1678,29 +1717,37 @@ export async function resolveAutoMissedTrial(formData: FormData) {
         await logActivity(tx, {
           actorUserId: actor.id,
           entityType: "TrialEvent",
-          entityId: resolved.id,
+          entityId: trial.id,
           action: "resolved_auto_missed_as_truly_missed",
           beforeJson: { status: trial.status, autoMissedAt: trial.autoMissedAt?.toISOString() ?? null },
           afterJson: {
-            trialStage: trialStageLabel(resolved.sequenceNumber),
-            status: resolved.status,
-            plannedDate: activityDate(resolved.plannedDate),
-            autoMissedResolution: resolved.autoMissedResolution
+            trialStage: trialStageLabel(trial.sequenceNumber),
+            status: "PLANNED",
+            plannedDate: activityDate(newPlannedDate),
+            autoMissedResolution: "MISSED_CONFIRMED"
           }
         });
+
+        return { resolved: true as const };
       });
 
       revalidatePath("/");
       revalidatePath(fallback);
-      redirectWithMessage(fallback, "success", "Auto-missed trial resolved as missed.");
+      redirectWithMessage(
+        fallback,
+        "success",
+        missedOutcome.resolved ? "Auto-missed trial resolved as missed." : "Auto-missed trial already resolved."
+      );
     }
 
     const projectStatus: PrismaMoldTrialProjectStatus = mode === "BLOCKED" ? "BLOCKED" : "PAUSED";
     const autoMissedResolution = mode === "BLOCKED" ? "BLOCKED" : "PAUSED";
 
-    await prisma.$transaction(async (tx) => {
-      const resolved = await tx.trialEvent.update({
-        where: { id: trial.id },
+    const blockedOutcome = await prisma.$transaction(async (tx) => {
+      // Precondition guard: same idempotency window as the MISSED path — only the
+      // first submit transitions the still-unresolved auto-missed trial.
+      const claimed = await tx.trialEvent.updateMany({
+        where: { id: trial.id, status: "AUTO_MISSED_REASON_REQUIRED", autoMissedResolvedAt: null },
         data: {
           status: "DELAYED",
           autoMissedResolvedAt: new Date(),
@@ -1708,6 +1755,10 @@ export async function resolveAutoMissedTrial(formData: FormData) {
           autoMissedResolution
         }
       });
+
+      if (claimed.count === 0) {
+        return { resolved: false as const };
+      }
 
       await tx.moldTrialProject.update({
         where: { id: project.id },
@@ -1719,21 +1770,31 @@ export async function resolveAutoMissedTrial(formData: FormData) {
       await logActivity(tx, {
         actorUserId: actor.id,
         entityType: "TrialEvent",
-        entityId: resolved.id,
+        entityId: trial.id,
         action: mode === "BLOCKED" ? "resolved_auto_missed_as_blocked" : "resolved_auto_missed_as_paused",
         beforeJson: { status: trial.status, autoMissedAt: trial.autoMissedAt?.toISOString() ?? null },
         afterJson: {
-          status: resolved.status,
+          status: "DELAYED",
           projectStatus,
-          autoMissedResolution: resolved.autoMissedResolution,
+          autoMissedResolution,
           explanation
         }
       });
+
+      return { resolved: true as const };
     });
 
     revalidatePath("/");
     revalidatePath(fallback);
-    redirectWithMessage(fallback, "success", mode === "BLOCKED" ? "Project marked blocked." : "Project marked paused.");
+    redirectWithMessage(
+      fallback,
+      "success",
+      blockedOutcome.resolved
+        ? mode === "BLOCKED"
+          ? "Project marked blocked."
+          : "Project marked paused."
+        : "Auto-missed trial already resolved."
+    );
   } catch (error) {
     if (isRedirectSignal(error)) {
       throw error;
@@ -2160,9 +2221,18 @@ export async function saveTrialProcessSheetValues(
   }
 }
 
-export async function exportProcessSheetPdf(formData: FormData) {
+export type ProcessSheetPdfExportState = {
+  success: boolean;
+  attachmentId: string | null;
+  fileName: string | null;
+  error: string | null;
+};
+
+export async function exportProcessSheetPdf(
+  _previousState: ProcessSheetPdfExportState,
+  formData: FormData
+): Promise<ProcessSheetPdfExportState> {
   const projectCode = value(formData, "projectCode");
-  const fallback = redirectPath(formData, `/projects/${projectCode}`);
 
   try {
     const actor = await getActor("trial.process_sheet.export_pdf");
@@ -2260,22 +2330,27 @@ export async function exportProcessSheetPdf(formData: FormData) {
       nextStep: project.trialEvents.at(-1)?.nextAction ?? project.trialEvents.at(-1)?.planReasonDetail ?? null
     });
     const fileName = `${project.projectCode}-process-sheet-${Date.now()}.pdf`;
-    const storageKey = path.join("generated", "process-sheet-exports", fileName);
-    const absolutePath = path.join(process.cwd(), storageKey);
-
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, await createSimplePdfBuffer(exportText));
+    const attachmentId = randomUUID();
+    const pdfBuffer = await createSimplePdfBuffer(exportText);
+    const { storageKey, sizeBytes } = await writeAttachmentFile({
+      id: attachmentId,
+      extension: "pdf",
+      data: pdfBuffer
+    });
 
     await prisma.$transaction(async (tx) => {
       const attachment = await tx.fileAttachment.create({
         data: {
+          id: attachmentId,
           moldTrialProjectId: project.id,
           entityType: "PROCESS_SHEET_EXPORT",
           entityId: project.id,
           fileName,
           fileType: "PROCESS_SHEET_PDF",
           storageKey,
-          visibility: "RESTRICTED",
+          contentType: "application/pdf",
+          sizeBytes,
+          visibility: "CUSTOMER_SAFE",
           uploadedById: actor.id
         }
       });
@@ -2287,21 +2362,32 @@ export async function exportProcessSheetPdf(formData: FormData) {
         action: "exported_process_sheet_pdf",
         afterJson: {
           projectCode,
+          attachmentId: attachment.id,
           fileName,
-          storageKey,
+          sizeBytes: attachment.sizeBytes,
           visibility: attachment.visibility
         }
       });
     });
 
-    revalidatePath(fallback);
-    redirectWithMessage(fallback, "success", "Process sheet PDF exported.");
+    revalidatePath(`/projects/${projectCode}`);
+    return {
+      success: true,
+      attachmentId,
+      fileName,
+      error: null
+    };
   } catch (error) {
     if (isRedirectSignal(error)) {
       throw error;
     }
 
-    redirectWithMessage(fallback, "error", friendlyActionErrorMessage(error, "Unable to export process sheet PDF."));
+    return {
+      success: false,
+      attachmentId: null,
+      fileName: null,
+      error: friendlyActionErrorMessage(error, "Unable to export process sheet PDF.")
+    };
   }
 }
 
@@ -2466,7 +2552,25 @@ export async function addNewPlannedTrial(formData: FormData) {
       await requirePermissions(actor.id, ["trial.design_change.report", "trial.design_change.approve_extra_trial"]);
     }
 
+    const now = new Date();
+    const duplicateWindowStart = new Date(now.getTime() - DUPLICATE_SUBMISSION_WINDOW_MS);
+
     await prisma.$transaction(async (tx) => {
+      // Double-tap guard: same project + planned day + trial code created within
+      // the window means the first submit already added this trial (and any
+      // design-change allowance) — skip the duplicate create entirely.
+      const recentTrials = await tx.trialEvent.findMany({
+        where: { moldTrialProjectId: project.id, createdAt: { gte: duplicateWindowStart } },
+        select: { moldTrialProjectId: true, plannedDate: true, trialCode: true, createdAt: true }
+      });
+      if (
+        recentTrials.some((existing) =>
+          isDuplicateTrialSubmission(existing, { moldTrialProjectId: project.id, plannedDate, trialCode }, now)
+        )
+      ) {
+        return;
+      }
+
       let relatedDesignChangeEventId: string | null = null;
 
       if (createsDesignChangeAllowance) {
@@ -2561,13 +2665,23 @@ export async function createTrialIssue(formData: FormData) {
     const actor = await getActor("trial.issue.create");
     const project = await prisma.moldTrialProject.findUnique({ where: { projectCode } });
     const ownerUsername = optionalValue(formData, "ownerUsername");
-    const ownerGroupCode = optionalValue(formData, "ownerGroupCode");
+    const explicitOwnerGroupCode = optionalValue(formData, "ownerGroupCode");
     const ownerUser = ownerUsername == null ? null : await findUserByUsername(ownerUsername, "Owner");
-    const ownerGroup = ownerGroupCode == null
-      ? null
-      : await prisma.departmentGroup.findUnique({ where: { code: ownerGroupCode } });
     const foundAtTrialEventId = optionalValue(formData, "foundAtTrialEventId");
     const issueTypeRaw = value(formData, "issueType");
+    // R1 (blame-free intake): the create form never names a person. When neither
+    // an owner user nor an explicit department override is supplied, route the
+    // issue to the department inbox its type belongs to, so it lands in a queue a
+    // whole role watches instead of on one named individual. An explicit owner or
+    // department override (e.g. from the edit tools) still flows through unchanged.
+    const ownerGroupCode =
+      ownerUser == null && explicitOwnerGroupCode == null
+        ? defaultOwnerGroupCodeForIssueType(issueTypeRaw)
+        : explicitOwnerGroupCode;
+    const ownerGroup =
+      ownerGroupCode == null
+        ? null
+        : await prisma.departmentGroup.findUnique({ where: { code: ownerGroupCode } });
     const sourceRaw = value(formData, "source");
     const severityRaw = value(formData, "severity");
     const statusRaw = value(formData, "status");
@@ -2621,8 +2735,34 @@ export async function createTrialIssue(formData: FormData) {
     // Photos ride along in the same submission; capture them before the issue
     // transaction so we can attach them right after it commits.
     const photoFiles = fileValues(formData, "photos");
+    const candidateTitle = value(formData, "title");
+    const now = new Date();
+    const duplicateWindowStart = new Date(now.getTime() - DUPLICATE_SUBMISSION_WINDOW_MS);
 
-    const createdIssue = await prisma.$transaction(async (tx) => {
+    const createResult = await prisma.$transaction(async (tx) => {
+      // Double-tap guard: same project + creator + title created within the
+      // window is the same intent arriving twice. Return the idempotent success
+      // without creating a second issue (photos on the dup submit are dropped).
+      const recentIssues = await tx.trialIssue.findMany({
+        where: {
+          moldTrialProjectId: project.id,
+          createdById: actor.id,
+          createdAt: { gte: duplicateWindowStart }
+        },
+        select: { moldTrialProjectId: true, createdById: true, title: true, createdAt: true }
+      });
+      if (
+        recentIssues.some((existing) =>
+          isDuplicateIssueSubmission(
+            existing,
+            { moldTrialProjectId: project.id, createdById: actor.id, title: candidateTitle },
+            now
+          )
+        )
+      ) {
+        return { duplicate: true as const, issueId: null };
+      }
+
       if (foundAtTrialEventId != null) {
         const foundAtTrial = await tx.trialEvent.findFirst({
           where: {
@@ -2644,7 +2784,7 @@ export async function createTrialIssue(formData: FormData) {
           affectedScope,
           affectedPartId,
           affectedCavityNote,
-          title: value(formData, "title"),
+          title: candidateTitle,
           description: optionalValue(formData, "description"),
           issueType,
           source,
@@ -2653,7 +2793,9 @@ export async function createTrialIssue(formData: FormData) {
           status,
           ownerUserId: ownerUser?.id,
           ownerGroupId: ownerGroup?.id,
-          dueDate,
+          // R1: when the creator leaves the due date blank, apply the default
+          // policy window (createdAt + DEFAULT_ISSUE_DUE_HOURS) instead of blocking.
+          dueDate: dueDate ?? computeDefaultIssueDueDate(now),
           createdById: actor.id,
           reportedById: actor.id
         }
@@ -2673,8 +2815,16 @@ export async function createTrialIssue(formData: FormData) {
         }
       });
 
-      return issue;
+      return { duplicate: false as const, issueId: issue.id };
     });
+
+    // A duplicate double-tap already succeeded once: skip re-storing photos and
+    // return the normal success message (idempotent success, not an error).
+    if (createResult.duplicate || createResult.issueId == null) {
+      revalidatePath("/");
+      revalidatePath(fallback);
+      redirectWithMessage(fallback, "success", "Trial issue created.");
+    }
 
     // Store photos only after the issue commits: a failed/invalid photo never
     // rolls back the saved issue; the failed filenames surface as a warning.
@@ -2685,7 +2835,7 @@ export async function createTrialIssue(formData: FormData) {
             actorId: actor.id,
             projectId: project.id,
             projectCode: project.projectCode,
-            issueId: createdIssue.id,
+            issueId: createResult.issueId,
             files: photoFiles
           });
 
@@ -2921,8 +3071,10 @@ export async function closeTrialIssue(formData: FormData) {
 
     assertProjectHasMoldCode(issue.moldTrialProject);
 
+    // A second submit (the first close already committed) is a graceful success,
+    // not an error — the user's intent (close it) succeeded once already.
     if (issue.status === "CLOSED") {
-      redirectWithMessage(fallback, "error", "Trial issue is already closed.");
+      redirectWithMessage(fallback, "success", "Trial issue already closed.");
     }
 
     await requireTrialIssueCloseAuthorization({
@@ -2951,23 +3103,32 @@ export async function closeTrialIssue(formData: FormData) {
       redirectWithMessage(fallback, "error", firstValidationMessage(validation));
     }
 
-    await prisma.$transaction(async (tx) => {
-      const updated = await tx.trialIssue.update({
-        where: { id: issue.id },
+    const nonOwnerCloseReasonWritten = issue.ownerUserId === actor.id ? null : nonOwnerCloseReason;
+
+    const closeOutcome = await prisma.$transaction(async (tx) => {
+      // Precondition guard: transition only an issue that is not already CLOSED.
+      // A concurrent/second submit (already CLOSED by the first) finds
+      // count === 0 and writes no second ActivityLog.
+      const result = await tx.trialIssue.updateMany({
+        where: { id: issue.id, status: { not: "CLOSED" } },
         data: {
           status: "CLOSED",
           fixSummary,
           fixTimeMinutes,
           closedAt,
           closedById: actor.id,
-          nonOwnerCloseReason: issue.ownerUserId === actor.id ? null : nonOwnerCloseReason
+          nonOwnerCloseReason: nonOwnerCloseReasonWritten
         }
       });
+
+      if (result.count === 0) {
+        return { closed: false as const };
+      }
 
       await logActivity(tx, {
         actorUserId: actor.id,
         entityType: "TrialIssue",
-        entityId: updated.id,
+        entityId: issue.id,
         action: "closed_trial_issue",
         beforeJson: {
           status: issue.status,
@@ -2978,19 +3139,25 @@ export async function closeTrialIssue(formData: FormData) {
           nonOwnerCloseReason: issue.nonOwnerCloseReason
         },
         afterJson: {
-          status: updated.status,
-          closedAt: activityDate(updated.closedAt),
-          closedById: updated.closedById,
-          fixSummary: updated.fixSummary,
-          fixTimeMinutes: updated.fixTimeMinutes,
-          nonOwnerCloseReason: updated.nonOwnerCloseReason
+          status: "CLOSED",
+          closedAt: activityDate(closedAt),
+          closedById: actor.id,
+          fixSummary,
+          fixTimeMinutes,
+          nonOwnerCloseReason: nonOwnerCloseReasonWritten
         }
       });
+
+      return { closed: true as const };
     });
 
     revalidatePath("/");
     revalidatePath(fallback);
-    redirectWithMessage(fallback, "success", "Trial issue closed.");
+    redirectWithMessage(
+      fallback,
+      "success",
+      closeOutcome.closed ? "Trial issue closed." : "Trial issue already closed."
+    );
   } catch (error) {
     if (isRedirectSignal(error)) {
       throw error;
@@ -3246,31 +3413,56 @@ export async function updateTrialIssue(formData: FormData) {
     });
 
     await prisma.$transaction(async (tx) => {
-      const updated = await tx.trialIssue.update({
-        where: { id: issue.id },
-        data: {
-          status,
-          affectedScope,
-          affectedPartId,
-          affectedCavityNote,
-          ownerUserId: ownerUser?.id,
-          ownerGroupId: ownerGroup?.id,
-          dueDate,
-          rootCause,
-          correctiveAction,
-          verificationMethod,
-          verificationResult,
-          assemblyAcknowledgedAt,
-          assemblyEstimatedFinishDate,
-          assemblyAcknowledgedById,
-          assemblySelfCheckedAt,
-          assemblySelfCheckedById,
-          assemblySelfCheckNote,
-          pmReadyConfirmedAt,
-          pmReadyConfirmedById,
-          closedAt: status === "CLOSED" ? closedAt : null
+      const updateData = {
+        status,
+        affectedScope,
+        affectedPartId,
+        affectedCavityNote,
+        ownerUserId: ownerUser?.id,
+        ownerGroupId: ownerGroup?.id,
+        dueDate,
+        rootCause,
+        correctiveAction,
+        verificationMethod,
+        verificationResult,
+        assemblyAcknowledgedAt,
+        assemblyEstimatedFinishDate,
+        assemblyAcknowledgedById,
+        assemblySelfCheckedAt,
+        assemblySelfCheckedById,
+        assemblySelfCheckNote,
+        pmReadyConfirmedAt,
+        pmReadyConfirmedById,
+        closedAt: status === "CLOSED" ? closedAt : null
+      };
+
+      let updated;
+      if (departmentInboxClaim) {
+        // Claim-race guard: assign an owner only while the department-inbox issue
+        // is still unclaimed (ownerUserId IS NULL). The concurrent loser gets
+        // count === 0 and a clear "already claimed by <name>" error — never a
+        // silent overwrite of the winner's claim.
+        const claim = await tx.trialIssue.updateMany({
+          where: { id: issue.id, ownerUserId: null },
+          data: updateData
+        });
+
+        if (claim.count === 0) {
+          const current = await tx.trialIssue.findUnique({
+            where: { id: issue.id },
+            select: { ownerUser: { select: { displayName: true, username: true } } }
+          });
+          const claimedByName = current?.ownerUser?.displayName ?? current?.ownerUser?.username ?? "another user";
+          throw new Error(`Already being handled by ${claimedByName} / 已由 ${claimedByName} 处理`);
         }
-      });
+
+        updated = await tx.trialIssue.findUniqueOrThrow({ where: { id: issue.id } });
+      } else {
+        updated = await tx.trialIssue.update({
+          where: { id: issue.id },
+          data: updateData
+        });
+      }
 
       await logActivity(tx, {
         actorUserId: actor.id,

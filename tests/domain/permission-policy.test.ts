@@ -72,10 +72,10 @@ describe("Phase 1 named permission policy", () => {
     );
   });
 
-  test("issue close permission defaults match owner plus PM/GM/Admin oversight policy", () => {
+  test("issue close permission defaults match owner plus PM/GM/Design/Admin oversight policy", () => {
     assert.deepEqual(
       roleCodes.filter((roleCode) => roleHasDefaultPermission(roleCode, "trial.issue.close")),
-      ["GM", "PM", "ADMIN"]
+      ["GM", "PM", "DESIGN", "ADMIN"]
     );
   });
 

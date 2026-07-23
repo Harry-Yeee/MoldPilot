@@ -42,8 +42,12 @@ export function isKpiRuleCode(value: string): value is KpiRuleCode {
  */
 export type KpiRoleScope = "pm" | "injection" | "assembly" | "marketing" | "qc" | "all" | "design";
 
-/** Role scopes whose rules are DORMANT until their role exists (grayed in the panel). */
-export const dormantRoleScopes: readonly KpiRoleScope[] = ["design"];
+/**
+ * Role scopes whose rules are DORMANT until their role exists (grayed in the
+ * panel). Empty since the Design role was onboarded (2026-07-08) and its two
+ * rules went active — nothing is pending a role anymore.
+ */
+export const dormantRoleScopes: readonly KpiRoleScope[] = [];
 
 export function isDormantRoleScope(roleScope: string): boolean {
   return (dormantRoleScopes as readonly string[]).includes(roleScope);
@@ -111,6 +115,15 @@ export const HOT_3_MULTIPLIER = 1;
 export const barHitPercent = 85;
 export const minApplicableForBar = 5;
 
+/**
+ * Monthly prize amounts in yuan (v2 §6). A leader whose GROUP hits the bar earns
+ * a flat ¥400 ("my 400", not split); a referee (QC / Marketing) whose service
+ * bar is met earns a ¥250 allowance. The Leaders section reads these so the money
+ * captions have ONE source of truth instead of strings sprinkled around the UI.
+ */
+export const leaderHabitPrizeYuan = 400;
+export const refereeAllowanceYuan = 250;
+
 export type KpiRuleSeed = {
   code: KpiRuleCode;
   labelEn: string;
@@ -144,9 +157,9 @@ export const defaultKpiRules: readonly KpiRuleSeed[] = [
   // Everyone's shared line
   { code: "all.inbox_claim", labelEn: "Department-inbox issue claimed", labelZh: "部门问题认领", hours: 48, roleScope: "all", active: true, sortOrder: 10 },
   { code: "all.photo_on_defect", labelEn: "Photo attached where a defect is claimed", labelZh: "缺陷附照片", hours: null, roleScope: "all", active: true, sortOrder: 20 },
-  // Design — DORMANT until the Design role exists (registered, active:false)
-  { code: "design.change_revision", labelEn: "Design-change revision turned around", labelZh: "设计变更修订完成", hours: 48, roleScope: "design", active: false, sortOrder: 10 },
-  { code: "design.inbox_claim", labelEn: "Design-inbox issue claimed", labelZh: "设计问题认领", hours: 48, roleScope: "design", active: false, sortOrder: 20 }
+  // Design — ACTIVE since the Design role was onboarded (2026-07-08)
+  { code: "design.change_revision", labelEn: "Design-change revision turned around", labelZh: "设计变更修订完成", hours: 48, roleScope: "design", active: true, sortOrder: 10 },
+  { code: "design.inbox_claim", labelEn: "Design-inbox issue claimed", labelZh: "设计问题认领", hours: 48, roleScope: "design", active: true, sortOrder: 20 }
 ] as const;
 
 /**
@@ -163,6 +176,16 @@ export function isBooleanKpiRuleCode(code: string): boolean {
   return (booleanKpiRuleCodes as readonly string[]).includes(code);
 }
 
+/**
+ * Canonical bilingual label per rule code, derived from the seed catalog. The
+ * /me deadline-countdown chip's tooltip ("Deadline rule: <label> · <H>h") reads
+ * this so the chip names the same behavior the Rules tab lists, without
+ * threading DB labels through the plate query (only the HOURS are live/editable).
+ */
+export const kpiRuleLabelByCode: Record<KpiRuleCode, BilingualLabel> = Object.fromEntries(
+  defaultKpiRules.map((rule) => [rule.code, { en: rule.labelEn, zh: rule.labelZh }])
+) as Record<KpiRuleCode, BilingualLabel>;
+
 /** Bilingual heading per role scope for grouping in the Rules panel + scores. */
 export const kpiRoleScopeLabels: Record<KpiRoleScope, BilingualLabel> = {
   pm: { en: "PM", zh: "PM" },
@@ -173,6 +196,30 @@ export const kpiRoleScopeLabels: Record<KpiRoleScope, BilingualLabel> = {
   all: { en: "Everyone", zh: "全员" },
   design: { en: "Design", zh: "设计" }
 };
+
+/**
+ * Bilingual label per KPI leader/referee group code, shown in the Scores tab's
+ * Leaders section. Keyed on `DepartmentGroup.code`: the two assembly children
+ * (`assembly-a` 钟组 / `assembly-b` 裴组) are the split leader groups, `pm` labels
+ * the award-tier individuals, and `qc`/`marketing` name the two referee bars.
+ * Groups without a specific entry fall back to their raw name in the server.
+ */
+export const kpiLeaderGroupLabels: Record<string, BilingualLabel> = {
+  design: { en: "Design", zh: "设计" },
+  "assembly-a": { en: "Assembly · Zhong", zh: "装配 · 钟组" },
+  "assembly-b": { en: "Assembly · Pei", zh: "装配 · 裴组" },
+  injection: { en: "Injection", zh: "注塑" },
+  pm: { en: "PM", zh: "PM" },
+  qc: { en: "QC (referee)", zh: "质检（裁判）" },
+  marketing: { en: "Marketing (referee)", zh: "市场（裁判）" }
+};
+
+/** Referee group codes — their leader bars pay the ¥250 allowance, never the ¥400 pool. */
+export const kpiRefereeGroupCodes: readonly string[] = ["qc", "marketing"];
+
+export function isKpiRefereeGroupCode(code: string): boolean {
+  return kpiRefereeGroupCodes.includes(code);
+}
 
 /** Order role scopes appear in the Rules panel and Scores rollup. */
 export const kpiRoleScopeOrder: readonly KpiRoleScope[] = [
@@ -244,7 +291,25 @@ export const kpiLabels = {
   hit: { en: "Hit", zh: "达标" },
   miss: { en: "Miss", zh: "未达标" },
   notEnough: { en: "Not enough data (counts as hit)", zh: "数据不足（视为达标）" },
+  notEnoughShort: { en: "Not enough data", zh: "数据不足" },
+  notEnoughHint: {
+    en: "Fewer than 5 applicable events — counts as hit",
+    zh: "适用事项不足 5 件——视为达标"
+  },
   ref: { en: "Item", zh: "事项" },
+  // Scores tab — Leaders section (组长达标): per-leader group bars above the grid.
+  leaders: { en: "Leaders", zh: "组长达标" },
+  leadersHint: {
+    en: "Each leader's bar is their GROUP's combined data — the crew's records must be complete too. ¥400 on a hit; referees earn ¥250.",
+    zh: "每位组长的达标线取其「组」的合并数据——组员的记录也要齐全。达标发 ¥400；裁判发 ¥250。"
+  },
+  leaderColumn: { en: "Leader", zh: "组长" },
+  groupColumn: { en: "Group", zh: "组" },
+  membersColumn: { en: "Members", zh: "组员" },
+  individualTag: { en: "individual", zh: "个人" },
+  refereeHeading: { en: "Referees — service bars", zh: "裁判——服务达标线" },
+  refereeSuffix: { en: "referee", zh: "裁判" },
+  memberBreakdown: { en: "Members, one by one", zh: "组员逐一" },
   dueAt: { en: "Due at", zh: "截止" },
   doneAt: { en: "Done at", zh: "完成" },
   pending: { en: "pending", zh: "待定" },
@@ -254,6 +319,10 @@ export const kpiLabels = {
   notDone: { en: "not done", zh: "未完成" },
   showMore: { en: "more", zh: "更多" },
   auditDetails: { en: "Audit detail", zh: "查证明细" },
+  // Scores tab — column sorting
+  sortBy: { en: "Sort by", zh: "排序" },
+  ascending: { en: "ascending", zh: "升序" },
+  descending: { en: "descending", zh: "降序" },
   // Personal scoreboard
   scoreboardTitle: { en: "My score", zh: "我的成绩" },
   scoreboardSubtitle: {
@@ -289,6 +358,25 @@ export const kpiLabels = {
   notEnabledHint: {
     en: "The first two months after launch are a quiet baseline. Your score will appear here once it opens.",
     zh: "启用后的头两个月为安静的基准期。开启后你的成绩会显示在这里。"
+  },
+  // "Hope math" — the single path-forward line under the /score verdict banner.
+  // Fixes the mid-month give-up cliff: it always reads as a path, never a threat.
+  // No red anywhere. `{n}` is filled from the pure bar-math helpers.
+  hopeRecovery: {
+    en: "Hit your next {n} deadlines on time and you're back over the bar.",
+    zh: "再连续按时完成 {n} 件即可达标。"
+  },
+  hopeBuffer: {
+    en: "Over the bar — room to miss {n} more.",
+    zh: "已达标 · 还有 {n} 件容错空间。"
+  },
+  hopeNoRoom: {
+    en: "Right on the bar — no room to spare.",
+    zh: "刚好达标，别松手。"
+  },
+  hopeFloorGuidance: {
+    en: "If more events come this month: hit your next {n} on time to stay over.",
+    zh: "若本月事项增多：接下来按时完成 {n} 件即可保持达标。"
   }
 } as const satisfies Record<string, BilingualLabel>;
 

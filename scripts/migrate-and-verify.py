@@ -55,6 +55,31 @@ def main() -> int:
     print(f"MoldPilot migrate-and-verify  ({PROJECT_ROOT})")
     print("-" * 60)
 
+    # One-time history repair (idempotent, harmless on every run):
+    # 20260707080611_kpi_update was auto-generated AFTER the tables it alters
+    # were created by 20260707120000, but its timestamp sorted EARLIER, which
+    # breaks shadow-database replay (P3006). The folder was renamed to
+    # 20260707130000_kpi_update; this updates the applied-history row to match.
+    # File content is unchanged, so Prisma's checksums remain valid.
+    repair_sql = (
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = '_prisma_migrations') THEN "
+        "UPDATE \"_prisma_migrations\" SET migration_name = '20260707130000_kpi_update' "
+        "WHERE migration_name = '20260707080611_kpi_update'; "
+        "END IF; END $$;"
+    )
+    print("\n[0/{}] Repair migration history (idempotent)".format(len(STEPS)))
+    repair = subprocess.run(
+        ["pnpm", "exec", "prisma", "db", "execute", "--stdin"],
+        cwd=PROJECT_ROOT,
+        input=repair_sql,
+        text=True,
+    )
+    if repair.returncode != 0:
+        print("[FAIL] History repair could not run. Is PostgreSQL up? Try `pnpm pilot:db`, then rerun this script.")
+        return repair.returncode
+    print("[OK] Migration history consistent")
+
     for index, (title, command) in enumerate(STEPS, start=1):
         print(f"\n[{index}/{len(STEPS)}] {title}: {' '.join(command)}")
         started = time.monotonic()

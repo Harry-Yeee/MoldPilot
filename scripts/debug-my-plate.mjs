@@ -28,6 +28,7 @@ const roleCodeMap = {
   injection: "INJECTION",
   assembly: "ASSEMBLY",
   qc: "QC",
+  design: "DESIGN",
   viewer: "VIEWER",
   admin: "ADMIN"
 };

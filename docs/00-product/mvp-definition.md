@@ -61,6 +61,7 @@ Phase 1 tracks:
 - Fixed customer report/process-sheet template mapping
 - Admin-managed role and permission settings for Phase 1 workflow actions
 - Admin-managed Customer Master for clean project intake
+- Admin/GM monthly Management Reports for mold-trial workload, workflow health, issue resolution, limit pressure, and existing KPI scorecard drilldown
 
 ## Phase 1 Non-Scope
 
@@ -79,8 +80,9 @@ Phase 1 does not include:
 - CRM or RFQ tracking
 - Inventory
 - Accounting
-- Employee scoring
+- Automatic employee ranking, blame scoring, or discipline from operational report counts
 - Automatic discipline workflow
+- Full BI/report designer, production planning, or factory utilization calculation
 
 These can be added later after the trial tracker is trusted and used.
 
@@ -447,6 +449,26 @@ Marketing should normally report customer-driven reasons through intake notes or
 
 PM and Injection should normally use internal rework, unresolved trial issue, QC failure, process retest, correction verification, or other documented reasons when scheduling another trial.
 
+### 9. Management Reports
+
+Provides an internal monthly management view at `/reports` for Admin and GM by default.
+
+Tabs:
+
+- `Overview`: company pulse, month-over-month mold-trial workload, workflow health, and Management Attention items.
+- `Issues`: issues created in the selected month plus current open backlog, severity, status, fix owner, due/overdue state, resolution, approximate fix time, and verification details.
+- `Scorecards`: the existing KPI leader/group and individual scorecard views; no duplicate scoring engine.
+
+Navigation rule:
+
+- Admin/GM accounts with `reports.management.view` see `Reports` instead of a manager-facing `My Score` button.
+- Scored staff keep `My Score` when the staff scoreboard is enabled.
+- `/score` remains the personal scorecard route.
+
+Phase 1 report calculations use existing operational records and `KpiSnapshot`; no generic report-builder schema is needed. Report month boundaries use the `Asia/Shanghai` business timezone. Workload means completed mold-trial runs, not factory utilization.
+
+Report metrics must preserve the rule that an issue owner is the fixer, not the culprit. Management may review issue categories, reason categories, departments, and processes, but the report must not produce individual blame counts or automatic discipline.
+
 ## Missed-Trial Reason Categories
 
 When a planned trial does not have a result by 12:00 PM on the next calendar day, the system marks it `Auto Missed - Reason Required`.
@@ -493,6 +515,13 @@ Phase 1 is successful if the company can reliably see:
 - Extra-trial reasons and adjustment history
 - New trial reasons by source: customer feedback, design change, internal rework, QC failure, process retest, or other
 - Trial records missing final disposition, if any
+- Completed mold-trial runs and unique molds trialed by month, compared with the previous month
+- New molds reaching their first actual T0 by month
+- On-time trial rate with its denominator
+- Projects approved on/before customer target and projects approved within T0/T1
+- Current near/at/over-limit molds and open critical issues
+- Issues created/closed by month, current open-issue aging, fix summaries, and approximate fix time
+- Missing result/process-sheet/QC data that could make management metrics misleading
 
 ## Rollout Philosophy
 

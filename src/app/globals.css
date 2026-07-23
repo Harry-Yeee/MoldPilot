@@ -59,7 +59,7 @@
 :root {
   color: #182230;
   background: #f5f7f9;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Arial, Helvetica, sans-serif;
 }
 
 * {
@@ -236,6 +236,14 @@ body {
   white-space: nowrap;
 }
 
+/* Bundle D: inside the desktop AppHeader's dark brand bar, the reused
+   LanguageSwitcher's muted label would be near-invisible — lift it to a light
+   neutral token for contrast. Scoped to .appHeaderBar so the phone account menu
+   (which reuses the same switcher) is untouched. */
+.appHeaderBar .languageSwitcher > span {
+  color: var(--color-neutral-100);
+}
+
 .languageSwitcher select {
   min-height: 2.25rem;
   border: 1px solid #c8d1dc;
@@ -244,6 +252,42 @@ body {
   color: #182230;
   font: inherit;
   padding: 0 8px;
+}
+
+.myTasksPageHeader {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.myTasksHeaderActions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.myTasksHeaderActions .languageSwitcher {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.myTasksHeaderActions .languageSwitcher select {
+  width: auto;
+  max-width: 100%;
+}
+
+@media (min-width: 440px) {
+  .myTasksPageHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .myTasksHeaderActions {
+    justify-content: flex-end;
+  }
 }
 
 .authLanguage {
@@ -308,6 +352,17 @@ h2 {
 
 h1 {
   font-size: clamp(2rem, 5vw, 3rem);
+}
+
+/* V5a (Bundle D): shrink the giant desktop h1 so the app-shell chrome stops
+   shouting over the data — data should be louder than chrome. Desktop only
+   (md+): the phone h1 sizes (viewports < md) are deliberately left unchanged so
+   the mobile headers stay pixel-identical. Still in @layer components, so a
+   Tailwind text-size utility (e.g. /score's `text-xl`) can override it. */
+@media (min-width: 768px) {
+  h1 {
+    font-size: clamp(1.6rem, 3vw, 2.1rem);
+  }
 }
 
 h2 {
@@ -437,6 +492,52 @@ h2 {
 .metricGrid strong {
   color: #182230;
   font-size: 1.5rem;
+}
+
+/* V3: the collapsed intake toggle — its <summary> reads as the primary button. */
+.intakeDetails {
+  margin-bottom: 16px;
+}
+
+.intakeDetails > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 2.25rem;
+  border: 1px solid #1d4f91;
+  border-radius: 6px;
+  background: #1d4f91;
+  color: white;
+  padding: 0 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.intakeDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.intakeDetails[open] > summary {
+  margin-bottom: 12px;
+}
+
+/* V2: urgency stripe — a 4px left border on the trial row's first cell, colored
+   by the row's status/limit tone (single source of truth: toneForStatus). */
+.trialRowMissed > td:first-child {
+  border-left: 4px solid var(--color-status-missed);
+}
+
+.trialRowAtRisk > td:first-child {
+  border-left: 4px solid var(--color-status-at-risk);
+}
+
+/* V7: a missing project value renders muted + normal weight (overriding the bold
+   dd default); the "Not set" meaning survives as the dash's title tooltip. */
+.valueMissing {
+  color: var(--color-neutral-500);
+  font-weight: 400;
 }
 
 .workSurface {
@@ -787,9 +888,12 @@ dd {
   background: #e5e9ef;
 }
 
+/* Five facts (planned / actual / result / counted / reason) fill five tracks
+   exactly — the old sixth track was always empty and showed as a trailing gray
+   cell (V7). The narrow-screen media query still collapses this to one column. */
 .trialPanelFacts {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1px;
 }
 
@@ -848,6 +952,20 @@ dd {
 
 .widePanelForm {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* R1 create-issue form: the optional secondary fields collapse into a native
+   <details>. The summary reads as a quiet, non-blocking toggle under title+photo. */
+.issueMoreDetails > summary {
+  cursor: pointer;
+  color: #4a6fb0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 4px 0;
+}
+
+.issueMoreDetails > .formGrid {
+  margin-top: 10px;
 }
 
 .issuePanelBlock {
@@ -1007,6 +1125,12 @@ table {
 
 .compactHistoryTable {
   min-width: 920px;
+}
+
+/* V4 column diet: the trimmed 7-column list fills the shell instead of inheriting
+   the wide default min-width, so it no longer forces horizontal scroll. */
+.moldTrialListTable {
+  min-width: 0;
 }
 
 .machineCreateForm {
@@ -1455,25 +1579,67 @@ th {
   background: #fbfcfe;
 }
 
-/* Stable summary grid: name | role | applicable | on-time | percent | verdict |
-   points. minmax(0,…) on every track keeps long names/refs from forcing an
-   overflow. The disclosure marker is kept; the row is the clickable summary. */
-.kpiScoreSummary {
+/* Shared, content-independent column template. The header row AND every user
+   summary row carry `.kpiScoreGrid`, so all rows share ONE set of track sizes
+   and their columns line up regardless of what any single row contains. Every
+   track is `minmax(<rem floor>, <fr>)`: the rem floor keeps each column content-
+   independent (deliberately NO `auto`/content-driven max anywhere — the wide
+   "Not enough data" floor badge must never stretch one row's verdict column and
+   shove the others out of line), while the fr shares spread ALL spare width
+   across EVERY column. (The old template flexed only the name track, so at wide
+   viewports every extra pixel pooled between Name and Role — a huge gap.) The
+   verdict floor (8rem) fits the two-line "Not enough data" badge. */
+.kpiScoreGrid {
   display: grid;
   grid-template-columns:
-    minmax(7rem, 1.4fr) minmax(5rem, 1fr) minmax(4.5rem, 0.8fr)
-    minmax(4.5rem, 0.8fr) minmax(3.5rem, 0.6fr) minmax(6rem, auto) minmax(4rem, 0.6fr);
+    minmax(9rem, 1.1fr) minmax(7rem, 0.9fr) minmax(5.5rem, 0.7fr) minmax(5rem, 0.7fr)
+    minmax(4rem, 0.6fr) minmax(8rem, 0.9fr) minmax(4rem, 0.5fr);
   gap: 10px;
   align-items: center;
+}
+
+/* Column header row above the list — muted, table-header styling. */
+.kpiScoreHeader {
+  background: white;
+  padding: 9px 18px;
+  color: #6b7787;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* Sortable header cells reuse the .sortButton/.sortIcon chrome from the trial
+   table, but drop its uppercase/heavy treatment to match the muted KPI header
+   and align to the numeric (right) / verdict (center) columns below. They are
+   links (server round-trip via ?scoreSort/?scoreDir), so kill the underline. */
+.kpiSortHeader {
+  text-transform: none;
+  font-weight: 700;
+  min-height: 1.5rem;
+  text-decoration: none;
+}
+
+.kpiSortHeader.kpiColNum {
+  justify-content: flex-end;
+}
+
+.kpiSortHeader.kpiColVerdict {
+  justify-content: center;
+}
+
+/* The row is the clickable summary; drop the disclosure marker entirely so it
+   never becomes a stray grid item that would shift the row out of line with the
+   header. */
+.kpiScoreSummary {
   cursor: pointer;
-  list-style-position: inside;
+  list-style: none;
 }
 
 .kpiScoreSummary::-webkit-details-marker {
-  color: #8a97a6;
+  display: none;
 }
 
-.kpiScoreSummary > * {
+.kpiScoreSummary > *,
+.kpiScoreHeader > * {
   min-width: 0;
 }
 
@@ -1493,20 +1659,206 @@ th {
   white-space: nowrap;
 }
 
-.kpiSummaryStat {
+/* Numeric columns: right-aligned with tabular figures so digits line up. The
+   shared alignment rule covers both the header (.kpiColNum) and the data
+   (.kpiSummaryNum) cells; data cells add their own type scale/color. */
+.kpiColNum,
+.kpiSummaryNum {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpiSummaryNum {
   font-size: 0.8125rem;
   color: #405367;
   white-space: nowrap;
 }
 
-.kpiSummaryStat b {
-  color: #182230;
-}
-
+/* Percent: emphasized by default; muted when the <5 floor granted the bar (the
+   verdict badge already carries the meaning) or nothing was applicable. */
 .kpiSummaryPct {
   font-weight: 800;
   color: #182230;
+}
+
+.kpiSummaryPctFloor {
+  font-weight: 600;
+  color: #8a97a6;
+}
+
+/* ── Leaders section (组长达标) ───────────────────────────────────────────────
+   Sits ABOVE the per-user grid: one expandable row per leader whose bar is
+   their GROUP's aggregate. Reuses the score-row chrome (.kpiScoreHeader,
+   .kpiSummaryNum, .kpiSummaryPct, .kpiAudit) on its own 7-track grid. */
+.kpiLeadersSection {
+  margin: 4px 0 22px;
+}
+
+.kpiLeadersTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #182230;
+  margin: 0 0 2px;
+}
+
+.kpiLeadersHint {
+  color: #6b7787;
+  font-size: 0.8125rem;
+  margin: 0 0 10px;
+}
+
+/* Leader row tracks: Leader | Group | Members | Applicable | On time | % | Bar.
+   Every track has a rem floor (content-independent) so columns line up across
+   the header and every row, exactly like .kpiScoreGrid. */
+.kpiLeaderGrid {
+  display: grid;
+  grid-template-columns:
+    minmax(6rem, 0.9fr) minmax(7rem, 1.1fr) minmax(3.5rem, 0.5fr) minmax(4rem, 0.55fr)
+    minmax(4rem, 0.55fr) minmax(4rem, 0.5fr) minmax(9rem, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.kpiLeaderRow {
+  display: block;
+  min-width: 0;
+  background: white;
+  padding: 12px 18px;
+}
+
+.kpiLeaderRow[open] {
+  background: #fbfcfe;
+}
+
+.kpiLeaderSummary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.kpiLeaderSummary::-webkit-details-marker {
+  display: none;
+}
+
+.kpiLeaderSummary > * {
+  min-width: 0;
+}
+
+/* Group cell: bilingual label (truncates) + an optional "individual" pill. */
+.kpiLeaderGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kpiLeaderGroupLabel {
+  color: #405367;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kpiLeaderTag {
+  flex: none;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #6b7787;
+  background: #eef1f5;
+  border-radius: 999px;
+  padding: 1px 7px;
+  text-transform: lowercase;
+}
+
+/* Verdict + prize stack: badge on top, the ¥ caption (hits only) beneath it. */
+.kpiLeaderVerdict {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.kpiLeaderPrize {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #197b4f;
+  white-space: nowrap;
+}
+
+/* Referee divider: a muted heading separating the ¥250 service bars from the
+   ¥400 award tier above. */
+.kpiRefereeHeading {
+  margin-top: 6px;
+  padding: 10px 18px 4px;
+  color: #6b7787;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-top: 1px dashed #d7dde5;
+}
+
+/* Member breakdown row inside an expanded leader: name · username | stats. */
+.kpiLeaderMemberRow {
+  align-items: center;
+}
+
+.kpiLeaderMemberStats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 840px) {
+  /* Stack leader rows like the user grid: labels return via ::before on the
+     numeric cells so each value stays self-describing when the tracks collapse. */
+  .kpiScoreHeader.kpiLeaderGrid {
+    display: none;
+  }
+
+  .kpiLeaderSummary.kpiLeaderGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+  }
+
+  .kpiLeaderSummary .kpiSummaryName,
+  .kpiLeaderSummary .kpiLeaderGroup {
+    grid-column: 1 / -1;
+  }
+
+  .kpiLeaderSummary .kpiLeaderVerdict {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .kpiLeaderSummary .kpiSummaryNum::before {
+    content: attr(data-label) ": ";
+    color: #8a97a6;
+    font-weight: 600;
+  }
+}
+
+/* Verdict track: header label and the badge are both centered so they align. */
+.kpiColVerdict {
+  text-align: center;
+}
+
+.kpiSummaryVerdict {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* No-data note fills the numeric span so name + role stay in their real columns
+   (perfectly aligned with scored rows); verdict/points sit empty. */
+.kpiSummaryNoData {
+  grid-column: 3 / -1;
+  white-space: normal;
 }
 
 /* The audit body: full width, below the summary. */
@@ -1630,17 +1982,40 @@ th {
 }
 
 @media (max-width: 840px) {
-  .kpiScoreSummary {
+  /* The column header is meaningless once rows stack — hide it. */
+  .kpiScoreHeader {
+    display: none;
+  }
+
+  .kpiScoreSummary.kpiScoreGrid {
     grid-template-columns: 1fr auto;
     row-gap: 6px;
   }
 
-  /* Below md the stats wrap into their own full-width row under name/verdict. */
+  /* Row 1 = name (left) + verdict (right); everything else stacks full-width
+     beneath and regains its label via ::before, since the header is hidden. */
+  .kpiScoreSummary .kpiSummaryName {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .kpiScoreSummary .kpiSummaryVerdict {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+  }
+
   .kpiScoreSummary .kpiSummaryMuted,
-  .kpiScoreSummary .kpiSummaryStat,
-  .kpiScoreSummary .kpiSummaryPct {
+  .kpiScoreSummary .kpiSummaryNum {
     grid-column: 1 / -1;
+    text-align: left;
     white-space: normal;
+  }
+
+  .kpiScoreSummary .kpiSummaryNum::before {
+    content: attr(data-label) ": ";
+    color: #6b7787;
+    font-weight: 600;
   }
 }
 
@@ -2044,6 +2419,534 @@ th {
   text-transform: uppercase;
 }
 
+/* Management Reports: dense operational read model, with only the issue table
+   opting into deliberate horizontal scrolling on narrow screens. */
+.reportsShell {
+  display: grid;
+  gap: 16px;
+  overflow-x: clip;
+}
+
+.reportPageHeader {
+  padding-bottom: 8px;
+}
+
+.reportPageHeader > div:first-child {
+  min-width: 0;
+}
+
+.reportPageHeader p {
+  margin: 4px 0 0;
+  color: #536579;
+}
+
+.reportControlBar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  border-block: 1px solid #d6dde6;
+  padding: 12px 0;
+}
+
+.reportMonthForm {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.reportMonthForm label {
+  display: grid;
+  gap: 4px;
+  color: #536579;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.reportMonthForm input {
+  min-width: 150px;
+}
+
+.reportPeriodFacts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 20px;
+  margin: 0;
+}
+
+.reportPeriodFacts div {
+  display: grid;
+  gap: 2px;
+}
+
+.reportPeriodFacts dt {
+  color: #536579;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.reportPeriodFacts dd {
+  margin: 0;
+  color: #182230;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.reportTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid #c8d1dc;
+}
+
+.reportTab {
+  flex: 0 0 auto;
+  border-bottom: 3px solid transparent;
+  padding: 10px 14px 8px;
+  color: #405367;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.reportTab:hover {
+  color: #173f74;
+  text-decoration: none;
+}
+
+.reportTabActive {
+  border-color: #1d4f91;
+  color: #173f74;
+}
+
+.reportTabDisabled {
+  color: #8a97a6;
+  cursor: not-allowed;
+}
+
+.reportPulse {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #c8d1dc;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reportMetric {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 6px;
+  border-right: 1px solid #d6dde6;
+  padding: 14px;
+}
+
+.reportMetric:last-child {
+  border-right: 0;
+}
+
+.reportMetric > span {
+  min-height: 2.4em;
+  color: #536579;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.reportMetric strong {
+  color: #182230;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.reportMetric small {
+  overflow-wrap: anywhere;
+  color: #536579;
+  font-size: 0.72rem;
+}
+
+.reportMetricPrimary {
+  box-shadow: inset 0 3px #1d4f91;
+}
+
+.reportMetricWarning {
+  background: #fff9e8;
+  box-shadow: inset 0 3px #c88613;
+}
+
+.reportCurrentLabel {
+  border: 1px solid #c8d1dc;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #536579;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.reportAttention {
+  border-left: 4px solid #c88613;
+}
+
+.reportAttentionList,
+.reportCompactRows {
+  display: grid;
+}
+
+.reportAttentionRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(220px, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #e5e9ef;
+  padding: 10px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.reportAttentionRow:hover,
+.reportCompactRows a:hover {
+  background: #f5f7f9;
+  text-decoration: none;
+}
+
+.reportAttentionText,
+.reportAttentionMeta,
+.reportSourceIdentity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.reportAttentionText small,
+.reportAttentionMeta small,
+.reportSourceIdentity small {
+  overflow-wrap: anywhere;
+  color: #536579;
+  font-size: 0.74rem;
+}
+
+.reportAttentionMeta {
+  justify-items: end;
+}
+
+.reportEmptyState,
+.reportEmptyLine {
+  margin: 0;
+  padding: 16px 18px;
+  color: #536579;
+}
+
+.reportSectionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.reportSection {
+  min-width: 0;
+}
+
+.reportFilters,
+.reportIssuesSurface {
+  min-width: 0;
+}
+
+.reportIssuesSurface {
+  overflow: hidden;
+}
+
+.reportSection .surfaceHeader p,
+.reportIssuesSurface .surfaceHeader p {
+  margin: 2px 0 0;
+  color: #536579;
+  font-size: 0.78rem;
+}
+
+.reportSection h3 {
+  margin: 14px 18px 8px;
+  color: #405367;
+  font-size: 0.8rem;
+}
+
+.reportForwardMetric {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  text-align: right;
+}
+
+.reportForwardMetric strong {
+  color: #173f74;
+  font-size: 1.35rem;
+}
+
+.reportForwardMetric span,
+.reportForwardMetric small {
+  color: #536579;
+  font-size: 0.72rem;
+}
+
+.reportWeekGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-bottom: 1px solid #e5e9ef;
+}
+
+.reportWeekGrid div {
+  display: grid;
+  gap: 2px;
+  border-right: 1px solid #e5e9ef;
+  padding: 10px 12px;
+}
+
+.reportWeekGrid div:last-child {
+  border-right: 0;
+}
+
+.reportWeekGrid span,
+.reportWeekGrid small {
+  color: #536579;
+  font-size: 0.7rem;
+}
+
+.reportWeekGrid strong {
+  font-size: 1.2rem;
+}
+
+.reportBars {
+  display: grid;
+  gap: 7px;
+  padding: 0 18px 16px;
+}
+
+.reportBarRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.3fr) minmax(80px, 2fr) 30px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+
+.reportBarRow > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reportBarTrack {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 4px;
+  background: #e5e9ef;
+}
+
+.reportBarTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2563a8;
+}
+
+.reportFactList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.reportFactListThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reportFactListFour {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.reportFactList div {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e5e9ef;
+  border-right: 1px solid #e5e9ef;
+  padding: 14px 16px;
+}
+
+.reportFactList div:last-child {
+  border-right: 0;
+}
+
+.reportFactList dt {
+  color: #536579;
+  font-size: 0.75rem;
+}
+
+.reportFactList dd {
+  margin: 0;
+  color: #182230;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.reportLimitSummary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  color: #536579;
+  font-size: 0.74rem;
+}
+
+.reportCompactRows a {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto minmax(115px, auto);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #e5e9ef;
+  padding: 9px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.reportAgeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid #e5e9ef;
+  border-bottom: 1px solid #e5e9ef;
+}
+
+.reportAgeGrid span {
+  display: grid;
+  gap: 4px;
+  border-right: 1px solid #e5e9ef;
+  padding: 10px 12px;
+  color: #536579;
+  font-size: 0.72rem;
+}
+
+.reportAgeGrid span:last-child {
+  border-right: 0;
+}
+
+.reportAgeGrid strong {
+  color: #182230;
+  font-size: 1.1rem;
+}
+
+.reportBreakdownGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reportBreakdownGrid > div + div {
+  border-left: 1px solid #e5e9ef;
+}
+
+.reportDataWarning {
+  border-color: #e4b449;
+  background: #fff9e8;
+}
+
+.reportFilterGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.reportFilterGrid label:not(.reportBacklogToggle) {
+  display: grid;
+  gap: 5px;
+  color: #536579;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.reportBacklogToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.reportBacklogToggle input {
+  flex: 0 0 auto;
+}
+
+.reportFilterActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  grid-column: 4 / -1;
+}
+
+.reportTableWrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.reportIssuesTable {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.reportIssuesTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #eef2f6;
+  color: #405367;
+  text-align: left;
+}
+
+.reportIssuesTable th,
+.reportIssuesTable td {
+  min-width: 100px;
+  border-bottom: 1px solid #d6dde6;
+  padding: 9px 10px;
+  vertical-align: top;
+}
+
+.reportIssuesTable td:nth-child(3),
+.reportIssuesTable td:nth-child(7) {
+  min-width: 190px;
+  white-space: normal;
+}
+
+.reportIssuesTable td > strong,
+.reportIssuesTable td > small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.reportIssuesTable td > small {
+  margin-top: 3px;
+  color: #536579;
+}
+
+.reportIssuesTable tr[data-issue-status="CLOSED"],
+.reportIssuesTable tr[data-issue-status="VERIFIED"] {
+  background: #edf8f1;
+}
+
+.reportIssuesTable tr:not([data-issue-status="CLOSED"]):not([data-issue-status="VERIFIED"]) {
+  background: #fffdf3;
+}
+
+.reportOverdue,
+.reportUnresolved {
+  display: block;
+  margin-top: 3px;
+  color: #a33a2b;
+  font-size: 0.72rem;
+}
+
 @media (max-width: 840px) {
   .pageHeader {
     align-items: stretch;
@@ -2132,6 +3035,129 @@ th {
   .activityList li {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .reportControlBar,
+  .reportMonthForm {
+    align-items: stretch;
+  }
+
+  .reportControlBar {
+    flex-direction: column;
+  }
+
+  .reportPeriodFacts {
+    justify-content: flex-start;
+  }
+
+  .reportPulse {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reportMetric {
+    border-bottom: 1px solid #d6dde6;
+  }
+
+  .reportMetric:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .reportSectionGrid,
+  .reportBreakdownGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .reportBreakdownGrid > div + div {
+    border-top: 1px solid #e5e9ef;
+    border-left: 0;
+  }
+
+  .reportAttentionRow {
+    grid-template-columns: minmax(100px, 0.8fr) minmax(0, 2fr);
+  }
+
+  .reportAttentionMeta {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .reportFilterGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reportFilterActions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 430px) {
+  .reportsShell {
+    gap: 12px;
+  }
+
+  .reportMonthForm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .reportMonthForm label {
+    min-width: 0;
+  }
+
+  .reportMonthForm input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .reportPeriodFacts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .reportMetric {
+    padding: 12px 10px;
+  }
+
+  .reportMetric > span {
+    min-height: 0;
+  }
+
+  .reportAttentionRow,
+  .reportCompactRows a {
+    grid-template-columns: 1fr;
+  }
+
+  .reportAttentionMeta {
+    grid-column: 1;
+  }
+
+  .reportWeekGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .reportWeekGrid div:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .reportFactList,
+  .reportFactListThree,
+  .reportFactListFour,
+  .reportAgeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reportBarRow {
+    grid-template-columns: minmax(95px, 1.3fr) minmax(55px, 1fr) 24px;
+  }
+
+  .reportFilterGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .reportFilterActions {
+    grid-column: 1;
   }
 }
 }

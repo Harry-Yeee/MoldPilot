@@ -8,6 +8,10 @@ import {
   newestMeasurementReport
 } from "@/domain/mold-trial/measurement-report";
 import type { TrialStatusDbValue } from "@/domain/mold-trial/my-plate";
+import {
+  DUPLICATE_SUBMISSION_WINDOW_MS,
+  isDuplicateMeasurementReportSubmission
+} from "@/domain/mold-trial/submission-guards";
 import { prisma } from "@/lib/prisma";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { getCurrentUser } from "@/server/current-user";
@@ -120,8 +124,37 @@ export async function uploadMeasurementReport(formData: FormData) {
         fileType: "QC_REPORT",
         deletedAt: null
       },
-      select: { id: true, entityType: true, entityId: true, fileType: true, deletedAt: true, uploadedAt: true, fileName: true }
+      select: {
+        id: true,
+        entityType: true,
+        entityId: true,
+        fileType: true,
+        deletedAt: true,
+        uploadedAt: true,
+        fileName: true,
+        uploadedById: true,
+        sizeBytes: true
+      }
     });
+
+    // Double-tap guard: an identical re-tap (same trial + uploader + byte size)
+    // within the window returns success without a second write — and BEFORE the
+    // replace gate, so a plain double-tap never trips a "no replace permission"
+    // error. A genuine replacement file differs in size and flows through below.
+    const now = new Date();
+    if (
+      candidates.some((candidate) =>
+        isDuplicateMeasurementReportSubmission(
+          { entityId: candidate.entityId, uploadedById: candidate.uploadedById, sizeBytes: candidate.sizeBytes, uploadedAt: candidate.uploadedAt },
+          { entityId: trial.id, uploadedById: actor.id, sizeBytes: file.size },
+          now,
+          DUPLICATE_SUBMISSION_WINDOW_MS
+        )
+      )
+    ) {
+      revalidatePath(fallback);
+      redirectWithMessage(fallback, "success", "Measurement report uploaded.");
+    }
 
     const newest = newestMeasurementReport(
       candidates.map((candidate) => ({

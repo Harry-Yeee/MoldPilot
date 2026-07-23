@@ -24,6 +24,7 @@ export const roleCodeLabels: Record<string, RoleCode> = {
   injection: "INJECTION",
   assembly: "ASSEMBLY",
   qc: "QC",
+  design: "DESIGN",
   viewer: "VIEWER",
   admin: "ADMIN"
 };

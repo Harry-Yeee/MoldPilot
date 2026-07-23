@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, StatusBadge, BottomSheet, FormField, Select, Textarea } from "@/components/ui";
+import { Button, SubmitButton, StatusBadge, BottomSheet, FormField, Select, Textarea } from "@/components/ui";
 import {
   fileVisibilityLabels,
   measurementReportLabels,
@@ -124,9 +124,9 @@ export function MeasurementReportPanel({
             </FormField>
 
             <div className="pt-1">
-              <Button type="submit" variant="primary" size="lg" className="w-full">
+              <SubmitButton variant="primary" size="lg" className="w-full">
                 {label("submit", locale)}
-              </Button>
+              </SubmitButton>
             </div>
           </form>
         </BottomSheet>

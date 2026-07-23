@@ -39,7 +39,11 @@ const seedProjectCodes = [
   "MP-SEED-010",
   "MP-SEED-011",
   "MP-INTAKE-001",
-  "MP-PILOT-001"
+  "MP-PILOT-001",
+  "MP-REPORT-001",
+  "MP-REPORT-002",
+  "MP-REPORT-003",
+  "MP-REPORT-004"
 ];
 
 type WorkbookClientRow = {
@@ -90,6 +94,7 @@ async function main() {
   const roles = await seedRoles();
   const groups = await seedDepartmentGroups();
   const users = await seedUsers(roles);
+  await seedKpiGroupsAndMembership(groups, users);
   const permissions = await seedPermissions();
   await seedRolePermissions(roles, permissions, users);
   await seedKpiRules(users);
@@ -111,6 +116,7 @@ async function main() {
   await seedMultiPartFamilyMold(users, groups);
   await seedMarketingIntake(users);
   await seedPilotProject(users, groups);
+  await seedManagementReportFixtures(users, groups);
 }
 
 async function seedRoles() {
@@ -122,6 +128,7 @@ async function seedRoles() {
     ["assembly", "Assembly", true],
     ["injection", "Injection", true],
     ["qc", "QC", true],
+    ["design", "Design", true],
     ["viewer", "Viewer", true],
     ["planning_pm", "Planning PM", false],
     ["technical_pm", "Technical PM", false],
@@ -179,6 +186,7 @@ async function seedDepartmentGroups() {
     ["assembly", "Assembly"],
     ["purchasing", "Purchasing"],
     ["marketing", "Marketing"],
+    ["design", "Design"],
     ["admin", "Admin"]
   ] as const;
 
@@ -213,6 +221,8 @@ async function seedUsers(roles: Awaited<ReturnType<typeof seedRoles>>) {
     ["wang", "Wang", null, "injection", false, "123456", true],
     ["gong", "Gong", null, "qc", false, "123456", true],
     ["shuang", "Shuang", null, "qc", false, "123456", true],
+    ["lin", "Lin", "林工", "design", false, "123456", true],
+    ["mei", "Mei", "梅", "design", false, "123456", true],
     ["viewer", "Viewer", null, "viewer", false, "123456", true]
   ] as const;
 
@@ -259,6 +269,69 @@ async function seedUsers(roles: Awaited<ReturnType<typeof seedRoles>>) {
   return Object.fromEntries(entries.map((user) => [user.username, user]));
 }
 
+/**
+ * KPI leader-designation layer: split the assembly department into two GROUP
+ * children (钟组 / 裴组) so Zhong and Pei each get a SEPARATE leader bar, designate
+ * the leader on every group whose bar is its aggregate, and assign every scored
+ * user to exactly one KPI group via departmentGroupId.
+ *
+ * Runs AFTER seedUsers (which resets departmentGroupId to null) and reuses the
+ * existing DEPARTMENT groups as parents — issue routing keys on the parent codes
+ * ("assembly", "injection", …), never on the children or kpiLeaderId, so the
+ * department inbox and `ownerGroup.code === "assembly"` routing are untouched.
+ * The `pm` group is deliberately left WITHOUT a leader: PMs are award-tier
+ * individuals whose "leader bar" is their own user scorecard.
+ */
+async function seedKpiGroupsAndMembership(
+  groups: Awaited<ReturnType<typeof seedDepartmentGroups>>,
+  users: Awaited<ReturnType<typeof seedUsers>>
+) {
+  const assemblyA = await prisma.departmentGroup.upsert({
+    where: { code: "assembly-a" },
+    update: { name: "钟组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.zhong.id, active: true },
+    create: { code: "assembly-a", name: "钟组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.zhong.id }
+  });
+  const assemblyB = await prisma.departmentGroup.upsert({
+    where: { code: "assembly-b" },
+    update: { name: "裴组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.pei.id, active: true },
+    create: { code: "assembly-b", name: "裴组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.pei.id }
+  });
+
+  // Single-leader groups: the leader's bar is this group's aggregate scorecard.
+  await Promise.all([
+    prisma.departmentGroup.update({ where: { code: "injection" }, data: { kpiLeaderId: users.wang.id } }),
+    prisma.departmentGroup.update({ where: { code: "design" }, data: { kpiLeaderId: users.lin.id } }),
+    prisma.departmentGroup.update({ where: { code: "qc" }, data: { kpiLeaderId: users.gong.id } }),
+    prisma.departmentGroup.update({ where: { code: "marketing" }, data: { kpiLeaderId: users.yvonne.id } })
+  ]);
+
+  // Membership: each scored user's events aggregate into EXACTLY ONE KPI group.
+  // Leaders are members of their own group (their card counts toward their bar).
+  const membership: Array<[string, string]> = [
+    ["zhong", assemblyA.id],
+    ["pei", assemblyB.id],
+    ["wang", groups.injection.id],
+    ["lin", groups.design.id],
+    ["mei", groups.design.id],
+    ["gong", groups.qc.id],
+    ["shuang", groups.qc.id],
+    ["yvonne", groups.marketing.id],
+    ["anna", groups.marketing.id],
+    ["zoe", groups.marketing.id],
+    ["peng", groups.marketing.id],
+    ["juria", groups.marketing.id],
+    ["sahara", groups.marketing.id],
+    ["bill", groups.pm.id],
+    ["jun", groups.pm.id],
+    ["cheng", groups.pm.id]
+  ];
+  await Promise.all(
+    membership.map(([username, departmentGroupId]) =>
+      prisma.user.update({ where: { username }, data: { departmentGroupId } })
+    )
+  );
+}
+
 async function seedRolePermissions(
   roles: Awaited<ReturnType<typeof seedRoles>>,
   permissions: Awaited<ReturnType<typeof seedPermissions>>,
@@ -298,6 +371,12 @@ async function seedRolePermissions(
 }
 
 async function seedKpiRules(users: Awaited<ReturnType<typeof seedUsers>>) {
+  // The two design rules shipped DORMANT (active:false) and are ACTIVATED here as
+  // part of the Design-role onboarding. Since the generic update path preserves
+  // admin-edited active/hours, activation would otherwise never reach an already-
+  // seeded DB — so for these onboarding rules we also push `active` from the seed.
+  const onboardingActivatedCodes = new Set<string>(["design.change_revision", "design.inbox_claim"]);
+
   // Preserve admin-edited hours/active on re-seed: only refresh labels /
   // roleScope / sortOrder for existing rows; new rows take the defaults.
   await Promise.all(
@@ -308,7 +387,8 @@ async function seedKpiRules(users: Awaited<ReturnType<typeof seedUsers>>) {
           labelEn: rule.labelEn,
           labelZh: rule.labelZh,
           roleScope: rule.roleScope,
-          sortOrder: rule.sortOrder
+          sortOrder: rule.sortOrder,
+          ...(onboardingActivatedCodes.has(rule.code) ? { active: rule.active } : {})
         },
         create: {
           code: rule.code,
@@ -1103,7 +1183,7 @@ async function createTrial(
     plannedDate: string;
     actualDate?: string;
     status: "PLANNED" | "DELAYED" | "COMPLETED" | "PENDING_FOLLOW_UP";
-    result?: "APPROVED" | "NOT_APPROVED" | "CONDITIONAL" | "PENDING_QC";
+    result?: "APPROVED" | "NOT_APPROVED" | "CONDITIONAL" | "PENDING_QC" | "PENDING_CUSTOMER_FEEDBACK" | "INVALID_TRIAL";
     outcomeDisposition?: "APPROVED_COMPLETE" | "APPROVED_WITH_MINOR_ITEMS" | "REWORK_REQUIRED" | "PENDING_QC" | "PENDING_CUSTOMER_FEEDBACK";
     countsAgainstLimit?: boolean;
     planReasonCategory?: "PLANNED_NEXT_TRIAL_AFTER_CORRECTION" | "BAD_CUSTOMER_FEEDBACK" | "TRIAL_ISSUE_VERIFICATION" | "MOLD_CORRECTION_VERIFICATION";
@@ -1954,6 +2034,170 @@ async function seedPilotProject(
     previousLimit: 3,
     newLimit: 4,
     adjustmentType: "DESIGN_CHANGE_EXTRA_TRIAL"
+  });
+}
+
+async function seedManagementReportFixtures(
+  users: Awaited<ReturnType<typeof seedUsers>>,
+  groups: Awaited<ReturnType<typeof seedDepartmentGroups>>
+) {
+  const approvedProject = await createProject(users, {
+    projectCode: "MP-REPORT-001",
+    customerCode: "C-027",
+    partCode: "P-REPORT-001",
+    moldCode: "M-REPORT-001",
+    status: "APPROVED",
+    customerTargetDate: "2026-07-09",
+    firstPlannedTrialDate: "2026-06-25"
+  });
+  const approvedT0 = await createTrial(users, approvedProject.id, {
+    trialCode: "T0",
+    sequenceNumber: 1,
+    plannedDate: "2026-06-25",
+    actualDate: "2026-06-25",
+    status: "COMPLETED",
+    result: "CONDITIONAL",
+    countsAgainstLimit: true,
+    mainIssuesSummary: "Report fixture T0 required a documented fitting correction."
+  });
+  const approvedT1 = await createTrial(users, approvedProject.id, {
+    trialCode: "T1",
+    sequenceNumber: 2,
+    plannedDate: "2026-07-07",
+    actualDate: "2026-07-07",
+    status: "COMPLETED",
+    result: "APPROVED",
+    countsAgainstLimit: true
+  });
+  await seedTrialProcessValues(users, approvedProject.id, approvedT1.id, {
+    material_grade: "ABS",
+    machine_number: "10",
+    press_tonnage: 408,
+    cycle_time: 40
+  });
+  const closedIssue = await prisma.trialIssue.create({
+    data: {
+      moldTrialProjectId: approvedProject.id,
+      foundAtTrialEventId: approvedT0.id,
+      title: "Report fixture fitting correction",
+      description: "Closed issue provides an auditable fix row in the monthly Issues report.",
+      issueType: "ASSEMBLY_FITTING_ISSUE",
+      source: "INTERNAL_TRIAL",
+      severity: "MEDIUM",
+      status: "CLOSED",
+      ownerUserId: users.zhong.id,
+      ownerGroupId: groups.assembly.id,
+      dueDate: date("2026-07-06"),
+      fixSummary: "Adjusted the fitting surface and confirmed free movement.",
+      fixTimeMinutes: 90,
+      verificationResult: "Verified at T1 before approval.",
+      closedAt: dateTime("2026-07-07T09:30:00.000Z"),
+      closedById: users.zhong.id,
+      createdById: users.bill.id,
+      reportedById: users.bill.id,
+      createdAt: dateTime("2026-07-01T01:00:00.000Z")
+    }
+  });
+  await log(users.zhong.id, "TrialIssue", closedIssue.id, "seed_report_issue_closed", {
+    projectCode: approvedProject.projectCode,
+    fixTimeMinutes: 90
+  });
+
+  const invalidProject = await createProject(users, {
+    projectCode: "MP-REPORT-002",
+    customerCode: "C-028",
+    partCode: "P-REPORT-002",
+    moldCode: "M-REPORT-002",
+    status: "IN_CORRECTION",
+    priority: "CRITICAL",
+    firstPlannedTrialDate: "2026-07-02"
+  });
+  const invalidT0 = await createTrial(users, invalidProject.id, {
+    trialCode: "T0",
+    sequenceNumber: 1,
+    plannedDate: "2026-07-02",
+    actualDate: "2026-07-03",
+    status: "COMPLETED",
+    result: "INVALID_TRIAL",
+    countsAgainstLimit: true,
+    mainIssuesSummary: "Trial aborted after unstable process conditions; the run still consumed workload."
+  });
+  const criticalIssue = await prisma.trialIssue.create({
+    data: {
+      moldTrialProjectId: invalidProject.id,
+      foundAtTrialEventId: invalidT0.id,
+      title: "Critical process instability requires retest",
+      description: "Injection pressure drift invalidated the sample run.",
+      issueType: "INJECTION_PROCESS_ISSUE",
+      source: "INJECTION_PROCESS",
+      severity: "CRITICAL",
+      status: "IN_PROGRESS",
+      ownerGroupId: groups.injection.id,
+      dueDate: date("2026-07-05"),
+      createdById: users.wang.id,
+      reportedById: users.wang.id,
+      createdAt: dateTime("2026-07-03T03:00:00.000Z")
+    }
+  });
+  await log(users.wang.id, "TrialIssue", criticalIssue.id, "seed_report_issue_created", {
+    projectCode: invalidProject.projectCode,
+    severity: "CRITICAL"
+  });
+
+  const previousProject = await createProject(users, {
+    projectCode: "MP-REPORT-003",
+    customerCode: "C-029",
+    partCode: "P-REPORT-003",
+    moldCode: "M-REPORT-003",
+    status: "APPROVED",
+    customerTargetDate: "2026-06-15",
+    firstPlannedTrialDate: "2026-06-10"
+  });
+  await createTrial(users, previousProject.id, {
+    trialCode: "T0",
+    sequenceNumber: 1,
+    plannedDate: "2026-06-10",
+    actualDate: "2026-06-10",
+    status: "COMPLETED",
+    result: "APPROVED",
+    countsAgainstLimit: true
+  });
+
+  const incompleteProject = await createProject(users, {
+    projectCode: "MP-REPORT-004",
+    customerCode: "C-030",
+    partCode: "P-REPORT-004",
+    moldCode: "M-REPORT-004",
+    status: "TRIAL_DELAYED",
+    firstPlannedTrialDate: "2026-07-04"
+  });
+  await createTrial(users, incompleteProject.id, {
+    trialCode: "T0",
+    sequenceNumber: 1,
+    plannedDate: "2026-07-04",
+    actualDate: "2026-07-04",
+    status: "COMPLETED",
+    countsAgainstLimit: true,
+    mainIssuesSummary: "Legacy report fixture intentionally lacks a Trial Result, process values, and QC report."
+  });
+  const unresolvedAutoMissed = await prisma.trialEvent.create({
+    data: {
+      moldTrialProjectId: incompleteProject.id,
+      trialCode: "T1",
+      sequenceNumber: 2,
+      plannedDate: date("2026-07-08"),
+      status: "AUTO_MISSED_REASON_REQUIRED",
+      autoMissedAt: dateTime("2026-07-09T04:00:00.000Z"),
+      planReasonCategory: "TRIAL_ISSUE_VERIFICATION",
+      planReasonDetail: "Report fixture awaiting a documented missed-trial resolution.",
+      sourceArea: "PLANNING",
+      requestedById: users.bill.id,
+      createdById: users.bill.id
+    }
+  });
+  await log(users.bill.id, "TrialEvent", unresolvedAutoMissed.id, "seed_report_auto_missed", {
+    projectCode: incompleteProject.projectCode,
+    trialCode: "T1"
   });
 }
 

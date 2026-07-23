@@ -96,15 +96,22 @@ Steps:
 1. Open MoldPilot with no language preference.
 2. Confirm English UI is shown by default.
 3. Use the language switcher to select Simplified Chinese.
-4. Navigate between Dashboard, Project Detail, and Admin where permitted.
-5. Switch back to English.
+4. Open `/me`, confirm its header includes Dashboard navigation and the shared Language Switcher, then inspect the mobile My Tasks panel embedded on the dashboard.
+5. In Chinese mode, inspect task section headings, trial/issue status and severity badges, missed-reason/responsible-area/issue-status options, design-change requester labels, countdown/date-confirmation labels, and a generated trial title such as `T0 试模`.
+6. Verify issue titles, client names, mold/project codes, notes, machine numbers/brands, and filenames remain exactly as entered.
+7. Switch back to English and confirm `/me` plus the dashboard-embedded task panel return to English.
+8. At 360 px and 430 px widths, confirm the `/me` Dashboard and language controls do not overlap and the page has no horizontal overflow.
 
 Expected:
 
 - The selected language persists across reload/navigation.
-- Dashboard, project detail, trial panels, process-sheet controls, Admin tabs, common buttons, and enum/status display labels change language.
+- Dashboard, project detail, trial panels, process-sheet controls, Admin tabs, `/me`, the dashboard-embedded My Tasks panel, common buttons, and enum/status display labels change language.
+- `/me` uses the `moldpilot_language` cookie/provider setting rather than the user's database locale.
+- My Tasks system labels, select options, generated trial titles, countdowns, date confirmations, and common action-success feedback are Chinese in Chinese mode and English after switching back.
+- Stored enum values and server-action option values remain unchanged while their visible labels translate.
 - Stored business data such as mold code, client/project reference, client name, part code, issue title, notes, and machine brand does not get translated or mutated.
-- Stored enum values and permission codes remain unchanged; only display labels translate.
+- Permission codes remain unchanged; only display labels translate.
+- At 360–430 px, `/me` header controls remain touch-friendly, non-overlapping, and free of horizontal scrolling.
 
 ### AT-000: Admin Manages Clients Master
 
@@ -1040,6 +1047,82 @@ Expected:
 - Open critical issue count matches TrialIssue records.
 - Pending follow-up count matches pending QC/customer feedback records.
 
+### AT-020A: Management Report Access And Navigation
+
+Layer: Domain + Integration + Playwright
+
+Steps:
+
+1. Log in as Admin and GM.
+2. Open the dashboard header and `/reports` directly.
+3. Log in as a scored staff user with the staff scoreboard enabled.
+4. Log in as a user without `reports.management.view` and request `/reports` plus any supporting report loader/action directly.
+5. Grant `reports.management.view` without `kpi.scores.view_all` to a test role and open Reports.
+
+Expected:
+
+- Admin/GM see `Reports`, not a manager-facing `My Score` button, and can open Overview/Issues.
+- The separate Admin configuration button remains visible only when its own Admin permissions allow it.
+- Scored staff keep `My Score` and `/score`; report navigation does not replace their personal scorecard.
+- A user without `reports.management.view` is blocked server-side, not merely hidden by the UI.
+- A user with report permission but without `kpi.scores.view_all` cannot load the Scorecards tab or individual score data.
+
+### AT-020B: Management Report Monthly Metrics Match Locked Definitions
+
+Layer: Domain + Integration
+
+Preconditions:
+
+- Deterministic fixtures exist on both sides of an `Asia/Shanghai` month boundary, including planned-only, completed, missed/delayed, approved, invalid completed, terminal-project, target-date, and trial-limit examples.
+
+Expected:
+
+- Selected month and previous month use half-open `Asia/Shanghai` calendar boundaries without UTC edge drift.
+- Completed trial workload counts actual Completed TrialEvents in the month, includes a completed Invalid Trial run, and excludes planned/missed/cancelled/skipped records.
+- New molds reaching T0 count each project only when its first actual completed trial is T0 in the month.
+- Unique molds trialed de-duplicates multiple completed trial runs for one mold.
+- Every month comparison shows the selected value and previous-month absolute delta; percentage change handles a zero previous denominator without Infinity/NaN.
+- On-time trial rate shows numerator and denominator. Due delayed/missed trials stay in the denominator; future, Cancelled, and Skipped trials do not.
+- Approval date is the earliest actual Approved trial date.
+- Target performance shows approved on/before target as `n / eligible` and separately counts approved projects missing target dates.
+- Low-loop approval counts only first approvals within the first two counted completed trials (T0/T1).
+- Current over-limit attention derives from counted completed trials greater than current limit and excludes Approved, Cancelled, and Closed projects.
+- Open Critical counts Critical issues whose current status is neither Closed nor Verified.
+
+### AT-020C: Management Issues And Attention Are Auditable
+
+Layer: Integration + Playwright
+
+Steps:
+
+1. Open Reports > Issues for a selected month containing open and closed issues.
+2. Filter by severity, current status, type, and fix-owner group/role.
+3. Enable current open backlog.
+4. Open source links from the Issues and Management Attention rows.
+
+Expected:
+
+- Default issue rows are selected by `createdAt` in the selected month; issues closed in the month are counted by `closedAt`.
+- Current status and aging are labeled as current-state values, not reconstructed historical month-end state.
+- Closed rows show fix summary, approximate fix time, closer/date, and verification when present.
+- Open rows show `Not resolved yet` / `尚未解决`, never invented resolution text.
+- Fix owner is labeled as responsibility for solving the issue, not fault attribution.
+- Management Attention links to overdue High/Critical issues, active over-limit molds, unresolved auto-missed records, missing follow-up plans, and missing Trial Result/Process Sheet/QC records.
+- Report rows link back to source records and do not mutate workflow state from the report.
+
+### AT-020D: Reports Are Bilingual, Private, And Responsive
+
+Layer: Playwright
+
+Expected:
+
+- Overview, Issues, Scorecards, month controls, metric labels, filters, empty/error states, and Management Attention switch between English and Simplified Chinese through the shared language source.
+- User-entered mold codes, client names, issue titles, notes, and fix summaries are not translated.
+- No report payload or visible UI exposes customer country, contacts, email, phone, quote value, sales pipeline, or communication history.
+- `Mold-trial workload` / `试模工作量` is used instead of factory utilization.
+- At desktop and 360-430 px widths, header actions, tabs, metric text, filters, and issue rows do not overlap or clip; dense tables use a deliberate compact/scroll treatment.
+- Existing Admin Scores and personal `/score` calculations agree with the reused Reports Scorecards view.
+
 ## Privacy Acceptance Tests
 
 ### AT-021: No CRM Or Customer Contact Fields In Core Create Form
@@ -1470,15 +1553,21 @@ Preconditions:
 
 Steps:
 
-1. Export customer-safe Process Sheet PDF.
-2. Inspect the generated FileAttachment/export record.
-3. Open or inspect the PDF content where test tooling allows.
+1. Click `Export Customer PDF` and wait for the browser download event.
+2. Verify the suggested filename ends in `.pdf`, the downloaded file is non-empty, and its first bytes are `%PDF-`.
+3. Inspect the generated FileAttachment and ActivityLog records.
+4. Request `/api/attachments/{id}` as Marketing and inspect the response headers/body.
+5. Confirm the new export appears in Customer Files, then download it again from that section.
 
 Expected:
 
-- PDF export succeeds.
-- FileAttachment record is created with Process Sheet PDF or Customer Report PDF type.
-- ActivityLog records the export.
+- One click creates exactly one FileAttachment and one `exported_process_sheet_pdf` ActivityLog record.
+- FileAttachment uses the generated attachment UUID, attachment storage root, `PROCESS_SHEET_EXPORT`, `PROCESS_SHEET_PDF`, `application/pdf`, the actual non-zero byte size, and `CUSTOMER_SAFE` visibility.
+- The ActivityLog payload includes attachment id, filename, size, and visibility.
+- Chrome receives a real, non-empty `.pdf` download rather than only a redirect message or blank tab.
+- The protected attachment GET returns `200`, `application/pdf`, non-zero `Content-Length`, and attachment `Content-Disposition` for Marketing with `attachment.download.customer_safe`.
+- The export appears in Customer Files after refresh and can be downloaded again without creating another attachment/export log.
+- A failed export or invalid/empty protected response does not trigger a browser download.
 - PDF includes customer-safe process values and may include generated trial result, issue summary, correction summary, and next step from TrialEvent/TrialIssue records.
 - PDF does not include duplicated/manual process-sheet Trial Summary rows.
 - PDF does not include internal owner, private notes, Assembly self-check, or unapproved root-cause details.
@@ -1488,7 +1577,7 @@ Expected:
 Before Phase 1 v0.1 is accepted:
 
 - AT-001 through AT-015E should pass.
-- AT-016 through AT-031 should pass before any real internal pilot, including AT-001C and AT-005A.
+- AT-016 through AT-031, including AT-020A through AT-020D, should pass before any real internal pilot, including AT-001C and AT-005A.
 - Deferred tests must be clearly marked with reason and owner.
 
 ## First Tests To Implement

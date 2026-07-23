@@ -1,23 +1,26 @@
 import type { MoldTrialDashboardData } from "@/domain/mold-trial/dashboard";
 import { AccountMenu } from "@/app/account-menu";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { CustomerSelector } from "@/app/customer-selector";
 import { MoldTrialListTable } from "@/app/mold-trial-list-table";
 import { MyPlateSections } from "@/app/me/my-plate-sections";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
-import { EmptyState, MessageBanner, SectionHeading } from "@/components/ui";
+import { EmptyState, HeadlineCard, MessageBanner, SectionHeading } from "@/components/ui";
 import { TrialAgenda } from "@/app/calendar/trial-agenda";
 import {
   calendarLabels,
   dashboardSummaryLabels,
+  localeFromLanguage,
   myPlateLabels,
   navLabels,
   pickLabel,
   type Locale
 } from "@/domain/mold-trial/labels";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
-import { createTranslator } from "@/i18n";
-import { getCurrentLanguage, getDictionary } from "@/i18n/server";
+import { buildNavVisibility } from "@/server/nav";
+import { createTranslator, dictionaries, translateWorkflowMessage } from "@/i18n";
+import { getCurrentLanguage } from "@/i18n/server";
 import { createMoldTrialProject } from "@/server/mold-trial-actions";
 import { getMoldTrialDashboardData } from "@/server/mold-trial-dashboard";
 import { getTrialAgendaData, type TrialAgendaData } from "@/server/calendar";
@@ -39,6 +42,7 @@ function emptyPlate(): MyPlateData {
     returnedDates: [],
     myOpenIssues: [],
     departmentInbox: [],
+    designRevisions: [],
     assemblyAcknowledge: [],
     assemblySelfCheck: [],
     pmConfirmReady: [],
@@ -147,48 +151,63 @@ export default async function Home({ searchParams }: PageProps) {
   const { activePmUsers, activeCustomers, currentUser, data, databaseError, myPlate, myPlateError, agenda } =
     await loadDashboard(now);
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
-  const t = createTranslator(await getDictionary());
+  const language = await getCurrentLanguage();
+  const dictionary = dictionaries[language];
+  const t = createTranslator(dictionary);
   // Derive bilingual-label language from the same source as the rest of the page
   // (the i18n cookie via getCurrentLanguage) rather than the DB `User.locale`, so
   // labels like "My tasks" match the language the user actually switched to.
-  const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
+  const locale: Locale = localeFromLanguage(language);
   const { rows, summary } = data;
-  const error = params == null ? null : messageValue(params, "error");
-  const success = params == null ? null : messageValue(params, "success");
+  const error = params == null ? null : translateWorkflowMessage(dictionary, messageValue(params, "error"));
+  const success = params == null ? null : translateWorkflowMessage(dictionary, messageValue(params, "success"));
   const canCreateIntake = hasPermissionCode(permissionCodes, "project.intake.create");
   const canSetFirstT0 = hasPermissionCode(permissionCodes, "trial.schedule.first_t0");
-  const canOpenAdmin =
-    hasPermissionCode(permissionCodes, "admin.manage_users") ||
-    hasPermissionCode(permissionCodes, "admin.manage_roles") ||
-    hasPermissionCode(permissionCodes, "admin.manage_customers");
-  // The "My score" button shows for everyone when the scoreboard is enabled;
-  // admins always see it (they preview the staff-facing page before opening it).
-  const canViewAllScores = hasPermissionCode(permissionCodes, "kpi.scores.view_all");
   const scoreboardEnabled = await isScoreboardEnabled().catch(() => false);
-  const showScoreButton = scoreboardEnabled || canViewAllScores;
+  // Shared app-shell nav visibility (Bundle D): the SAME rules the desktop
+  // AppHeader uses, computed once here from data already loaded, then consumed by
+  // both the header and this page's own (phone) nav so the two never diverge.
+  const nav = buildNavVisibility({
+    permissionCodes,
+    roleCode: currentUser.roleCode,
+    dbRoleCode: currentUser.role.code,
+    scoreboardEnabled
+  });
+  // "Trials this week" headline count reuses the same 7-day agenda the phone
+  // "This week's trials" section renders (getTrialAgendaData), summed across days.
+  const trialsThisWeekCount = agenda.days.reduce((total, day) => total + day.trials.length, 0);
 
   return (
     <main className="shell">
+      <AppHeader current="dashboard" nav={nav} currentUser={currentUser} />
       <section className="pageHeader">
         <div>
           <p className="eyebrow">{t("dashboard.trackerVersion")}</p>
           <h1>{t("dashboard.title")}</h1>
         </div>
-        <div className="pageHeaderActions">
+        {/* Phone-only nav + account cluster; desktop uses the AppHeader bar above. */}
+        <div className="pageHeaderActions md:hidden">
           <AccountMenu currentUser={currentUser} />
           <nav
             className="dashboardNavActions"
-            aria-label={`${pickLabel(navLabels.admin, locale)} / ${pickLabel(navLabels.myTasks, locale)}`}
+            aria-label={`${pickLabel(navLabels.admin, locale)} / ${pickLabel(navLabels.reports, locale)} / ${pickLabel(navLabels.myTasks, locale)}`}
           >
-            {canOpenAdmin ? (
+            {nav.showAdmin ? (
               <a className="buttonLink" href="/admin">
                 {pickLabel(navLabels.admin, locale)}
               </a>
             ) : null}
-            <a className="buttonLink hidden md:inline-flex" href="/calendar">
-              {pickLabel(navLabels.calendar, locale)}
-            </a>
-            {showScoreButton ? (
+            {nav.showCalendar ? (
+              <a className="buttonLink hidden md:inline-flex" href="/calendar">
+                {pickLabel(navLabels.calendar, locale)}
+              </a>
+            ) : null}
+            {nav.showReports ? (
+              <a className="buttonLink" href="/reports">
+                {pickLabel(navLabels.reports, locale)}
+              </a>
+            ) : null}
+            {nav.showMyScore ? (
               <a className="buttonLink hidden md:inline-flex" href="/score">
                 {pickLabel(navLabels.myScore, locale)}
               </a>
@@ -197,28 +216,6 @@ export default async function Home({ searchParams }: PageProps) {
               {pickLabel(navLabels.myTasks, locale)}
             </a>
           </nav>
-          <div className="summaryStrip dashboardSummary" aria-label="Trial summary">
-            <span>
-              <strong>{summary.activeMoldCount}</strong>
-              {pickLabel(dashboardSummaryLabels.activeMolds, locale)}
-            </span>
-            <span>
-              <strong>{summary.intakeProjectCount}</strong>
-              {pickLabel(dashboardSummaryLabels.waitingT0, locale)}
-            </span>
-            <span>
-              <strong>{summary.delayedTrialCount}</strong>
-              {pickLabel(dashboardSummaryLabels.delayed, locale)}
-            </span>
-            <span>
-              <strong>{summary.nearLimitCount + summary.atLimitCount}</strong>
-              {pickLabel(dashboardSummaryLabels.nearAtLimit, locale)}
-            </span>
-            <span>
-              <strong>{summary.overLimitCount}</strong>
-              {pickLabel(dashboardSummaryLabels.overLimit, locale)}
-            </span>
-          </div>
         </div>
       </section>
 
@@ -246,27 +243,37 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
       )}
 
-      <section className="metricGrid" aria-label={t("dashboard.metricLabel")}>
-        <span>
-          <strong>{summary.upcomingTrialCount}</strong>
-          {pickLabel(dashboardSummaryLabels.upcomingPlanned, locale)}
-        </span>
-        <span>
-          <strong>{summary.completedTrialCount}</strong>
-          {pickLabel(dashboardSummaryLabels.completed, locale)}
-        </span>
-        <span>
-          <strong>{summary.openCriticalIssueCount}</strong>
-          {pickLabel(dashboardSummaryLabels.highCriticalOpen, locale)}
-        </span>
-        <span>
-          <strong>{summary.pendingFollowUpCount}</strong>
-          {pickLabel(dashboardSummaryLabels.pendingFollowUp, locale)}
-        </span>
-        <span>
-          <strong>{summary.completedTrialsMissingReportCount}</strong>
-          {pickLabel(dashboardSummaryLabels.missingQcReport, locale)}
-        </span>
+      {/*
+        Four headline cards (V1+R2): each judges itself. Delayed / Over limit and
+        High/critical tint red/critical only when > 0 (a green zero = good news);
+        "Trials this week" is informational (calm brand tint). The removed metrics
+        (active molds, waiting T0, near/at limit, completed, pending follow-up,
+        missing QC report) still live in /reports.
+      */}
+      <section className="mb-4 grid grid-cols-4 gap-3" aria-label={t("dashboard.metricLabel")}>
+        <HeadlineCard
+          tone="missed"
+          count={summary.delayedTrialCount}
+          label={pickLabel(dashboardSummaryLabels.delayed, locale)}
+          href="#upcoming-trials-heading"
+        />
+        <HeadlineCard
+          tone="critical"
+          count={summary.openCriticalIssueCount}
+          label={pickLabel(dashboardSummaryLabels.highCriticalOpen, locale)}
+          href="/reports?tab=issues"
+        />
+        <HeadlineCard
+          tone="missed"
+          count={summary.overLimitCount}
+          label={pickLabel(dashboardSummaryLabels.overLimit, locale)}
+          href="#upcoming-trials-heading"
+        />
+        <HeadlineCard
+          tone="info"
+          count={trialsThisWeekCount}
+          label={pickLabel(dashboardSummaryLabels.trialsThisWeek, locale)}
+        />
       </section>
 
       {/*
@@ -294,7 +301,6 @@ export default async function Home({ searchParams }: PageProps) {
         ) : (
           <MyPlateSections
             data={myPlate}
-            locale={locale}
             todayInput={todayInput}
             viewerUsername={currentUser.username}
             redirectTo="/"
@@ -318,7 +324,21 @@ export default async function Home({ searchParams }: PageProps) {
       </section>
 
       <div className="hidden md:block">
+      {/*
+        V3: the Mold Trial List sits above the fold — the large intake form is
+        collapsed behind a single native <details> toggle below it (closed by
+        default, no JS). The old duplicate "Create Intake" header button is gone.
+      */}
+      <section className="workSurface" aria-labelledby="upcoming-trials-heading">
+        <div className="surfaceHeader">
+          <h2 id="upcoming-trials-heading">{t("dashboard.moldTrialList")}</h2>
+        </div>
+        <MoldTrialListTable rows={rows} />
+      </section>
+
       {canCreateIntake ? (
+        <details className="intakeDetails">
+          <summary>{`+ ${pickLabel(navLabels.newIntake, locale)}`}</summary>
         <section className="workSurface formSurface" aria-labelledby="create-project-heading">
           <div className="surfaceHeader">
             <h2 id="create-project-heading">{t("dashboard.createProjectIntake")}</h2>
@@ -379,19 +399,10 @@ export default async function Home({ searchParams }: PageProps) {
             </div>
           </form>
         </section>
+        </details>
       ) : (
         <BlockedAction headingId="create-project-heading" title={t("dashboard.createProjectIntake")} />
       )}
-
-      <section className="workSurface" aria-labelledby="upcoming-trials-heading">
-        <div className="surfaceHeader">
-          <h2 id="upcoming-trials-heading">{t("dashboard.moldTrialList")}</h2>
-          <a className="buttonLink" href="#create-project-heading">
-            {t("dashboard.createIntake")}
-          </a>
-        </div>
-        <MoldTrialListTable rows={rows} />
-      </section>
       </div>
     </main>
   );

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>我来处理 · I'll take this</title>
+<style>
+  @page { size: A3 portrait; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 10mm 14mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .hero { text-align: center; padding: 6mm 0 5mm; }
+  .hero .zh { font-size: 56pt; font-weight: 800; color: #1d4f91; letter-spacing: 1.5mm; }
+  .hero .en { font-size: 13pt; color: #536579; margin-top: 2.5mm; }
+  .hero .motto { display: inline-block; margin-top: 4.5mm; font-size: 15pt; font-weight: 700; color: #085041; background: #e1f5ee; border: 0.5mm solid #5dcaa5; border-radius: 3mm; padding: 2.5mm 8mm; }
+  .contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; margin: 5mm 0; }
+  .old, .new { border-radius: 3mm; padding: 4.5mm 5.5mm; }
+  .old { background: #fcebeb; border: 0.4mm solid #f09595; }
+  .new { background: #e1f5ee; border: 0.4mm solid #5dcaa5; }
+  .contrast .t { font-size: 13pt; font-weight: 800; margin-bottom: 2mm; }
+  .old .t { color: #791f1f; } .new .t { color: #085041; }
+  .contrast .line { font-size: 12pt; line-height: 1.7; }
+  .contrast .en { font-size: 8pt; color: #536579; margin-top: 2mm; line-height: 1.4; }
+  h2 { font-size: 15pt; font-weight: 800; color: #0c447c; margin: 5mm 0 2.5mm; }
+  h2 .en { font-size: 9pt; font-weight: 400; color: #536579; margin-left: 3mm; }
+  .report { display: flex; align-items: center; justify-content: center; gap: 4mm; background: #eef5ff; border: 0.5mm solid #85b7eb; border-radius: 3mm; padding: 4mm; }
+  .chip { background: white; border: 0.4mm solid #85b7eb; border-radius: 2.5mm; padding: 2.5mm 5mm; text-align: center; }
+  .chip .zh { font-size: 13pt; font-weight: 800; color: #0c447c; }
+  .chip .en { font-size: 7.5pt; color: #536579; margin-top: 0.5mm; }
+  .plus { font-size: 18pt; font-weight: 800; color: #185fa5; }
+  .noneed { font-size: 10.5pt; color: #185fa5; text-align: center; margin-top: 2mm; line-height: 1.6; }
+  .noneed b { color: #0c447c; }
+  .ladder { display: grid; gap: 2.5mm; margin-top: 2mm; }
+  .rung { display: grid; grid-template-columns: 26mm 1fr; gap: 4mm; border-radius: 2.5mm; padding: 3mm 4.5mm; align-items: center; }
+  .rung .h { font-size: 12pt; font-weight: 800; text-align: right; }
+  .rung .b { font-size: 11pt; line-height: 1.55; }
+  .rung .en { display: block; font-size: 7.5pt; color: #536579; line-height: 1.35; }
+  .r1 { background: #e1f5ee; border: 0.4mm solid #5dcaa5; } .r1 .h { color: #085041; }
+  .r2 { background: #e6f1fb; border: 0.4mm solid #85b7eb; } .r2 .h { color: #0c447c; }
+  .r3 { background: #faeeda; border: 0.4mm solid #fac775; } .r3 .h { color: #633806; }
+  .refnote { font-size: 9.5pt; color: #536579; margin-top: 2mm; text-align: center; }
+  .why { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3.5mm; }
+  .w { border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3.5mm 4mm; text-align: center; }
+  .w .t { font-size: 11.5pt; font-weight: 800; color: #0c447c; }
+  .w .b { font-size: 9.5pt; line-height: 1.5; margin-top: 1.5mm; }
+  .w .en { font-size: 7pt; color: #536579; margin-top: 1.5mm; line-height: 1.3; }
+  .guarantees { border: 0.6mm solid #1d4f91; border-radius: 3mm; background: #eef5ff; padding: 4mm 6mm; margin-top: 5mm; }
+  .guarantees .t { font-size: 13pt; font-weight: 800; color: #0c447c; margin-bottom: 2mm; }
+  .guarantees .g { font-size: 11pt; line-height: 1.8; }
+  .guarantees .g b { color: #0f6e56; }
+  .close { text-align: center; margin-top: 5mm; }
+  .close .zh { font-size: 17pt; font-weight: 800; color: #182230; }
+  .close .en { font-size: 9pt; color: #536579; margin-top: 1.5mm; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="zh">我来处理</div>
+    <div class="en">"I'll take this" — the button that builds face, not loses it</div>
+    <div class="motto">处理人是解决问题的人，不是犯错的人</div>
+  </div>
+
+  <div class="contrast">
+    <div class="old">
+      <div class="t">旧观念</div>
+      <div class="line">出问题 → 先查是谁的错 → 开会追责 → 下次没人吭声</div>
+      <div class="en">Old way: something breaks → find who to blame → a meeting about fault → next time, silence.</div>
+    </div>
+    <div class="new">
+      <div class="t">新规则</div>
+      <div class="line">出问题 → 拍照登记（不写名字）→ 有人点「我来处理」→ 修好验证 → 处理人得分</div>
+      <div class="en">New rule: photo it (no names) → someone presses "I'll take this" → fixed and verified → the handler earns the credit.</div>
+    </div>
+  </div>
+
+  <h2>登记问题，只要两样<span class="en">Reporting takes two things — and blames nobody</span></h2>
+  <div class="report">
+    <div class="chip"><div class="zh">一句话</div><div class="en">what you saw</div></div>
+    <div class="plus">+</div>
+    <div class="chip"><div class="zh">一张照片</div><div class="en">one photo</div></div>
+  </div>
+  <div class="noneed"><b>不用选谁的错，不用指名任何人，不用定严重度。</b>系统自动送到对应部门的收件箱——问题登记在部门，不登记在人头上。<br>No fault field, no name, no severity decision. It routes to a department inbox — problems land on a team, never on a head.</div>
+
+  <h2>没人接怎么办？——三层保险<span class="en">The ladder: what happens if nobody volunteers</span></h2>
+  <div class="ladder">
+    <div class="rung r1"><div class="h">0–24小时</div><div class="b">任何人可以点「我来处理」——自愿接的人，例会点名表扬<span class="en">Anyone may take it. Volunteers get named praise at the weekly meeting</span></div></div>
+    <div class="rung r2"><div class="h">24–48小时</div><div class="b">组长认领或指派——这是正常管理，不是失败<span class="en">The leader takes or assigns it — normal management, not failure</span></div></div>
+    <div class="rung r3"><div class="h">48小时后</div><div class="b">计入组长的当月未达标事项，总经理报表上变红<span class="en">Past 48h it counts against the leader's bar and shows red on the GM report</span></div></div>
+  </div>
+  <div class="refnote">质检永远不派活——裁判不当原告。第一周组长带头先领。<br>QC never assigns work — the referee is never the prosecutor. In week one, leaders take first.</div>
+
+  <h2>为什么要接？<span class="en">What taking it earns you</span></h2>
+  <div class="why">
+    <div class="w"><div class="t">名字留在解法上</div><div class="b">修复记录永久署名处理人——不是犯错的人。</div><div class="en">The fix record carries the handler's name forever</div></div>
+    <div class="w"><div class="t">分数进你的组</div><div class="b">验证通过按严重度计分：低1 中2 高3 严重5。组的达标线保持绿色。</div><div class="en">Verified fixes earn severity points and keep the group's bar green</div></div>
+    <div class="w"><div class="t">钱跟着分走</div><div class="b">组长 ¥400 达标奖 · 全组 ¥1000 进步聚餐 · ¥500 当月最佳修复。</div><div class="en">¥400 leader bar · ¥1000 team dinner · ¥500 best fix of the month</div></div>
+  </div>
+
+  <div class="guarantees">
+    <div class="t">白纸黑字的保证</div>
+    <div class="g"><b>接手 ≠ 认错</b>——处理人记录永远写"解决者"。 <b>如实填写，永不追责</b>——诚实的原因不受罚。 <b>只加不减</b>——奖金是加的，工资不扣。 <b>旧账一笔勾销</b>——系统启用前的历史，一概不算。 <b>复发不收回功劳</b>——藏着复发才是问题。</div>
+  </div>
+
+  <div class="close">
+    <div class="zh">问题没有名字，解决问题的人才有名字。</div>
+    <div class="en">Problems carry no names. The people who solve them do.</div>
+  </div>
+</body>
+</html>

@@ -14,6 +14,8 @@ import {
 } from "@/server/calendar";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes } from "@/server/permissions";
+import { getNavVisibility } from "@/server/nav";
+import { AppHeader } from "@/components/layout/AppHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +54,11 @@ export default async function CalendarPage({ searchParams }: PageProps) {
   const currentUser = await getCurrentUser();
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
   const canProposeChange = permissionCodes.has("trial.date.propose_change");
+  const nav = await getNavVisibility({
+    permissionCodes,
+    roleCode: currentUser.roleCode,
+    dbRoleCode: currentUser.role.code
+  });
 
   const t = createTranslator(await getDictionary());
   const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
@@ -88,12 +95,14 @@ export default async function CalendarPage({ searchParams }: PageProps) {
 
   return (
     <main className="shell">
+      <AppHeader current="calendar" nav={nav} currentUser={currentUser} />
       <section className="pageHeader">
         <div>
           <p className="eyebrow">{pickLabel(calendarLabels.pageSubtitle, locale)}</p>
           <h1>{pickLabel(calendarLabels.pageTitle, locale)}</h1>
         </div>
-        <div className="pageHeaderActions">
+        {/* Phone-only back-to-dashboard link; desktop uses the AppHeader bar above. */}
+        <div className="pageHeaderActions md:hidden">
           <nav className="dashboardNavActions" aria-label={pickLabel(navLabels.dashboard, locale)}>
             <a className="buttonLink" href="/">
               {pickLabel(navLabels.dashboard, locale)}

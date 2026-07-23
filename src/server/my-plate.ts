@@ -8,6 +8,7 @@ import {
   belongsToComingUpSection,
   belongsToConfirmTrialDatesSection,
   belongsToDepartmentInboxSection,
+  belongsToDesignRevisionsSection,
   belongsToMyOpenIssuesSection,
   belongsToNeedsReasonSection,
   belongsToPmConfirmReadySection,
@@ -16,16 +17,36 @@ import {
   comparePlateItemsByDate,
   directDepartmentInboxGroupByRole,
   isOverdue,
+  type PlateDesignChangeRecord,
   type PlateIssueRecord,
   type PlateTrialRecord,
   type PlateViewer,
   type TrialStatusDbValue
 } from "@/domain/mold-trial/my-plate";
 import { daysBetweenProposedAndTarget, isProposedDateAfterTarget, type DateConfirmationStatus } from "@/domain/mold-trial/date-confirmation";
+import {
+  compareByCountdownUrgency,
+  computeDeadline,
+  remainingHours
+} from "@/domain/mold-trial/deadline-countdown";
+import type { KpiRuleCode } from "@/domain/mold-trial/kpi-rules";
+import type { ScoringRule } from "@/domain/mold-trial/kpi-scoring";
 import { compareInjectionMachineNo, formatInjectionMachineLabel } from "@/domain/mold-trial/process-sheet";
 import { prisma } from "@/lib/prisma";
 import { applyAutoMissedTrialsForAllProjects } from "@/server/auto-missed-trials";
 import {
+  anchorForAcknowledge,
+  anchorForDateConfirmation,
+  anchorForDateDecision,
+  anchorForDesignRevision,
+  anchorForInboxClaim,
+  anchorForMissedReason,
+  anchorForReportUpload,
+  anchorForReturnedRedate,
+  loadRuleConfig
+} from "@/server/kpi-events";
+import {
+  changeRequesterLabels,
   issueStatusLabels,
   missedTrialReasonLabels,
   responsibleAreaLabels,
@@ -36,6 +57,38 @@ import {
 
 const COMING_UP_WINDOW_DAYS = 7;
 const QC_REPORT_WINDOW_DAYS = 14;
+/**
+ * Assembly self-check has no hours rule; its soft deadline is the NEXT planned
+ * trial. The chip only appears once that trial falls inside this window.
+ */
+const SELF_CHECK_WINDOW_HOURS = 72;
+
+/**
+ * A precomputed deadline countdown for a task card, frozen at request time
+ * (pages are force-dynamic; the client only formats — it never ticks). The rule
+ * hours come from the live KpiRule table, so admin edits show up on next load.
+ * A row with no `deadline` shows no chip (rule inactive or anchor unavailable —
+ * never a guessed deadline).
+ */
+export type PlateDeadline = {
+  /** The timed rule this deadline enforces (drives the tooltip label). */
+  ruleCode: KpiRuleCode;
+  /** The live hours window from the KpiRule table (tooltip "<H>h"). */
+  ruleHours: number;
+  /** Signed hours remaining until due; negative = overdue. Drives text/tone/sort. */
+  remainingHours: number;
+};
+
+/**
+ * The Assembly self-check chip: no hours rule, so the "deadline" is the next
+ * planned trial's date. Rendered as "before next trial · <date>".
+ */
+export type SelfCheckDeadline = {
+  /** The next planned trial's date (YYYY-MM-DD). */
+  nextTrialDate: string;
+  /** Signed hours remaining until that date; negative = overdue. Drives tone/sort. */
+  remainingHours: number;
+};
 
 export type PlateOption = {
   value: string;
@@ -58,6 +111,8 @@ export type NeedsReasonRow = PlateRowBase & {
   plannedDate: string | null;
   plannedDateInput: string | null;
   overdue: boolean;
+  /** pm.missed_reason countdown (anchor: autoMissedAt); null when no chip. */
+  deadline: PlateDeadline | null;
 };
 
 /** One issue photo shaped for the read-only /me gallery. */
@@ -99,6 +154,13 @@ export type IssueLifecycleRow = PlateRowBase & {
   overdue: boolean;
   description: string | null;
   partCavity: string | null;
+  /**
+   * Timed-rule countdown for this row's section (all.inbox_claim for the
+   * department inbox, asm.acknowledge for acknowledge); null when no chip.
+   */
+  deadline: PlateDeadline | null;
+  /** Assembly self-check "before next trial" chip; null except in that section. */
+  selfCheckDeadline: SelfCheckDeadline | null;
   // Round-trip fields for updateTrialIssue.
   ownerUsername: string | null;
   ownerGroupCode: string | null;
@@ -140,6 +202,8 @@ export type ConfirmTrialDateRow = PlateRowBase & {
   statusLabel: string;
   plannedDate: string | null;
   overdue: boolean;
+  /** inj.date_confirm countdown (anchor: trial createdAt); null when no chip. */
+  deadline: PlateDeadline | null;
 };
 
 /** Marketing "Approve date changes": a trial with a proposed date awaiting a decision. */
@@ -154,6 +218,8 @@ export type ApproveDateChangeRow = PlateRowBase & {
   targetGapDays: number | null;
   /** True when the proposed date lands after the customer target (red styling). */
   proposedAfterTarget: boolean;
+  /** mkt.date_decision countdown (anchor: proposal ActivityLog); null when no chip. */
+  deadline: PlateDeadline | null;
 };
 
 /** PM "Returned dates": a trial Marketing returned to the PM to re-date. */
@@ -162,6 +228,8 @@ export type ReturnedDateRow = PlateRowBase & {
   trialCode: string;
   plannedDate: string | null;
   rejectReason: string | null;
+  /** pm.returned_redate countdown (anchor: rescheduleDecisionAt); null when no chip. */
+  deadline: PlateDeadline | null;
 };
 
 /** A recently completed trial that still needs its QC measurement report. */
@@ -171,6 +239,24 @@ export type QcReportToUploadRow = PlateRowBase & {
   statusLabel: string;
   /** Actual completion date (drives sort + display). */
   actualDate: string | null;
+  /** qc.report_upload countdown (anchor: result-recorded ActivityLog); null when no chip. */
+  deadline: PlateDeadline | null;
+};
+
+/**
+ * Design "revisions": a design-change event still awaiting its first DRAWING.
+ * The primary action uploads a DRAWING straight onto the DESIGN_CHANGE_EVENT
+ * (reusing the generic `uploadAttachment` action), which clears the card.
+ */
+export type DesignRevisionRow = PlateRowBase & {
+  designChangeEventId: string;
+  /** Project UUID for the upload form's projectId field (not the display code). */
+  projectId: string;
+  requesterLabel: string;
+  changeDate: string | null;
+  createdDate: string | null;
+  /** design.change_revision countdown (anchor: event createdAt); null when no chip. */
+  deadline: PlateDeadline | null;
 };
 
 export type MyPlateData = {
@@ -180,6 +266,7 @@ export type MyPlateData = {
   returnedDates: ReturnedDateRow[];
   myOpenIssues: MyOpenIssueRow[];
   departmentInbox: IssueLifecycleRow[];
+  designRevisions: DesignRevisionRow[];
   assemblyAcknowledge: IssueLifecycleRow[];
   assemblySelfCheck: IssueLifecycleRow[];
   pmConfirmReady: IssueLifecycleRow[];
@@ -219,6 +306,51 @@ function partCavityLabel(part: { partCode: string; cavityLabel: string | null } 
 
   const base = part.cavityLabel == null ? part.partCode : `${part.partCode} · ${part.cavityLabel}`;
   return cavityNote == null ? base : `${base} — ${cavityNote}`;
+}
+
+/**
+ * Turn a rule anchor into a card countdown using the LIVE rule config. Returns
+ * null (no chip) when the rule is inactive, boolean (no hours), or the anchor is
+ * unavailable — matching the scoring engine's "exclude rather than guess" rule.
+ * `dueAt` is `computeDeadline(anchor, hours)`, the SAME math the scorer uses, so
+ * the chip and the on-time verdict can never diverge.
+ */
+function ruleCountdown(
+  ruleCode: KpiRuleCode,
+  anchor: Date | null,
+  ruleByCode: Map<KpiRuleCode, ScoringRule>,
+  now: Date
+): PlateDeadline | null {
+  const rule = ruleByCode.get(ruleCode);
+  if (rule == null || !rule.active || rule.hours == null || anchor == null) {
+    return null;
+  }
+  return {
+    ruleCode,
+    ruleHours: rule.hours,
+    remainingHours: remainingHours(computeDeadline(anchor, rule.hours), now)
+  };
+}
+
+/**
+ * The Assembly self-check chip: no hours rule, so measure against the next
+ * planned trial's date. Shown only once that trial is inside the 72h window
+ * (overdue included); null otherwise (or when there is no upcoming trial).
+ */
+function selfCheckCountdown(nextTrialDate: Date | null | undefined, now: Date): SelfCheckDeadline | null {
+  if (nextTrialDate == null) {
+    return null;
+  }
+  const remaining = remainingHours(nextTrialDate, now);
+  if (remaining >= SELF_CHECK_WINDOW_HOURS) {
+    return null;
+  }
+  return { nextTrialDate: nextTrialDate.toISOString().slice(0, 10), remainingHours: remaining };
+}
+
+/** Sort key for a standard-countdown row (most urgent first, no-chip rows last). */
+function urgencyOf(row: { deadline: PlateDeadline | null }): { remainingHours: number | null } {
+  return { remainingHours: row.deadline?.remainingHours ?? null };
 }
 
 /**
@@ -276,7 +408,7 @@ export async function getMyPlateData(
     });
   }
 
-  const [trials, issues] = await Promise.all([
+  const [trials, issues, ruleConfig] = await Promise.all([
     prisma.trialEvent.findMany({
       where: {
         status: { in: ["PLANNED", "AT_RISK", "AUTO_MISSED_REASON_REQUIRED"] },
@@ -291,6 +423,10 @@ export async function getMyPlateData(
         plannedDate: true,
         dateConfirmationStatus: true,
         rescheduleRejectReason: true,
+        // Deadline anchors: autoMissedAt (needs-a-reason), rescheduleDecisionAt
+        // (returned dates). Shared with the scorer via kpi-events anchor helpers.
+        autoMissedAt: true,
+        rescheduleDecisionAt: true,
         moldTrialProject: {
           select: {
             projectCode: true,
@@ -317,6 +453,8 @@ export async function getMyPlateData(
         issueType: true,
         ownerUserId: true,
         dueDate: true,
+        // Deadline anchor for all.inbox_claim + asm.acknowledge (issue createdAt).
+        createdAt: true,
         affectedScope: true,
         affectedPartId: true,
         affectedCavityNote: true,
@@ -334,6 +472,7 @@ export async function getMyPlateData(
         affectedPart: { select: { partCode: true, cavityLabel: true } },
         moldTrialProject: {
           select: {
+            id: true,
             projectCode: true,
             moldCode: true,
             planningPmId: true,
@@ -343,8 +482,13 @@ export async function getMyPlateData(
         }
       },
       orderBy: [{ dueDate: "asc" }]
-    })
+    }),
+    // Load the live rule config ONCE per request (hours + active flag), so an
+    // admin's Rules-tab edit shows up on next load and no row re-queries it.
+    loadRuleConfig()
   ]);
+
+  const ruleByCode = new Map<KpiRuleCode, ScoringRule>(ruleConfig.rules.map((rule) => [rule.code, rule]));
 
   // Photos for the fetched issues (read-only /me gallery + collapsed-header chip).
   const fetchedIssueIds = issues.map((issue) => issue.id);
@@ -381,6 +525,28 @@ export async function getMyPlateData(
     photosByIssue.set(photo.entityId, list);
   }
 
+  // Assembly self-check has no hours rule — its soft deadline is the NEXT planned
+  // trial per project. Batch the lookup for every fetched issue's project (one
+  // query, grouped in memory) so the self-check section adds no N+1.
+  const nextPlannedTrialByProject = new Map<string, Date>();
+  if (viewer.roleCode === "ASSEMBLY" && issues.length > 0) {
+    const projectIds = [...new Set(issues.map((issue) => issue.moldTrialProject.id))];
+    const upcomingTrials = await prisma.trialEvent.findMany({
+      where: {
+        status: { in: ["PLANNED", "AT_RISK"] },
+        plannedDate: { gte: startOfUtcDay(now) },
+        moldTrialProjectId: { in: projectIds }
+      },
+      select: { moldTrialProjectId: true, plannedDate: true },
+      orderBy: [{ plannedDate: "asc" }]
+    });
+    for (const upcoming of upcomingTrials) {
+      if (!nextPlannedTrialByProject.has(upcoming.moldTrialProjectId)) {
+        nextPlannedTrialByProject.set(upcoming.moldTrialProjectId, upcoming.plannedDate);
+      }
+    }
+  }
+
   const needsReason: NeedsReasonRow[] = [];
   const comingUp: ComingUpRow[] = [];
   const returnedDates: ReturnedDateRow[] = [];
@@ -410,7 +576,8 @@ export async function getMyPlateData(
         statusLabel: trialStatusLabels[trial.status],
         plannedDate: formatDate(trial.plannedDate),
         plannedDateInput: formatDate(trial.plannedDate),
-        overdue: isOverdue(trial.plannedDate, now)
+        overdue: isOverdue(trial.plannedDate, now),
+        deadline: ruleCountdown("pm.missed_reason", anchorForMissedReason(trial), ruleByCode, now)
       });
     }
 
@@ -420,7 +587,8 @@ export async function getMyPlateData(
         trialEventId: trial.id,
         trialCode: trialCodeLabels[trial.trialCode],
         plannedDate: formatDate(trial.plannedDate),
-        rejectReason: trial.rescheduleRejectReason
+        rejectReason: trial.rescheduleRejectReason,
+        deadline: ruleCountdown("pm.returned_redate", anchorForReturnedRedate(trial), ruleByCode, now)
       });
     }
 
@@ -464,6 +632,8 @@ export async function getMyPlateData(
           dateConfirmationStatus: true,
           proposedDate: true,
           proposedReason: true,
+          // inj.date_confirm anchor: the PENDING_CONFIRMATION window opens at createdAt.
+          createdAt: true,
           moldTrialProject: {
             select: {
               projectCode: true,
@@ -488,6 +658,26 @@ export async function getMyPlateData(
     activeMachines = [...machines]
       .sort(compareInjectionMachineNo)
       .map((machine) => ({ value: machine.id, label: formatInjectionMachineLabel(machine) }));
+
+    // mkt.date_decision anchor: the Injection counter-proposal ActivityLog. One
+    // batched query for every proposed trial (Marketing view only) — no per-row
+    // lookup — matching kpi-events' proposal-timestamp source.
+    const proposalLogByTrialId = new Map<string, { createdAt: Date }>();
+    if (viewer.roleCode === "MARKETING" && confirmationTrials.length > 0) {
+      const proposalLogs = await prisma.activityLog.findMany({
+        where: {
+          action: "proposed_trial_date_change",
+          entityId: { in: confirmationTrials.map((trial) => trial.id) }
+        },
+        orderBy: [{ createdAt: "asc" }],
+        select: { entityId: true, createdAt: true }
+      });
+      for (const log of proposalLogs) {
+        if (!proposalLogByTrialId.has(log.entityId)) {
+          proposalLogByTrialId.set(log.entityId, { createdAt: log.createdAt });
+        }
+      }
+    }
 
     for (const trial of confirmationTrials) {
       const project = trial.moldTrialProject;
@@ -514,7 +704,8 @@ export async function getMyPlateData(
           statusValue: trial.status as TrialStatusDbValue,
           statusLabel: trialStatusLabels[trial.status],
           plannedDate: formatDate(trial.plannedDate),
-          overdue: isOverdue(trial.plannedDate, now)
+          overdue: isOverdue(trial.plannedDate, now),
+          deadline: ruleCountdown("inj.date_confirm", anchorForDateConfirmation(trial), ruleByCode, now)
         });
       }
 
@@ -528,7 +719,13 @@ export async function getMyPlateData(
           customerTargetDate: formatDate(project.customerTargetDate),
           proposedReason: trial.proposedReason,
           targetGapDays: daysBetweenProposedAndTarget(trial.proposedDate, project.customerTargetDate),
-          proposedAfterTarget: isProposedDateAfterTarget(trial.proposedDate, project.customerTargetDate)
+          proposedAfterTarget: isProposedDateAfterTarget(trial.proposedDate, project.customerTargetDate),
+          deadline: ruleCountdown(
+            "mkt.date_decision",
+            anchorForDateDecision(proposalLogByTrialId.get(trial.id)),
+            ruleByCode,
+            now
+          )
         });
       }
     }
@@ -602,19 +799,39 @@ export async function getMyPlateData(
       assemblyEstimatedFinishDateInput: formatDate(issue.assemblyEstimatedFinishDate),
       assemblySelfCheckedAtInput: formatDate(issue.assemblySelfCheckedAt),
       assemblySelfCheckNote: issue.assemblySelfCheckNote,
-      pmReadyConfirmedAtInput: formatDate(issue.pmReadyConfirmedAt)
+      pmReadyConfirmedAtInput: formatDate(issue.pmReadyConfirmedAt),
+      // Filled per-section below; PM-confirm-ready has no hours rule → no chip.
+      deadline: null,
+      selfCheckDeadline: null
     };
 
     if (belongsToDepartmentInboxSection(viewer, record)) {
-      departmentInbox.push(lifecycleRow);
+      // A DESIGN viewer's inbox is the design group, so its claim chip is the
+      // design-scoped rule (same 48h anchor as all.inbox_claim); every other role
+      // uses the shared line.
+      departmentInbox.push({
+        ...lifecycleRow,
+        deadline: ruleCountdown(
+          viewer.roleCode === "DESIGN" ? "design.inbox_claim" : "all.inbox_claim",
+          anchorForInboxClaim(issue),
+          ruleByCode,
+          now
+        )
+      });
     }
 
     if (belongsToAssemblyAcknowledgeSection(viewer, record)) {
-      assemblyAcknowledge.push(lifecycleRow);
+      assemblyAcknowledge.push({
+        ...lifecycleRow,
+        deadline: ruleCountdown("asm.acknowledge", anchorForAcknowledge(issue), ruleByCode, now)
+      });
     }
 
     if (belongsToAssemblySelfCheckSection(viewer, record)) {
-      assemblySelfCheck.push(lifecycleRow);
+      assemblySelfCheck.push({
+        ...lifecycleRow,
+        selfCheckDeadline: selfCheckCountdown(nextPlannedTrialByProject.get(project.id), now)
+      });
     }
 
     if (belongsToPmConfirmReadySection(viewer, record)) {
@@ -687,6 +904,22 @@ export async function getMyPlateData(
       reportsByTrial.set(report.entityId, list);
     }
 
+    // qc.report_upload anchor: the result-recorded ActivityLog per trial. One
+    // batched query (QC view only) — matches kpi-events' record-result source.
+    const recordLogByTrialId = new Map<string, { createdAt: Date }>();
+    if (completedTrialIds.length > 0) {
+      const recordLogs = await prisma.activityLog.findMany({
+        where: { action: "recorded_completed_trial", entityId: { in: completedTrialIds } },
+        orderBy: [{ createdAt: "asc" }],
+        select: { entityId: true, createdAt: true }
+      });
+      for (const log of recordLogs) {
+        if (!recordLogByTrialId.has(log.entityId)) {
+          recordLogByTrialId.set(log.entityId, { createdAt: log.createdAt });
+        }
+      }
+    }
+
     for (const trial of completedTrials) {
       const project = trial.moldTrialProject;
       const record: PlateTrialRecord = {
@@ -729,7 +962,84 @@ export async function getMyPlateData(
         trialEventId: trial.id,
         trialCode: trialCodeLabels[trial.trialCode],
         statusLabel: trialStatusLabels[trial.status],
-        actualDate: formatDate(trial.actualDate)
+        actualDate: formatDate(trial.actualDate),
+        deadline: ruleCountdown(
+          "qc.report_upload",
+          anchorForReportUpload(recordLogByTrialId.get(trial.id)),
+          ruleByCode,
+          now
+        )
+      });
+    }
+  }
+
+  // "Design: revisions" — only DESIGN users see it. Design-change events on live
+  // (non-terminal) projects that have no DRAWING attached yet. The DB filter
+  // narrows to live projects; the drawing-presence join then drops any event that
+  // already has a drawing (the pure predicate re-applies both gates).
+  const designRevisions: DesignRevisionRow[] = [];
+
+  if (viewer.roleCode === "DESIGN") {
+    const changeEvents = await prisma.designChangeEvent.findMany({
+      where: { moldTrialProject: { status: { notIn: ["CANCELLED", "CLOSED"] } } },
+      select: {
+        id: true,
+        title: true,
+        changeDate: true,
+        requestedBy: true,
+        // design.change_revision anchor: the event's creation opens the clock.
+        createdAt: true,
+        moldTrialProject: {
+          select: {
+            id: true,
+            projectCode: true,
+            moldCode: true,
+            status: true,
+            customer: { select: { shortName: true } }
+          }
+        }
+      },
+      orderBy: [{ createdAt: "asc" }]
+    });
+
+    const changeEventIds = changeEvents.map((event) => event.id);
+    const drawingRows =
+      changeEventIds.length === 0
+        ? []
+        : await prisma.fileAttachment.findMany({
+            where: {
+              entityType: "DESIGN_CHANGE_EVENT",
+              entityId: { in: changeEventIds },
+              fileType: "DRAWING",
+              deletedAt: null
+            },
+            select: { entityId: true }
+          });
+    const eventsWithDrawing = new Set(drawingRows.map((row) => row.entityId));
+
+    for (const event of changeEvents) {
+      const project = event.moldTrialProject;
+      const record: PlateDesignChangeRecord = {
+        projectStatus: project.status,
+        hasDrawing: eventsWithDrawing.has(event.id)
+      };
+
+      if (!belongsToDesignRevisionsSection(viewer, record)) {
+        continue;
+      }
+
+      designRevisions.push({
+        key: event.id,
+        projectCode: project.projectCode,
+        customerShortName: project.customer.shortName,
+        moldCode: project.moldCode,
+        title: event.title,
+        designChangeEventId: event.id,
+        projectId: project.id,
+        requesterLabel: changeRequesterLabels[event.requestedBy] ?? event.requestedBy,
+        changeDate: formatDate(event.changeDate),
+        createdDate: formatDate(event.createdAt),
+        deadline: ruleCountdown("design.change_revision", anchorForDesignRevision(event), ruleByCode, now)
       });
     }
   }
@@ -744,10 +1054,31 @@ export async function getMyPlateData(
   comingUp.sort((a, b) => comparePlateItemsByDate({ date: a.plannedDate }, { date: b.plannedDate }));
   myOpenIssues.sort((a, b) => comparePlateItemsByDate({ date: a.dueDate }, { date: b.dueDate }));
   departmentInbox.sort((a, b) => comparePlateItemsByDate({ date: a.dueDate }, { date: b.dueDate }));
+  designRevisions.sort((a, b) => comparePlateItemsByDate({ date: a.createdDate }, { date: b.createdDate }));
   assemblyAcknowledge.sort((a, b) => comparePlateItemsByDate({ date: a.dueDate }, { date: b.dueDate }));
   assemblySelfCheck.sort((a, b) => comparePlateItemsByDate({ date: a.dueDate }, { date: b.dueDate }));
   pmConfirmReady.sort((a, b) => comparePlateItemsByDate({ date: a.dueDate }, { date: b.dueDate }));
   qcReportsToUpload.sort((a, b) => comparePlateItemsByDate({ date: a.actualDate }, { date: b.actualDate }));
+
+  // Sections that carry a deadline countdown re-sort by urgency (most urgent
+  // first, overdue at the very top, no-chip rows last). The date sort above
+  // survives as a stable tiebreaker for equal / absent remaining times.
+  // Coming up, My open issues and PM confirm-ready have no hours rule and keep
+  // their date order.
+  needsReason.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  confirmTrialDates.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  approveDateChanges.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  returnedDates.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  departmentInbox.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  designRevisions.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  assemblyAcknowledge.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
+  assemblySelfCheck.sort((a, b) =>
+    compareByCountdownUrgency(
+      { remainingHours: a.selfCheckDeadline?.remainingHours ?? null },
+      { remainingHours: b.selfCheckDeadline?.remainingHours ?? null }
+    )
+  );
+  qcReportsToUpload.sort((a, b) => compareByCountdownUrgency(urgencyOf(a), urgencyOf(b)));
 
   const totalCount =
     needsReason.length +
@@ -756,6 +1087,7 @@ export async function getMyPlateData(
     returnedDates.length +
     myOpenIssues.length +
     departmentInbox.length +
+    designRevisions.length +
     assemblyAcknowledge.length +
     assemblySelfCheck.length +
     pmConfirmReady.length +
@@ -769,6 +1101,7 @@ export async function getMyPlateData(
     returnedDates,
     myOpenIssues,
     departmentInbox,
+    designRevisions,
     assemblyAcknowledge,
     assemblySelfCheck,
     pmConfirmReady,

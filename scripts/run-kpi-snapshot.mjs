@@ -17,11 +17,7 @@
 import "dotenv/config";
 
 import { computeDepartmentRollup, computeScorecard } from "../src/domain/mold-trial/kpi-scoring.ts";
-import {
-  defaultKpiRules,
-  isKpiRuleCode,
-  roleScopeDepartmentGroupCode
-} from "../src/domain/mold-trial/kpi-rules.ts";
+import { defaultKpiRules, isKpiRuleCode } from "../src/domain/mold-trial/kpi-rules.ts";
 
 const { PrismaClient } = await import("@prisma/client");
 const { PrismaPg } = await import("@prisma/adapter-pg");
@@ -189,9 +185,8 @@ async function snapshotMonth(month, dateOnly, now) {
   const [users, extraction, groups] = await Promise.all([
     prisma.user.findMany({ where: { status: "ACTIVE" }, include: { role: { select: { code: true } } }, orderBy: [{ username: "asc" }] }),
     extract(window, ruleHours),
-    prisma.departmentGroup.findMany({ select: { id: true, code: true } })
+    prisma.departmentGroup.findMany({ select: { id: true, code: true, kpiLeaderId: true } })
   ]);
-  const groupIdByCode = new Map(groups.map((g) => [g.code, g.id]));
   const habitByUser = new Map();
   for (const e of extraction.habitEvents) { const l = habitByUser.get(e.userId) ?? []; l.push(e); habitByUser.set(e.userId, l); }
   const pointsByUser = new Map();
@@ -203,8 +198,17 @@ async function snapshotMonth(month, dateOnly, now) {
     card: computeScorecard({ userId: u.id, habitEvents: habitByUser.get(u.id) ?? [], pointsEvents: pointsByUser.get(u.id) ?? [], rules, now })
   }));
 
-  const scopeCards = new Map();
-  for (const s of scored) if (s.roleScope != null) { const l = scopeCards.get(s.roleScope) ?? []; l.push(s.card); scopeCards.set(s.roleScope, l); }
+  // Leader-designation layer: aggregate each scored user's card into their real
+  // KPI group (departmentGroupId). DEPARTMENT_GROUP snapshots key on real group
+  // ids — one row per group with a designated leader (kpiLeaderId). The pm group
+  // has no leader (PMs are USER-scope individuals), so it is skipped here.
+  const memberCardsByGroupId = new Map();
+  for (const s of scored) {
+    if (s.user.departmentGroupId == null) continue;
+    const l = memberCardsByGroupId.get(s.user.departmentGroupId) ?? [];
+    l.push(s.card);
+    memberCardsByGroupId.set(s.user.departmentGroupId, l);
+  }
 
   let written = 0;
   await prisma.$transaction(async (tx) => {
@@ -213,13 +217,12 @@ async function snapshotMonth(month, dateOnly, now) {
       await tx.kpiSnapshot.create({ data: { snapshotDate: dateOnly, scopeType: "USER", scopeId: s.user.id, metricsJson: { month, username: s.user.username, roleCode: s.user.role.code, roleScope: s.roleScope, scorecard: serialize(s.card) } } });
       written += 1;
     }
-    for (const [roleScope, cards] of scopeCards) {
-      const groupCode = roleScopeDepartmentGroupCode[roleScope];
-      if (groupCode == null) continue;
-      const groupId = groupIdByCode.get(groupCode) ?? null;
+    for (const g of groups) {
+      if (g.kpiLeaderId == null) continue;
+      const cards = memberCardsByGroupId.get(g.id) ?? [];
       const rollup = computeDepartmentRollup(cards);
-      await tx.kpiSnapshot.deleteMany({ where: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: groupId } });
-      await tx.kpiSnapshot.create({ data: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: groupId, metricsJson: { month, roleScope, groupCode, ...rollup } } });
+      await tx.kpiSnapshot.deleteMany({ where: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: g.id } });
+      await tx.kpiSnapshot.create({ data: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: g.id, metricsJson: { month, groupCode: g.code, leaderUserId: g.kpiLeaderId, memberCount: cards.length, ...rollup } } });
       written += 1;
     }
     const cApplicable = scored.reduce((s, x) => s + x.card.applicable, 0);

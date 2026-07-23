@@ -156,6 +156,7 @@ export type RoleCode =
   | "INJECTION"
   | "ASSEMBLY"
   | "QC"
+  | "DESIGN"
   | "VIEWER"
   | "ADMIN";
 

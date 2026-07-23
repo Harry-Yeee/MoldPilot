@@ -16,6 +16,10 @@ import {
   type AttachmentFileType,
   type AttachmentVisibility
 } from "@/domain/mold-trial/attachments";
+import {
+  DUPLICATE_SUBMISSION_WINDOW_MS,
+  isDuplicateAttachmentSubmission
+} from "@/domain/mold-trial/submission-guards";
 import { prisma } from "@/lib/prisma";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { getCurrentUser } from "@/server/current-user";
@@ -171,6 +175,35 @@ export async function uploadAttachment(formData: FormData) {
 
     if (!validation.ok) {
       redirectWithMessage(fallback, "error", validation.issues[0]?.message ?? "This file cannot be uploaded.");
+    }
+
+    // Double-tap guard: an identical file (same target + uploader + stored name +
+    // byte size) written within the window is a re-tap — skip the disk + DB write
+    // and return success instead of creating a duplicate attachment row.
+    const now = new Date();
+    const duplicateWindowStart = new Date(now.getTime() - DUPLICATE_SUBMISSION_WINDOW_MS);
+    const recentUploads = await prisma.fileAttachment.findMany({
+      where: {
+        moldTrialProjectId: project.id,
+        entityType,
+        entityId,
+        uploadedById: actor.id,
+        deletedAt: null,
+        uploadedAt: { gte: duplicateWindowStart }
+      },
+      select: { entityId: true, uploadedById: true, fileName: true, sizeBytes: true, uploadedAt: true }
+    });
+    if (
+      recentUploads.some((existing) =>
+        isDuplicateAttachmentSubmission(
+          existing,
+          { entityId, uploadedById: actor.id, fileName: validation.safeFileName, sizeBytes: file.size },
+          now
+        )
+      )
+    ) {
+      revalidatePath(fallback);
+      redirectWithMessage(fallback, "success", "File uploaded.");
     }
 
     const attachmentId = randomUUID();

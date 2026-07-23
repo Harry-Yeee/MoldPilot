@@ -1,18 +1,21 @@
 import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { BlockedAction, hasAllPermissionCodes, hasPermissionCode } from "@/app/permission-ui";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
 import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { AttachmentUploader } from "@/components/attachments/AttachmentUploader";
 import { ImageCaptureField } from "@/components/attachments/image-capture-field";
 import { IssuePhotoCountChip, IssuePhotoGallery, type IssuePhoto } from "@/components/attachments/issue-photo-gallery";
+import { StatusBadge, SubmitButton, statusToneClasses, toneForStatus } from "@/components/ui";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
+import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
 import { MeasurementReportPanel } from "@/app/projects/[projectCode]/measurement-report-panel";
 import { ProcessSheetEditor } from "@/app/projects/[projectCode]/process-sheet-editor";
 import { TrialIssueRowActions } from "@/app/projects/[projectCode]/trial-issue-row-actions";
 import { formatPartSummary } from "@/domain/mold-trial/parts";
-import { formatMoldWorkingIdentifier, formatOptionalIdentifier } from "@/domain/mold-trial/identifiers";
+import { formatMoldWorkingIdentifier } from "@/domain/mold-trial/identifiers";
 import { formatInjectionMachineLabel, isProcessSheetSummaryParameter } from "@/domain/mold-trial/process-sheet";
 import {
   buildTrialPanels,
@@ -22,7 +25,7 @@ import {
   trialVerificationStatusOptions
 } from "@/domain/mold-trial/trial-panel";
 import { formatBilingualUserOption, formatIssueOwnerUserOption } from "@/domain/mold-trial/users";
-import { attachmentLabels, issuePhotoLabels, myPlateLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { attachmentLabels, issueFormLabels, issuePhotoLabels, myPlateLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import {
   daysBetweenProposedAndTarget,
   isProposedDateAfterTarget,
@@ -32,7 +35,6 @@ import { createTranslator, translateLabel, type Dictionary } from "@/i18n";
 import { getDictionary } from "@/i18n/server";
 import {
   createTrialIssue,
-  exportProcessSheetPdf,
   recordCompletedTrial,
   resolveAutoMissedTrial,
   setFirstPlannedTrialDate,
@@ -74,7 +76,8 @@ import {
 } from "@/server/mold-trial-codecs";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes } from "@/server/permissions";
-import { getActiveUserOptions, type ActiveUserOption } from "@/server/user-options";
+import { getNavVisibility } from "@/server/nav";
+import { getActiveUserOptions } from "@/server/user-options";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +147,28 @@ function labelFor<T extends string>(labels: Record<string, T>, value: string | n
   return labels[value] ?? value.replaceAll("_", " ");
 }
 
+/**
+ * V7 (quiet the absence): render a missing project-overview value as a quiet
+ * muted dash instead of a bold dark "Not set". The "Not set / 未设置" meaning is
+ * preserved as a hover tooltip on the dash.
+ */
+function MissingDash() {
+  return (
+    <span className="valueMissing" title="Not set / 未设置">
+      —
+    </span>
+  );
+}
+
+function optionalText(value: string | null | undefined) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length === 0 ? <MissingDash /> : trimmed;
+}
+
+function optionalDate(value: Date | string | null | undefined) {
+  return value == null ? <MissingDash /> : formatDate(value);
+}
+
 function labelForTranslated<T extends string>(
   dictionary: Dictionary,
   group: string,
@@ -178,29 +203,6 @@ function trialIssueRowStatusClass(status: string): string {
   }
 
   return "trialIssueRow";
-}
-
-function UserOptions({
-  includeBlank = false,
-  dictionary,
-  users
-}: {
-  includeBlank?: boolean;
-  dictionary: Dictionary;
-  users: readonly ActiveUserOption[];
-}) {
-  const t = createTranslator(dictionary);
-
-  return (
-    <>
-      {includeBlank ? <option value="">{t("common.unassigned")}</option> : null}
-      {users.map((user) => (
-        <option key={user.username} value={user.username}>
-          {formatIssueOwnerUserOption(user)}
-        </option>
-      ))}
-    </>
-  );
 }
 
 function partOptionLabel(part: {
@@ -528,7 +530,8 @@ function TrialDateConfirmationBlock({
             <textarea name="proposedReason" rows={2} required />
           </label>
           <div className="formActions">
-            <button type="submit">{cLabel("proposeDifferentDate")}</button>
+            {/* V5b: secondary to the panel's single primary (Confirm). */}
+            <button type="submit" className="secondaryButton">{cLabel("proposeDifferentDate")}</button>
           </div>
         </form>
       ) : null}
@@ -612,9 +615,7 @@ function TrialDateConfirmationBlock({
 
 function TrialIssuePanelForm({
   activeParts,
-  activeUserOptions,
   dictionary,
-  defaultOwnerUsername,
   locale,
   marketingIssueDefaults,
   projectCode,
@@ -622,9 +623,7 @@ function TrialIssuePanelForm({
   trialEventId
 }: {
   activeParts: ProjectDetail["project"]["parts"];
-  activeUserOptions: readonly ActiveUserOption[];
   dictionary: Dictionary;
-  defaultOwnerUsername: string;
   locale: Locale;
   marketingIssueDefaults: boolean;
   projectCode: string;
@@ -633,6 +632,11 @@ function TrialIssuePanelForm({
 }) {
   const t = createTranslator(dictionary);
 
+  // R1 (blame-free intake): the only required decision is a title. The photo
+  // control stays encouraged (not required). Type/source/severity/status/due date
+  // keep sensible defaults and collapse into an optional "More details" block, so
+  // reporting a problem feels like pointing at something, not filing a case. The
+  // creator never names a person — the server routes to a department inbox.
   return (
     <form action={createTrialIssue} className="formGrid compactPanelForm widePanelForm">
       <input type="hidden" name="projectCode" value={projectCode} />
@@ -642,77 +646,76 @@ function TrialIssuePanelForm({
         {t("field.title")}
         <input name="title" required />
       </label>
-      <label>
-        {t("field.affectedPart")}
-        <select name="affectedPartId" defaultValue="">
-          <option value="">{t("common.notSet")}</option>
-          {activeParts.map((part) => (
-            <option key={part.id} value={part.id}>
-              {partOptionLabel(part)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("field.issueType")}
-        <select name="issueType" defaultValue={marketingIssueDefaults ? "BAD_CUSTOMER_FEEDBACK" : "MOLD_DESIGN_ISSUE"} required>
-          {issueTypeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {translateLabel(dictionary, "issueType", option.label)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("field.source")}
-        <select name="source" defaultValue={marketingIssueDefaults ? "MARKETING_CLIENT_FEEDBACK" : "INTERNAL_TRIAL"} required>
-          {issueSourceOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {translateLabel(dictionary, "issueSource", option.label)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("field.severity")}
-        <select name="severity" defaultValue="MEDIUM" required>
-          {severityOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {translateLabel(dictionary, "severity", option.label)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("field.status")}
-        <select name="status" defaultValue="OPEN" required>
-          {issueStatusOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {translateLabel(dictionary, "issueStatus", option.label)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("field.owner")}
-        <select name="ownerUsername" defaultValue={defaultOwnerUsername} required>
-          <UserOptions dictionary={dictionary} users={activeUserOptions} />
-        </select>
-      </label>
-      <label>
-        {t("field.dueDate")}
-        <input name="dueDate" type="date" required />
-      </label>
-      <label className="fullSpan">
-        {t("field.description")}
-        <textarea name="description" rows={2} />
-      </label>
       <div className="fullSpan grid gap-1">
         <span className="text-sm font-bold text-neutral-700">{pickLabel(issuePhotoLabels.photos, locale)}</span>
         <ImageCaptureField name="photos" locale={locale} />
       </div>
+      <details className="fullSpan issueMoreDetails">
+        <summary>{pickLabel(issueFormLabels.moreDetails, locale)}</summary>
+        <div className="formGrid compactPanelForm">
+          <label>
+            {t("field.affectedPart")}
+            <select name="affectedPartId" defaultValue="">
+              <option value="">{t("common.notSet")}</option>
+              {activeParts.map((part) => (
+                <option key={part.id} value={part.id}>
+                  {partOptionLabel(part)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("field.issueType")}
+            <select name="issueType" defaultValue={marketingIssueDefaults ? "BAD_CUSTOMER_FEEDBACK" : "MOLD_DESIGN_ISSUE"}>
+              {issueTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {translateLabel(dictionary, "issueType", option.label)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("field.source")}
+            <select name="source" defaultValue={marketingIssueDefaults ? "MARKETING_CLIENT_FEEDBACK" : "INTERNAL_TRIAL"}>
+              {issueSourceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {translateLabel(dictionary, "issueSource", option.label)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("field.severity")}
+            <select name="severity" defaultValue="MEDIUM">
+              {severityOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {translateLabel(dictionary, "severity", option.label)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("field.status")}
+            <select name="status" defaultValue="OPEN">
+              {issueStatusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {translateLabel(dictionary, "issueStatus", option.label)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("field.dueDate")}
+            <input name="dueDate" type="date" />
+          </label>
+          <label className="fullSpan">
+            {t("field.description")}
+            <textarea name="description" rows={2} />
+          </label>
+        </div>
+      </details>
       <div className="formActions">
-        <button type="submit">{t("common.addTrialIssue")}</button>
+        <SubmitButton>{t("common.addTrialIssue")}</SubmitButton>
       </div>
     </form>
   );
@@ -781,11 +784,7 @@ function ProcessSheetComparison({
           <span>{template?.name ?? t("process.noTemplateAssigned")}</span>
         </div>
         {canExport ? (
-          <form action={exportProcessSheetPdf}>
-            <input type="hidden" name="projectCode" value={projectCode} />
-            <input type="hidden" name="redirectTo" value={redirectTo} />
-            <button type="submit">{t("project.exportCustomerPdf")}</button>
-          </form>
+          <ExportProcessSheetPdfButton projectCode={projectCode} />
         ) : (
           <div className="blockedAction compactBlockedAction">{t("common.blockedAction")}</div>
         )}
@@ -838,12 +837,18 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const activeUserOptions = detail == null ? [] : await getActiveUserOptions();
   const activePmUserOptions = activeUserOptions.filter((user) => user.role.code === "pm");
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
+  const nav = await getNavVisibility({
+    permissionCodes,
+    roleCode: currentUser.roleCode,
+    dbRoleCode: currentUser.role.code
+  });
   const error = resolvedSearchParams == null ? null : messageValue(resolvedSearchParams, "error");
   const success = resolvedSearchParams == null ? null : messageValue(resolvedSearchParams, "success");
 
   if (detail == null) {
     return (
       <main className="shell">
+        <AppHeader current="project" nav={nav} currentUser={currentUser} />
         <section className="pageHeader">
           <div>
             <Link className="backLink" href="/">
@@ -852,7 +857,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             <p className="eyebrow">{t("project.moldTrialDetail")}</p>
             <h1>{projectCode}</h1>
           </div>
-          <AccountMenu currentUser={currentUser} />
+          <div className="md:hidden">
+            <AccountMenu currentUser={currentUser} />
+          </div>
         </section>
 
         <section className="notice" role="status">
@@ -865,6 +872,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
 
   const { project, activityLogs, limit, issuePhotosByIssueId, measurementReportByTrialId } = detail;
   const redirectTo = `/projects/${project.projectCode}`;
+  // V6 (state you can see): the workflow status as a prominent band. The English
+  // domain label drives the shared status->tone map; the display text is bilingual.
+  const projectStatusDomainLabel = projectStatusLabels[project.status] ?? project.status;
+  const projectStatusDisplay = labelForTranslated(dictionary, "projectStatus", projectStatusLabels, project.status);
+  const projectStatusTone = toneForStatus(projectStatusDomainLabel);
   // Measurement-report status line for a completed trial, or null when the trial
   // is not eligible (planned/missed trials show nothing).
   const measurementReportPanelState = (
@@ -903,16 +915,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     clientProjectRef: project.clientProjectRef,
     moldCode: project.moldCode
   });
-  const moldCodeDisplay = formatOptionalIdentifier(project.moldCode);
-  const clientProjectRefDisplay = formatOptionalIdentifier(project.clientProjectRef);
   const defaultPlanningPmUsername = activePmUserOptions.some((user) => user.username === project.planningPm?.username)
     ? (project.planningPm?.username ?? "")
     : (activePmUserOptions[0]?.username ?? "");
-  const defaultIssueOwnerUsername = activeUserOptions.some((user) => user.username === currentUser.username)
-    ? currentUser.username
-    : activeUserOptions.some((user) => user.username === project.planningPm?.username)
-      ? (project.planningPm?.username ?? "")
-      : "";
   const currentTrialCandidates = project.trialEvents.map((trial) => ({
     id: trial.id,
     plannedDate: trial.plannedDate,
@@ -956,6 +961,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       id: issue.id,
       title: issue.title,
       status: issueStatusLabels[issue.status],
+      severity: severityLabels[issue.severity],
       foundAtTrialSequenceNumber: issue.foundAtTrialEvent?.sequenceNumber ?? null,
       verificationResult: issue.verificationResult
     })),
@@ -1028,6 +1034,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const canExportProcessSheet = hasPermissionCode(permissionCodes, "trial.process_sheet.export_pdf");
   const canUploadAttachment = hasPermissionCode(permissionCodes, "attachment.upload");
   const canAdminDeleteAttachment = hasPermissionCode(permissionCodes, "attachment.delete");
+  // R5: only oversight roles pick a file visibility; workers get the safe default
+  // (applied server-side in attachment-actions.ts when the field is omitted). UI
+  // hiding only — the server still re-checks upload permission regardless.
+  const canChooseAttachmentVisibility =
+    currentUser.roleCode === "ADMIN" || currentUser.roleCode === "GM" || currentUser.roleCode === "PM";
   const canUploadMeasurementReport = hasPermissionCode(permissionCodes, "qc.measurement_report.upload");
   const canDownloadCustomerSafe = hasPermissionCode(permissionCodes, "attachment.download.customer_safe");
   const projectAttachments = detail.projectAttachments.map((attachment) => ({
@@ -1092,6 +1103,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
 
   return (
     <main className="shell">
+      <AppHeader current="project" nav={nav} currentUser={currentUser} />
       <section className="pageHeader">
         <div>
             <Link className="backLink" href="/">
@@ -1101,7 +1113,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           <h1>{workingIdentifier}</h1>
         </div>
         <div className="pageHeaderActions">
-          <AccountMenu currentUser={currentUser} />
+          {/* Account moves to the desktop AppHeader; the trial badges stay (project info). */}
+          <div className="md:hidden">
+            <AccountMenu currentUser={currentUser} />
+          </div>
           <div className="trialBadgeGroup" aria-label="Project trial status">
             <span className={`trialCountBadge state${limit.warningState.replaceAll(" ", "")}`}>{trialCountBadge}</span>
             <span className="nextTrialBadge">
@@ -1110,6 +1125,15 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           </div>
         </div>
       </section>
+
+      <div
+        className={`${statusToneClasses[projectStatusTone].pill} flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-bold`}
+        role="status"
+        aria-label="Project status"
+      >
+        <span className="font-normal opacity-70">{t("field.status")}</span>
+        <span>{projectStatusDisplay}</span>
+      </div>
 
       {error == null ? null : (
         <section className="notice noticeError" role="alert">
@@ -1144,11 +1168,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             </div>
             <div>
               <dt>{t("field.moldCode")}</dt>
-              <dd>{moldCodeDisplay}</dd>
+              <dd>{optionalText(project.moldCode)}</dd>
             </div>
             <div>
               <dt>{t("project.clientProjectRef")}</dt>
-              <dd>{clientProjectRefDisplay}</dd>
+              <dd>{optionalText(project.clientProjectRef)}</dd>
             </div>
             {showInternalTrackingId ? (
               <div>
@@ -1172,7 +1196,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             </div>
             <div>
               <dt>{t("project.firstPlannedTrial")}</dt>
-              <dd>{formatDate(project.firstPlannedTrialDate)}</dd>
+              <dd>{optionalDate(project.firstPlannedTrialDate)}</dd>
             </div>
             <div>
               <dt>{t("project.nextPlannedTrial")}</dt>
@@ -1182,18 +1206,18 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             </div>
             <div>
               <dt>{t("project.customerTargetDate")}</dt>
-              <dd>{formatDate(project.customerTargetDate)}</dd>
+              <dd>{optionalDate(project.customerTargetDate)}</dd>
             </div>
           </dl>
         </div>
         <div className="noteGrid">
           <div>
             <dt>{t("project.intakeNote")}</dt>
-            <dd>{project.intakeNote ?? t("common.notSet")}</dd>
+            <dd>{optionalText(project.intakeNote)}</dd>
           </div>
           <div>
             <dt>{t("project.initialCustomerNote")}</dt>
-            <dd>{project.initialCustomerNote ?? t("common.notSet")}</dd>
+            <dd>{optionalText(project.initialCustomerNote)}</dd>
           </div>
         </div>
       </section>
@@ -1215,7 +1239,8 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               <input name="moldCode" defaultValue={project.moldCode} placeholder={t("common.optional")} />
             </label>
             <div className="formActions">
-              <button type="submit">{t("project.saveIdentifiers")}</button>
+              {/* V5b: identifier edits are a secondary action, not the page's primary. */}
+              <button type="submit" className="secondaryButton">{t("project.saveIdentifiers")}</button>
             </div>
           </form>
         </section>
@@ -1474,7 +1499,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                           <th>{t("field.issueType")}</th>
                           <th>{t("field.severity")}</th>
                           <th>{t("field.status")}</th>
-                          <th>{t("field.owner")}</th>
+                          <th>{t("field.handler")}</th>
                           <th>{t("field.dueDate")}</th>
                           <th>{t("common.actions")}</th>
                         </tr>
@@ -1557,9 +1582,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                           <h3>Add Trial Issue</h3>
                           <TrialIssuePanelForm
                             activeParts={activeParts}
-                            activeUserOptions={activeUserOptions}
                             dictionary={dictionary}
-                            defaultOwnerUsername={defaultIssueOwnerUsername}
                             locale={currentUser.locale}
                             marketingIssueDefaults={marketingIssueDefaults}
                             projectCode={project.projectCode}
@@ -1582,7 +1605,14 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                         <ul className="verificationList">
                           {panel.priorVerificationIssues.map((issue) => (
                             <li key={issue.id ?? issue.title}>
-                              <span>{issue.title}</span>
+                              <span className="flex flex-wrap items-center gap-2">
+                                {issue.severity == null ? null : (
+                                  <StatusBadge status={issue.severity}>
+                                    {translateLabel(dictionary, "severity", issue.severity)}
+                                  </StatusBadge>
+                                )}
+                                <span>{issue.title}</span>
+                              </span>
                               <select defaultValue={verificationStatusForIssue(issue)} disabled>
                                 {trialVerificationStatusOptions.map((option) => (
                                   <option key={option} value={option}>
@@ -1653,6 +1683,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 entityId={project.id}
                 redirectTo={redirectTo}
                 locale={currentUser.locale}
+                canChooseVisibility={canChooseAttachmentVisibility}
               />
             ) : null}
           </div>

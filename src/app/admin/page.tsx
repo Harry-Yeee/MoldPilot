@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { AdminClientsBatchEditor } from "@/app/admin/admin-clients-batch-editor";
 import { AdminUsersBatchEditor } from "@/app/admin/admin-users-batch-editor";
 import { KpiRulesPanel } from "@/app/admin/kpi-rules-panel";
 import { KpiScoresPanel } from "@/app/admin/kpi-scores-panel";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
-import { defaultKpiRules, kpiLabels } from "@/domain/mold-trial/kpi-rules";
+import { kpiLabels } from "@/domain/mold-trial/kpi-rules";
+import { parseKpiSortState } from "@/domain/mold-trial/kpi-sort";
 import { pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import { getCurrentLanguage } from "@/i18n/server";
-import { computeMonthlyScores } from "@/server/kpi-scores";
+import { computeMonthlyScores, loadKpiRuleLabels } from "@/server/kpi-scores";
 import { ensureDefaultKpiRules, isScoreboardEnabled } from "@/server/kpi-settings";
 import { protectedAdminRoleCode, protectedAdminRolePermissionCodes } from "@/domain/mold-trial/admin-safety";
 import { permissionDefinitions } from "@/domain/mold-trial/permission-policy";
@@ -33,6 +35,7 @@ import {
 } from "@/server/admin-actions";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes, requireAnyPermission } from "@/server/permissions";
+import { getNavVisibility } from "@/server/nav";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +141,10 @@ export default async function AdminPage({ searchParams }: PageProps) {
       : "users";
   const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
   const requestedMonthValue = params == null ? null : messageValue(params, "month");
+  const scoresSort = parseKpiSortState(
+    params == null ? null : messageValue(params, "scoreSort"),
+    params == null ? null : messageValue(params, "scoreDir")
+  );
 
   let data: Awaited<ReturnType<typeof loadAdminData>> | null = null;
   let loadError: string | null = null;
@@ -162,6 +169,16 @@ export default async function AdminPage({ searchParams }: PageProps) {
     {}
   );
   const permissionCodes = new Set(data?.permissionCodes ?? []);
+  // Desktop AppHeader nav — only when admin data (and thus the user + permissions)
+  // loaded; on a load failure the page shows just the error notice.
+  const nav =
+    data == null
+      ? null
+      : await getNavVisibility({
+          permissionCodes,
+          roleCode: data.currentUser.roleCode,
+          dbRoleCode: data.currentUser.role.code
+        });
   const canManageUsers = hasPermissionCode(permissionCodes, "admin.manage_users");
   const canManageRoles = hasPermissionCode(permissionCodes, "admin.manage_roles");
   const canManageCustomers = hasPermissionCode(permissionCodes, "admin.manage_customers");
@@ -231,6 +248,9 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const nextMonthDate = new Date(Date.UTC(scoresMonthDate.getUTCFullYear(), scoresMonthDate.getUTCMonth() + 1, 1));
   const prevMonth = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
   const nextMonth = `${nextMonthDate.getUTCFullYear()}-${String(nextMonthDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  // The Scores view carries both month and sort so server actions (e.g. the
+  // scoreboard toggle) redirect back to the same month + column ordering.
+  const scoresQuery = `tab=scores&month=${scoresMonth}&scoreSort=${scoresSort.key}&scoreDir=${scoresSort.direction}`;
 
   // The Rules panel and the Scores label lookup read the kpi_rules table
   // directly (no engine-style fallback), so make sure it is populated before we
@@ -250,19 +270,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const kpiScoreboardEnabled =
     data != null && activeTab === "scores" && canViewKpiScores ? await isScoreboardEnabled() : false;
   const kpiRuleLabels: Record<string, { en: string; zh: string }> =
-    kpiScores == null
-      ? {}
-      : {
-          // Seed from the code defaults so the scoreboard always renders friendly
-          // labels, then let any DB rows (admin-edited copy) override them.
-          ...Object.fromEntries(defaultKpiRules.map((rule) => [rule.code, { en: rule.labelEn, zh: rule.labelZh }])),
-          ...Object.fromEntries(
-            (await prisma.kpiRule.findMany({ select: { code: true, labelEn: true, labelZh: true } })).map((rule) => [
-              rule.code,
-              { en: rule.labelEn, zh: rule.labelZh }
-            ])
-          )
-        };
+    kpiScores == null ? {} : await loadKpiRuleLabels();
 
   function roleHasPermission(
     role: (typeof sortedRoles)[number],
@@ -285,6 +293,9 @@ export default async function AdminPage({ searchParams }: PageProps) {
 
   return (
     <main className="shell">
+      {data != null && nav != null ? (
+        <AppHeader current="admin" nav={nav} currentUser={data.currentUser} />
+      ) : null}
       <section className="pageHeader">
         <div>
             <Link className="backLink" href="/">
@@ -293,7 +304,11 @@ export default async function AdminPage({ searchParams }: PageProps) {
           <p className="eyebrow">MoldPilot Admin</p>
           <h1>{t("admin.accountsPermissions")}</h1>
         </div>
-        {data == null ? null : <AccountMenu currentUser={data.currentUser} />}
+        {data == null ? null : (
+          <div className="md:hidden">
+            <AccountMenu currentUser={data.currentUser} />
+          </div>
+        )}
       </section>
 
       {error == null ? null : (
@@ -880,9 +895,10 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 ruleLabels={kpiRuleLabels}
                 scoreboardEnabled={kpiScoreboardEnabled}
                 locale={locale}
-                redirectTo={`/admin?tab=scores&month=${scoresMonth}`}
+                redirectTo={`/admin?${scoresQuery}`}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                sort={scoresSort}
               />
             )
           ) : null}

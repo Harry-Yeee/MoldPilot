@@ -27,9 +27,16 @@ Mold Trial Detail
 Admin, later/minimal
 ```
 
-Most work should happen from the Mold Trial Detail page.
+Most operational work should happen from the Mold Trial Detail page.
 
 On the dashboard/header, Admin and My tasks should appear as sibling buttons in one nav/action group when both are visible. Desktop should show them in one horizontal row with consistent spacing; small screens may wrap when needed.
+
+Manager/staff score navigation is role-aware:
+
+- A user with `reports.management.view` sees a `Reports` button linking to `/reports`.
+- Scored staff see `My Score` linking to `/score` only when the staff scoreboard is enabled.
+- Admin/GM are not scored and should not be sent to an empty personal score page.
+- The `Admin` configuration button remains separate from `Reports`; GM can view reports without receiving Admin configuration access.
 
 ## Shared Display Rules
 
@@ -42,7 +49,11 @@ Rules:
 - English is the default language.
 - A visible language switcher appears in the main header/account area and on login.
 - The selected language is remembered across reloads/navigation with a local cookie/storage setting.
+- The `moldpilot_language` provider/cookie setting is the only UI-language source. `/me` must not derive display language from `User.locale`.
+- The standalone `/me` My Tasks page and the mobile My Tasks panel embedded on the dashboard use the same selected language and update together.
+- `/me` includes the shared Language Switcher beside an always-available Dashboard link. At 360–430 px, these controls may wrap as one action group but must not overlap or create horizontal scrolling.
 - Translate interface text, headings, tabs, labels, buttons, status labels, enum display labels, empty states, and common workflow messages.
+- My Tasks translation includes trial and issue statuses, severity, missed-trial reasons, responsible areas, issue-status options, design-change requester labels, countdown/date-confirmation labels, bottom sheets, and generated trial titles such as `T0 trial` / `T0 试模`.
 - Do not translate user-entered business data: mold codes, project/client refs, client names, part codes, issue titles, notes, machine brands, uploaded/report content, or historical record payloads.
 - Keep URLs simple; do not require `/en` or `/zh-CN` route prefixes in Phase 1.
 
@@ -399,11 +410,14 @@ Replace paper process setup sheet entry with structured web entry and horizontal
 - Trial result, major issues, correction summary, and next action do not appear as editable process-sheet rows. They are recorded in the Trial Result panel and TrialIssue records.
 - Full issue details remain below the sheet grouped by trial.
 - Customer-safe PDF export omits internal accountability fields unless explicitly customer-visible.
+- `Export Customer PDF` shows an exporting/downloading state, creates one reusable `CUSTOMER_SAFE` Process Sheet attachment, downloads it through the protected attachment route in the current browser, and reports success or failure inside the panel.
+- A successful export refreshes project data so the generated PDF appears in Customer Files and can be downloaded again. Export must not merely redirect, open a blank tab, or trigger a zero-byte download after failure.
 
 ### Validation
 
 - Process values save as structured TrialProcessValue records.
-- PDF export creates ActivityLog and FileAttachment records.
+- PDF export stores bytes under the attachment storage root with a server-generated attachment UUID and records `application/pdf`, actual byte size, `CUSTOMER_SAFE` visibility, one FileAttachment, and one ActivityLog.
+- The protected attachment route remains the download boundary and returns attachment `Content-Disposition`; export permission does not bypass attachment download permissions.
 - Customer-safe export must not include internal owner, private notes, Assembly self-check, or unapproved root-cause details.
 
 ## Screen 5: Record Trial Form
@@ -799,15 +813,104 @@ Permission changes must be server-enforced and logged. Business validation still
 
 This screen can be very basic in early development, but it should not remain seeded-only once permissions begin to replace hardcoded role checks.
 
+## Screen 11: Management Reports
+
+### Purpose
+
+Give Admin and GM an honest monthly view of mold-trial workload, workflow health, issue resolution, trial-loop pressure, and existing KPI scorecards without turning operational counts into automatic employee judgment.
+
+### Access And Route
+
+- Route: `/reports`.
+- `Overview` and `Issues` require `reports.management.view` on the server.
+- `Scorecards` and every individual score drilldown additionally require `kpi.scores.view_all`.
+- Defaults: Admin and GM. Other roles have no default Management Reports access.
+- The page is read-only in Phase 1. It links to source project/trial/issue records for action instead of mutating business state from a report.
+
+### Shared Controls
+
+- Calendar-month selector, defaulting to the current `Asia/Shanghai` month.
+- Automatic comparison against the immediately previous calendar month.
+- Visible selected period, as-of time, and data-completeness warning.
+- English/Simplified Chinese labels through the shared i18n provider. User-entered issue titles, notes, mold codes, client names, and fix summaries remain untranslated.
+- Tabs: `Overview`, `Issues`, and `Scorecards`.
+
+### Overview
+
+Keep the first viewport focused. Use a restrained summary strip or compact metric cards for:
+
+- Completed trial runs, with absolute and percentage/count change from previous month.
+- New molds reaching their first actual T0, with previous-month change.
+- Unique molds trialed.
+- On-time trial rate, always showing numerator and denominator.
+- Projects first approved during the month.
+- Open Critical issues now.
+
+Below the pulse, show:
+
+- Mold-trial workload: completed runs by week, trial result distribution, and trials planned for the next 30 days.
+- Approval efficiency: approved on/before customer target (`n / eligible`, plus missing-target count) and low-loop approvals within T0/T1.
+- Trial-limit pressure: current near-, at-, and over-limit active molds. Approved, Cancelled, and Closed projects are not current attention rows.
+- Issue health: issues created/closed during the month, current open aging buckets (`0-7`, `8-14`, `15-30`, `31+` days), and severity/type breakdowns.
+- Workflow/data completeness: missing Trial Results, missing Digital Process Sheets, missing QC reports, and unresolved auto-missed records.
+
+Use `Mold-trial workload`, never `Factory utilization`: the system does not track normal production capacity.
+
+### Management Attention
+
+Show one actionable list near the top of Overview:
+
+- Overdue High/Critical issues.
+- Active molds over the trial limit.
+- Failed/conditional/pending/invalid trials without valid same-trial issue accountability, if legacy or broken data exists.
+- Projects needing a next planned trial after a non-approved result.
+- Unresolved auto-missed trials.
+- Missing Trial Result, Process Sheet, or QC Report records.
+
+Each row links to the source project or trial. Do not add edit controls to the report itself.
+
+### Issues Tab
+
+Default the table to issues created in the selected month, with filters for severity, current status, issue type, fix-owner group/role, and a toggle for current open backlog.
+
+Columns/details:
+
+- Created date.
+- Mold code and source trial stage.
+- Title and issue type.
+- Severity and current status.
+- Fix owner (owner means fixer, not culprit).
+- Due date and overdue state.
+- Fix summary, approximate fix time, closed date/by, and verification state when available.
+
+Open issues show `Not resolved yet` / `尚未解决`; they must not receive invented resolution text. Cause/reason summaries may aggregate by category, process, or department, but never show personal culprit counts.
+
+### Scorecards Tab
+
+- Reuse the existing monthly KPI scoring service, leader/group bars, and individual audit components from the Admin Scores implementation.
+- Do not duplicate KPI calculation or create a second score table.
+- Keep `scoreboard_enabled` behavior for staff `/score`; manager report access does not publish staff scorecards.
+- If the viewer lacks `kpi.scores.view_all`, hide/disable the tab and block its data loader server-side.
+
+### Privacy And Responsive Rules
+
+- No customer country, contact, email, phone, quote value, sales pipeline, or communication history.
+- Customer identity remains limited to the already-authorized internal project context; prefer mold code/customer code in dense tables.
+- Desktop is the primary management surface. At 360-430 px, summary metrics stack, tab labels fit, tables use a controlled horizontal scroll or compact rows, and no header/control overlaps.
+- Color may support severity/status, but every state remains readable in text.
+
 ## Mobile / Tablet Expectation
 
 Phase 1 should work on desktop first.
 
 Tablet/mobile support should be acceptable for quick updates:
 
+- Review and act on `/me` My Tasks or the dashboard-embedded task panel in English or Simplified Chinese.
+- Switch language from the `/me` header without overlapping Dashboard navigation or causing horizontal overflow at 360–430 px.
 - Resolve auto-missed trial.
 - Record trial result inside a trial panel.
 - Add issue or issue photo later from a trial panel.
 - Update issue status.
+- Open Management Reports as Admin/GM, switch tabs/month/language, and reach source records without header overlap or clipped metric text.
 
 No complex mobile optimization is required for the first build.

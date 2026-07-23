@@ -85,7 +85,7 @@ Phase 1 uses admin-assigned internal accounts with simple username/password logi
 | password_updated_at | datetime | Updated whenever password changes. |
 | last_login_at | datetime | Optional audit/support field. |
 | role_id | uuid | References Role. |
-| department_group_id | uuid | Nullable legacy/support field. Deprecated for Phase 1 account setup; do not ask Admin to assign it. Role is the account permission source. |
+| department_group_id | uuid | Nullable. Repurposed 2026-07-11 as the user's KPI group membership (seed-assigned; e.g. zhong → assembly-a). Role remains the sole permission source; this field only feeds leader-bar aggregation and per-group KPI snapshots. Issue routing still uses TrialIssue.owner_group_id at the DEPARTMENT level, not this field. |
 | status | enum | Active, inactive. Admin UI should expose Archive/Restore actions instead of a raw status dropdown. |
 | locale | enum | Example: zh-CN, en-US. |
 | is_default_admin | boolean | True only for the initial default admin account. |
@@ -236,7 +236,7 @@ Suggested initial groups:
 - Marketing
 - Admin
 
-Phase 1 account setup does not assign users to DepartmentGroups. TrialIssues may still use an owner group / responsibility area such as Assembly, QC, Injection, Marketing, or PM.
+Phase 1 account setup does not assign users to DepartmentGroups through the Admin user form. TrialIssues may still use an owner group / responsibility area such as Assembly, QC, Injection, Marketing, or PM.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -245,7 +245,10 @@ Phase 1 account setup does not assign users to DepartmentGroups. TrialIssues may
 | name | text | Display name. |
 | group_type | enum | Department, group, shift. |
 | parent_group_id | uuid | Optional hierarchy. |
+| kpi_leader_id | uuid | Optional. The user whose monthly KPI "leader bar" is this group's aggregate scorecard. FK users, ON DELETE SET NULL. Null on a group with no designated leader (e.g. the `pm` group, whose members are award-tier individuals, or the `assembly` parent, whose leaders live on its children). Added 2026-07-11. |
 | active | boolean |  |
+
+Parent/child KPI groups vs issue routing (2026-07-11 — KPI leader-designation layer): the same DepartmentGroup hierarchy now carries two concerns kept deliberately separate. **Issue routing** keys on `code` at the DEPARTMENT level — `ownerGroup.code === "assembly"`, the department inbox map (`ASSEMBLY → "assembly"`), and every `TrialIssue.owner_group_id` still point at the parent department groups only. **KPI aggregation** keys on `kpi_leader_id` + `department_group_id` membership: the `assembly` DEPARTMENT parent splits into two GROUP children `assembly-a` (钟组, leader Zhong) and `assembly-b` (裴组, leader Pei) so the two assembly leaders get SEPARATE 85% bars, while the parent keeps routing unchanged. Each scored user is assigned to exactly one KPI group via `department_group_id`; a leader's bar is the aggregate of their group's member scorecards. The `pm` group is intentionally left without a `kpi_leader_id` — PMs are award-tier individuals whose bar is their own user scorecard.
 
 ## Customer
 
@@ -746,6 +749,8 @@ Stores periodic metrics for dashboards.
 
 In use since 2026-07-07: `scripts/run-kpi-snapshot.mjs` writes one row per day per scope (User, DepartmentGroup, Company) with the monthly scorecard payload from the KPI scoring engine.
 
+Management Reports do not add a new persistence entity in Phase 1. `/reports` is a permission-protected read model composed from existing MoldTrialProject, TrialEvent, TrialIssue, MissedTrialEvent, FileAttachment, and KpiSnapshot records. Do not write duplicate report rows or a generic Report table unless measured query performance later proves it necessary.
+
 ## KpiRule
 
 Admin-editable KPI habit-rule registry (added 2026-07-07). Seeded from `src/domain/mold-trial/kpi-rules.ts`; edited in the admin Rules tab; every change is ActivityLogged. Changing a rule re-scores the entire current month (no per-month rule versioning yet).
@@ -908,7 +913,45 @@ current_trial_limit
 remaining_trial_allowance
 over_limit_flag
 design_change_extra_trial_count
+completed_trial_run_count
+new_mold_t0_count
+unique_molds_trialed_count
+on_time_trial_numerator
+on_time_trial_denominator
+approved_project_count
+approved_on_or_before_target_count
+approved_with_target_eligible_count
+approved_missing_target_count
+low_loop_approval_count
+current_near_limit_mold_count
+current_at_limit_mold_count
+current_over_limit_mold_count
+current_open_critical_issue_count
+issues_created_in_month_count
+issues_closed_in_month_count
+current_open_issue_age_buckets
+planned_trial_next_30_days_count
+missing_trial_result_count
+missing_process_sheet_count
+missing_qc_report_count
 ```
+
+Management Reports metric contract (2026-07-14):
+
+- Every selected calendar month uses a half-open `[monthStart, nextMonthStart)` interval in the `Asia/Shanghai` business timezone. The previous comparison is the immediately preceding calendar month calculated with the same rule.
+- `completed_trial_run_count` includes TrialEvents with `status = COMPLETED`, a non-null `actualDate`, and actualDate inside the selected month. It does not require `countsAgainstLimit = true`, because an invalid completed run still consumed trial capacity. Planned, delayed, missed, cancelled, and skipped records are not completed workload.
+- `new_mold_t0_count` counts a project once when its first actual completed TrialEvent is T0 and that event's actualDate is inside the selected month.
+- `unique_molds_trialed_count` is the distinct MoldTrialProject count represented by completed trial runs in the selected month.
+- `on_time_trial_denominator` includes non-cancelled/non-skipped trial stages with plannedDate inside the selected month and due on or before the report as-of date. The numerator includes denominator trials completed with actualDate on or before plannedDate. Missed/delayed due trials remain denominator misses. Show numerator and denominator with the percentage.
+- A project's approval date is the earliest actualDate of a completed TrialEvent with `result = APPROVED`.
+- `approved_on_or_before_target_count` includes projects whose approval date is in the selected month and on/before `customerTargetDate`. Only approved projects with a target date enter `approved_with_target_eligible_count`; approved projects without one enter `approved_missing_target_count`, not the failure count.
+- `low_loop_approval_count` includes projects whose approval date is in the selected month and whose first approval occurs within the first two counted completed trials (T0 or T1).
+- Current near/at/over-limit counts derive from counted completed TrialEvents versus `currentTrialLimit`. Current attention excludes projects with Approved, Cancelled, or Closed status.
+- `current_open_critical_issue_count` includes severity Critical where current status is neither Closed nor Verified.
+- Issues created/closed in a selected month use `createdAt`/`closedAt`. Current backlog and age buckets are labeled current-state metrics; Phase 1 does not infer historical month-end status from the current issue row.
+- `planned_trial_next_30_days_count` is a forward-looking current workload measure anchored to report as-of time, not a selected-month historical measure.
+- Missing-data counts must be visible because incomplete Trial Result, Process Sheet, or QC Report records can make apparently good operational results misleading.
+- TrialIssue `ownerUserId` is reported as the fix owner. Reports must not reinterpret it as fault attribution or generate personal culprit counts.
 
 ## Schema Rules for Development
 

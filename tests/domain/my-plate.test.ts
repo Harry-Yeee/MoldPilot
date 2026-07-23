@@ -7,6 +7,7 @@ import {
   belongsToComingUpSection,
   belongsToConfirmTrialDatesSection,
   belongsToDepartmentInboxSection,
+  belongsToDesignRevisionsSection,
   belongsToMyOpenIssuesSection,
   belongsToNeedsReasonSection,
   belongsToPmConfirmReadySection,
@@ -16,6 +17,7 @@ import {
   isAssemblyActionableIssue,
   isOverdue,
   isViewerProjectPm,
+  type PlateDesignChangeRecord,
   type PlateIssueRecord,
   type PlateTrialRecord,
   type PlateViewer
@@ -30,6 +32,11 @@ const assemblyZhong: PlateViewer = { userId: "zhong", roleCode: "ASSEMBLY" };
 const qcGong: PlateViewer = { userId: "gong", roleCode: "QC" };
 const injectionWang: PlateViewer = { userId: "wang", roleCode: "INJECTION" };
 const marketingYvonne: PlateViewer = { userId: "yvonne", roleCode: "MARKETING" };
+const designLin: PlateViewer = { userId: "lin", roleCode: "DESIGN" };
+
+function designChange(overrides: Partial<PlateDesignChangeRecord> = {}): PlateDesignChangeRecord {
+  return { projectStatus: "ACTIVE", hasDrawing: false, ...overrides };
+}
 
 function trial(overrides: Partial<PlateTrialRecord> = {}): PlateTrialRecord {
   return {
@@ -228,6 +235,9 @@ describe("department inbox section", () => {
 
     assert.equal(belongsToDepartmentInboxSection(marketingYvonne, issue({ ownerGroupCode: "marketing" })), true);
     assert.equal(belongsToDepartmentInboxSection(marketingYvonne, issue({ ownerGroupCode: "assembly" })), false);
+
+    assert.equal(belongsToDepartmentInboxSection(designLin, issue({ ownerGroupCode: "design" })), true);
+    assert.equal(belongsToDepartmentInboxSection(designLin, issue({ ownerGroupCode: "assembly" })), false);
   });
 
   test("PM sees pm, planning, and technical group issues only on assigned projects", () => {
@@ -251,6 +261,28 @@ describe("department inbox section", () => {
       belongsToDepartmentInboxSection(qcGong, issue({ ownerGroupCode: "qc", ownerUserId: "gong" })),
       false
     );
+  });
+});
+
+describe("design revisions section", () => {
+  test("includes design-change events with no drawing for DESIGN on a live project", () => {
+    assert.equal(belongsToDesignRevisionsSection(designLin, designChange()), true);
+    assert.equal(belongsToDesignRevisionsSection(designLin, designChange({ projectStatus: "IN_CORRECTION" })), true);
+  });
+
+  test("excludes events that already have a drawing attached", () => {
+    assert.equal(belongsToDesignRevisionsSection(designLin, designChange({ hasDrawing: true })), false);
+  });
+
+  test("excludes design-change events on terminal (cancelled/closed) projects", () => {
+    assert.equal(belongsToDesignRevisionsSection(designLin, designChange({ projectStatus: "CANCELLED" })), false);
+    assert.equal(belongsToDesignRevisionsSection(designLin, designChange({ projectStatus: "CLOSED" })), false);
+  });
+
+  test("is not offered to non-DESIGN roles", () => {
+    assert.equal(belongsToDesignRevisionsSection(pmBill, designChange()), false);
+    assert.equal(belongsToDesignRevisionsSection(assemblyZhong, designChange()), false);
+    assert.equal(belongsToDesignRevisionsSection(qcGong, designChange()), false);
   });
 });
 

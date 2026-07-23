@@ -65,3 +65,28 @@ export function translatePermissionName(dictionary: Dictionary, permissionCode: 
 export function translatePermissionGroup(dictionary: Dictionary, processGroup: string): string {
   return translateDynamic(dictionary, `permission.group.${processGroup}`, processGroup);
 }
+
+const workflowMessageKeyByText = {
+  "Auto-missed trial resolved as missed.": "workflow.autoMissedResolved",
+  "Project marked blocked.": "workflow.projectBlocked",
+  "Project marked paused.": "workflow.projectPaused",
+  "Trial date confirmed.": "workflow.trialDateConfirmed",
+  "Proposed a different trial date. Awaiting Marketing approval.": "workflow.trialDateProposed",
+  "Approved the new trial date.": "workflow.trialDateApproved",
+  "Returned the trial date to the PM.": "workflow.trialDateReturned",
+  "Trial re-dated. Awaiting confirmation again.": "workflow.trialRedated",
+  "Trial issue closed.": "workflow.issueClosed",
+  "Trial issue updated.": "workflow.issueUpdated",
+  "File uploaded.": "workflow.fileUploaded",
+  "Measurement report uploaded.": "workflow.measurementReportUploaded",
+  "Measurement report replaced.": "workflow.measurementReportReplaced"
+} as const satisfies Record<string, TranslationKey>;
+
+export function translateWorkflowMessage(dictionary: Dictionary, message: string | null): string | null {
+  if (message == null) {
+    return null;
+  }
+
+  const key = workflowMessageKeyByText[message as keyof typeof workflowMessageKeyByText];
+  return key == null ? message : createTranslator(dictionary)(key);
+}

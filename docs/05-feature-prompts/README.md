@@ -14,11 +14,12 @@ One prompt = one Codex session = one branch. Do not mix features.
 | 6 | `06-trial-date-confirmation.md` — PM→Injection→Marketing date handshake | 2 | Done (state machine, 3 phone sections, trial panel badges) |
 | 7 | `07-trial-calendar.md` — month view + machine load + phone agenda | 6 | Done (/calendar grid, amber/red machine load, 7-day phone agenda) |
 | — | KPI phase-1 data layer (no prompt file; specced by `docs/06-kpi/`) | 6, 7 | Done (rule registry Rules tab, scoring engine, admin Scores tab, flag-gated /score, simulator + snapshot scripts) |
-| 8 | Design role onboarding (prompt not yet written) | — | Queued (design KPI rules seeded dormant, waiting on this) |
-| 9 | Lessons library (`docs/06-kpi/lessons-library-design.md`) | 8 + monthly meeting ritual | Design locked, build in phase 2 |
+| 8 | Design role onboarding (prompt not yet written) | — | Done 2026-07-08 (DESIGN role + group + users, design inbox, "Design: revisions" section, two design KPI rules activated) |
+| 9 | `09-management-reports.md` — Admin/GM monthly Overview, Issues, reused Scorecards | KPI data layer + 8 | Done 2026-07-14 |
+| 10 | Lessons library (`docs/06-kpi/lessons-library-design.md`) | 9 + monthly meeting ritual | Design locked, build in phase 2 |
 | 5 | `05-daily-digest.md` — daily email digest | 2 | Pilot week (needs SMTP) |
 
-All original roadmap prompts (0–7) are built. Remaining order: 8 → /kpi company dashboard → 9, digest during pilot week.
+All original roadmap prompts (0–7), prompt 8 (Design role onboarding), and prompt 9 (Management Reports) are built. Remaining roadmap: 10 Lessons library in phase 2, with digest during pilot week.
 
 ## Review checklist before merging each feature
 

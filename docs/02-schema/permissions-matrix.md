@@ -36,8 +36,11 @@ Marketing
 Assembly
 Injection
 QC
+Design
 Viewer
 ```
+
+Design role (onboarded 2026-07-08) default permissions: `attachment.upload`, `attachment.download.internal`, `trial.issue.create`, `trial.issue.edit_root_cause`, `trial.issue.close`. Design owns design-change revision turnaround (DRAWING attached) and claims DFM/mold-design issues routed to the design group.
 
 The real pilot intentionally uses a single PM role. It replaces the earlier Planning PM, Technical PM, and PM Assistant split for easier management. The PM role receives the combined Phase 1 PM permissions by default.
 
@@ -52,6 +55,7 @@ Seeded pilot users:
 | Assembly | Zhong, Pei |
 | Injection | Wang |
 | QC | Gong, Shuang |
+| Design | Lin, Mei |
 | Viewer | Viewer |
 
 Optional later:
@@ -179,8 +183,16 @@ Phase 1 permission codes (updated 2026-07-07; source of truth is `src/domain/mol
 | `qc.measurement_report.replace` | Replace an existing measurement report (soft-deletes the previous one, logged). Defaults: QC, Admin. |
 | `kpi.rules.manage` | Edit KPI rule deadlines (hours) and active flags in the admin Rules tab; changes are logged and re-score the current month. Defaults: Admin. |
 | `kpi.scores.view_all` | View every user's monthly scorecard in the admin Scores tab. Defaults: Admin, GM. |
+| `reports.management.view` | View the internal monthly Management Reports Overview and Issues tabs. Defaults: Admin, GM. This does not by itself grant access to every individual's scorecard. |
 
 Note: ADMIN, GM, and VIEWER roles are never scored by the KPI engine regardless of permissions (see `docs/06-kpi/kpi-system-design.md`).
+
+Report access rules:
+
+- `/reports` and every supporting report query require `reports.management.view` server-side. Hiding the navigation button is not sufficient.
+- Admin and GM receive `reports.management.view` by default. Other roles have no default access; Admin may grant it explicitly through the permission matrix later.
+- The Reports `Scorecards` tab or any individual score drilldown additionally requires `kpi.scores.view_all`. A user with only `reports.management.view` may see operational Overview/Issues data but not individual rankings or audits.
+- Reports are internal. `reports.management.view` never grants customer contact/CRM visibility or attachment download permissions.
 
 Default `trial.schedule.reschedule` roles:
 
@@ -218,7 +230,9 @@ Admin may explicitly grant `trial.schedule.reschedule` later through the permiss
 | Design change events | All | All/edit | Create customer-driven/update limited | Relevant | Relevant | Relevant | Limited | All |
 | Files | All subject to restriction | Most | Customer-feedback relevant only | Assigned/relevant | Relevant trial files | Relevant QC files | Limited | All |
 | Activity log | All | All | Own/relevant | Own/relevant | Own/relevant | Own/relevant | Limited | All |
-| KPI dashboard | All | Trial dashboard | Client-feedback/new-trial view | Correction readiness | Trial execution | QC/verification | Limited | All |
+| Trial dashboard | All | All | Client-feedback/new-trial view | Correction readiness | Trial execution | QC/verification | Limited | All |
+| Management Reports Overview/Issues | Default with `reports.management.view` | No default | No default | No default | No default | No default | No default | Default with `reports.management.view` |
+| All individual KPI scorecards | With `kpi.scores.view_all` | Own score only when enabled | Own score only when enabled | Own score only when enabled | Own score only when enabled | Own score only when enabled | No | With `kpi.scores.view_all` |
 
 ## Edit Permissions
 
@@ -461,3 +475,4 @@ Admin should not silently change business status, trial count, trial limit, or i
 - Any Marketing issue creation must be source-labeled as customer/client feedback.
 - Any new screen must state which Phase 1 roles can view and edit it.
 - Customer identity fields remain prohibited in Phase 1 core tables.
+- Management report routes and data loaders must require `reports.management.view`; individual scorecard collections continue to require `kpi.scores.view_all`.

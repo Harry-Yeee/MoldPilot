@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import type { MoldTrialDashboardRow } from "@/domain/mold-trial/dashboard";
-import { EmptyState, StatusBadge } from "@/components/ui";
+import { EmptyState, StatusBadge, toneForStatus } from "@/components/ui";
 import { translateLabel, type Dictionary, type TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n/language-provider";
 import {
@@ -14,30 +14,34 @@ import {
 } from "@/domain/mold-trial/dashboard-sort";
 
 type Column = {
-  key: DashboardSortKey;
+  id: string;
   labelKey: TranslationKey;
+  /** Sort key when the column is sortable; null renders a plain header. */
+  sortKey: DashboardSortKey | null;
 };
 
+/**
+ * Column diet (V4): seven worker-facing columns. Only Mold code, Status, and
+ * Next trial keep a sort chip; the rest are read-only. Internal-tracking columns
+ * (client project ref, next planned, assembly ready, last update, limit basis,
+ * open/critical counts, last result, the separate limit "state") were dropped —
+ * the limit state now surfaces as the row's urgency stripe instead.
+ */
 const columns: Column[] = [
-  { key: "moldCode", labelKey: "table.moldCode" },
-  { key: "clientProjectRef", labelKey: "table.clientProjectRef" },
-  { key: "customerCode", labelKey: "table.customerCode" },
-  { key: "partCode", labelKey: "table.partCode" },
-  { key: "status", labelKey: "table.status" },
-  { key: "nextTrial", labelKey: "table.nextTrial" },
-  { key: "nextPlannedDate", labelKey: "table.nextPlanned" },
-  { key: "assemblyReadyDate", labelKey: "table.assemblyReady" },
-  { key: "trialCountLabel", labelKey: "table.trialCount" },
-  { key: "openIssueCount", labelKey: "table.openIssues" },
-  { key: "criticalOpenIssueCount", labelKey: "table.critical" },
-  { key: "lastTrialResult", labelKey: "table.lastResult" },
-  { key: "limitNote", labelKey: "table.limitBasis" },
-  { key: "lastUpdate", labelKey: "table.lastUpdate" },
-  { key: "warningState", labelKey: "table.state" }
+  { id: "moldCode", labelKey: "table.moldCode", sortKey: "moldCode" },
+  { id: "customerCode", labelKey: "table.customerCode", sortKey: null },
+  { id: "partCode", labelKey: "table.partCode", sortKey: null },
+  { id: "status", labelKey: "table.status", sortKey: "status" },
+  { id: "nextTrial", labelKey: "table.nextTrial", sortKey: "nextTrial" },
+  { id: "pm", labelKey: "table.pm", sortKey: null },
+  { id: "trialCount", labelKey: "table.trialCount", sortKey: null }
 ];
 
+const sortableColumns = columns.filter((column): column is Column & { sortKey: DashboardSortKey } => column.sortKey != null);
+
+/** Default order: urgency (missed rows first, then at-risk, then by next date). */
 const initialSort: DashboardSortState = {
-  key: "warningState",
+  key: "urgency",
   direction: "desc"
 };
 
@@ -49,6 +53,40 @@ function defaultDirection(key: DashboardSortKey): DashboardSortDirection {
   return key === "status" || key === "warningState" ? "desc" : "asc";
 }
 
+/**
+ * Urgency tone for a row's left stripe. Single source of truth: `toneForStatus`
+ * on the same status + limit-state strings the row already renders. Red when
+ * either maps to the "missed" tone (Trial Delayed / Delayed / Blocked / Over
+ * Limit), amber for "at-risk" (At Risk / Auto Missed / Near Limit / At Limit).
+ */
+function rowUrgencyTone(row: MoldTrialDashboardRow): "missed" | "at-risk" | null {
+  const statusTone = toneForStatus(row.status);
+  const warningTone = toneForStatus(row.warningState);
+  if (statusTone === "missed" || warningTone === "missed") {
+    return "missed";
+  }
+  if (statusTone === "at-risk" || warningTone === "at-risk") {
+    return "at-risk";
+  }
+  return null;
+}
+
+function rowStripeClass(row: MoldTrialDashboardRow): string | undefined {
+  const tone = rowUrgencyTone(row);
+  return tone === "missed" ? "trialRowMissed" : tone === "at-risk" ? "trialRowAtRisk" : undefined;
+}
+
+function cardStripeClass(row: MoldTrialDashboardRow): string {
+  const tone = rowUrgencyTone(row);
+  if (tone === "missed") {
+    return " border-l-4 border-l-status-missed";
+  }
+  if (tone === "at-risk") {
+    return " border-l-4 border-l-status-at-risk";
+  }
+  return "";
+}
+
 function translateTrialCountLabel(dictionary: Dictionary, value: string): string {
   return value
     .replaceAll("Near Limit", translateLabel(dictionary, "warning", "Near Limit"))
@@ -56,10 +94,15 @@ function translateTrialCountLabel(dictionary: Dictionary, value: string): string
     .replaceAll("Over Limit", translateLabel(dictionary, "warning", "Over Limit"));
 }
 
-function sortLabel(column: Column, sort: DashboardSortState, t: ReturnType<typeof useI18n>["t"]): string {
-  const label = t(column.labelKey);
+function sortLabel(
+  labelKey: TranslationKey,
+  sortKey: DashboardSortKey,
+  sort: DashboardSortState,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  const label = t(labelKey);
 
-  if (sort.key !== column.key) {
+  if (sort.key !== sortKey) {
     return t("dashboard.sortBy", { label });
   }
 
@@ -69,23 +112,29 @@ function sortLabel(column: Column, sort: DashboardSortState, t: ReturnType<typeo
   });
 }
 
-function SortableHeader({ column, sort, onSort }: {
-  column: Column;
+function SortableHeader({
+  labelKey,
+  sortKey,
+  sort,
+  onSort
+}: {
+  labelKey: TranslationKey;
+  sortKey: DashboardSortKey;
   sort: DashboardSortState;
   onSort: (key: DashboardSortKey) => void;
 }) {
   const { t } = useI18n();
-  const active = sort.key === column.key;
+  const active = sort.key === sortKey;
 
   return (
     <th scope="col" aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
       <button
         type="button"
         className={`sortButton${active ? " sortButtonActive" : ""}`}
-        onClick={() => onSort(column.key)}
-        title={sortLabel(column, sort, t)}
+        onClick={() => onSort(sortKey)}
+        title={sortLabel(labelKey, sortKey, sort, t)}
       >
-        <span>{t(column.labelKey)}</span>
+        <span>{t(labelKey)}</span>
         <span className="sortIcon" aria-hidden="true">
           {active ? (sort.direction === "asc" ? "^" : "v") : "-"}
         </span>
@@ -110,12 +159,24 @@ export function MoldTrialListTable({ rows }: { rows: MoldTrialDashboardRow[] }) 
     <>
       {/* Desktop: dense sortable table (md and up). */}
       <div className="tableWrap hidden md:block">
-        <table>
+        <table className="moldTrialListTable">
           <thead>
             <tr>
-              {columns.map((column) => (
-                <SortableHeader key={column.key} column={column} sort={sort} onSort={handleSort} />
-              ))}
+              {columns.map((column) =>
+                column.sortKey == null ? (
+                  <th key={column.id} scope="col">
+                    {t(column.labelKey)}
+                  </th>
+                ) : (
+                  <SortableHeader
+                    key={column.id}
+                    labelKey={column.labelKey}
+                    sortKey={column.sortKey}
+                    sort={sort}
+                    onSort={handleSort}
+                  />
+                )
+              )}
             </tr>
           </thead>
           <tbody>
@@ -125,11 +186,10 @@ export function MoldTrialListTable({ rows }: { rows: MoldTrialDashboardRow[] }) 
               </tr>
             ) : (
               sortedRows.map((row) => (
-                <tr key={row.projectCode}>
+                <tr key={row.projectCode} className={rowStripeClass(row)}>
                   <td>
                     <Link href={`/projects/${row.projectCode}`}>{row.workingIdentifier}</Link>
                   </td>
-                  <td>{row.clientProjectRef}</td>
                   <td>{row.customerCode}</td>
                   <td>{row.partCode}</td>
                   <td>
@@ -138,19 +198,8 @@ export function MoldTrialListTable({ rows }: { rows: MoldTrialDashboardRow[] }) 
                     </StatusBadge>
                   </td>
                   <td>{row.nextTrial}</td>
-                  <td>{row.nextPlannedDate}</td>
-                  <td>{row.assemblyReadyDate}</td>
+                  <td>{row.planningPm}</td>
                   <td>{translateTrialCountLabel(dictionary, row.trialCountLabel)}</td>
-                  <td>{row.openIssueCount}</td>
-                  <td>{row.criticalOpenIssueCount}</td>
-                  <td>{translateLabel(dictionary, "trialResult", row.lastTrialResult)}</td>
-                  <td>{row.limitNote}</td>
-                  <td>{row.lastUpdate}</td>
-                  <td>
-                    <StatusBadge status={row.warningState}>
-                      {translateLabel(dictionary, "warning", row.warningState)}
-                    </StatusBadge>
-                  </td>
                 </tr>
               ))
             )}
@@ -158,7 +207,7 @@ export function MoldTrialListTable({ rows }: { rows: MoldTrialDashboardRow[] }) 
         </table>
       </div>
 
-      {/* Mobile: stacked cards (below md). Preserves every column the table shows. */}
+      {/* Mobile: stacked cards (below md). Same column diet as the desktop table. */}
       <div className="md:hidden">
         {sortedRows.length === 0 ? (
           <EmptyState message={t("dashboard.noRecords")} />
@@ -195,8 +244,9 @@ function MobileSortControl({
         value={sort.key}
         onChange={(event) => onSort(event.target.value as DashboardSortKey)}
       >
-        {columns.map((column) => (
-          <option key={column.key} value={column.key}>
+        <option value="urgency">{t("table.urgency")}</option>
+        {sortableColumns.map((column) => (
+          <option key={column.id} value={column.sortKey}>
             {t(column.labelKey)}
           </option>
         ))}
@@ -226,7 +276,7 @@ function MobileRowCard({ row, dictionary }: { row: MoldTrialDashboardRow; dictio
   const { t } = useI18n();
 
   return (
-    <li className="rounded-lg border border-neutral-300 bg-white shadow-card">
+    <li className={`rounded-lg border border-neutral-300 bg-white shadow-card${cardStripeClass(row)}`}>
       <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-4 py-3">
         <Link href={`/projects/${row.projectCode}`} className="font-bold [overflow-wrap:anywhere]">
           {row.workingIdentifier}
@@ -236,30 +286,13 @@ function MobileRowCard({ row, dictionary }: { row: MoldTrialDashboardRow; dictio
         </StatusBadge>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5">
-        <MobileFact label={t("table.clientProjectRef")}>{row.clientProjectRef}</MobileFact>
         <MobileFact label={t("table.customerCode")}>{row.customerCode}</MobileFact>
         <MobileFact label={t("table.partCode")}>{row.partCode}</MobileFact>
         <MobileFact label={t("table.nextTrial")}>{row.nextTrial}</MobileFact>
-        <MobileFact label={t("table.nextPlanned")}>{row.nextPlannedDate}</MobileFact>
-        <MobileFact label={t("table.assemblyReady")}>{row.assemblyReadyDate}</MobileFact>
+        <MobileFact label={t("table.pm")}>{row.planningPm}</MobileFact>
         <MobileFact label={t("table.trialCount")}>
           {translateTrialCountLabel(dictionary, row.trialCountLabel)}
         </MobileFact>
-        <MobileFact label={t("table.limitBasis")}>{row.limitNote}</MobileFact>
-        <MobileFact label={t("table.openIssues")}>{row.openIssueCount}</MobileFact>
-        <MobileFact label={t("table.critical")}>{row.criticalOpenIssueCount}</MobileFact>
-        <MobileFact label={t("table.lastResult")}>
-          {translateLabel(dictionary, "trialResult", row.lastTrialResult)}
-        </MobileFact>
-        <MobileFact label={t("table.lastUpdate")}>{row.lastUpdate}</MobileFact>
-        <div className="col-span-2">
-          <dt className="text-[0.7rem] font-bold uppercase text-neutral-600">{t("table.state")}</dt>
-          <dd className="m-0 mt-1">
-            <StatusBadge status={row.warningState}>
-              {translateLabel(dictionary, "warning", row.warningState)}
-            </StatusBadge>
-          </dd>
-        </div>
       </dl>
     </li>
   );

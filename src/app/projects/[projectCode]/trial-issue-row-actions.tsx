@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, type RefObject } from "react";
+import { SubmitButton } from "@/components/ui";
 import { ImageCaptureField } from "@/components/attachments/image-capture-field";
 import { issuePhotoLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import { translateLabel } from "@/i18n";
@@ -173,7 +174,7 @@ export function TrialIssueRowActions({
             </label>
           )}
           <label>
-            {t("field.owner")}
+            {t("field.assignHandler")}
             <select name="ownerUsername" defaultValue={issue.ownerUsername} required>
               {activeUserOptions.map((user) => (
                 <option key={user.username} value={user.username}>
@@ -198,7 +199,7 @@ export function TrialIssueRowActions({
             <button type="button" className="secondaryButton" onClick={() => closeDialog(editDialogRef)}>
               {t("common.cancel")}
             </button>
-            <button type="submit">{t("issue.saveIssue")}</button>
+            <SubmitButton>{t("issue.saveIssue")}</SubmitButton>
           </div>
         </form>
       </dialog>
@@ -237,7 +238,7 @@ export function TrialIssueRowActions({
               <button type="button" className="secondaryButton" onClick={() => closeDialog(closeDialogRef)}>
                 {t("common.cancel")}
               </button>
-              <button type="submit">{t("common.closeIssue")}</button>
+              <SubmitButton>{t("common.closeIssue")}</SubmitButton>
             </div>
           </form>
         </dialog>

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { randomBytes, scryptSync } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,7 +26,10 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString })
 });
 const userPasswords = new Map();
-const workflowLoginUsers = ["admin", "yvonne", "bill", "jun", "gong", "zhong"];
+const workflowLoginUsers = ["admin", "xie", "yvonne", "bill", "jun", "wang", "gong", "zhong", "viewer"];
+let originalScoreboardSetting = undefined;
+let originalViewerReportGrant = undefined;
+let originalViewerReportOverride = undefined;
 
 function hashPassword(password) {
   const salt = randomBytes(16).toString("hex");
@@ -221,6 +224,7 @@ class CdpPage {
   constructor(wsUrl) {
     this.nextId = 1;
     this.pending = new Map();
+    this.eventWaiters = new Set();
     this.ws = new WebSocket(wsUrl);
   }
 
@@ -232,6 +236,15 @@ class CdpPage {
     this.ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data);
       if (message.id == null) {
+        for (const waiter of [...this.eventWaiters]) {
+          if (!waiter.methods.has(message.method) || !waiter.predicate(message.params ?? {})) {
+            continue;
+          }
+
+          clearTimeout(waiter.timeout);
+          this.eventWaiters.delete(waiter);
+          waiter.resolve({ method: message.method, params: message.params ?? {} });
+        }
         return;
       }
 
@@ -266,6 +279,50 @@ class CdpPage {
     await this.waitForExpression("document.readyState === 'complete'", "page load");
   }
 
+  async setViewport(width, height, mobile = false) {
+    await this.send("Emulation.setDeviceMetricsOverride", {
+      deviceScaleFactor: 1,
+      height,
+      mobile,
+      width
+    });
+  }
+
+  async enableDownloads(downloadPath) {
+    await mkdir(downloadPath, { recursive: true });
+
+    try {
+      await this.send("Browser.setDownloadBehavior", {
+        behavior: "allow",
+        downloadPath,
+        eventsEnabled: true
+      });
+    } catch {
+      await this.send("Page.setDownloadBehavior", {
+        behavior: "allow",
+        downloadPath
+      });
+    }
+  }
+
+  waitForEvent(methods, label, predicate = () => true, timeoutMs = 30000) {
+    const methodSet = new Set(Array.isArray(methods) ? methods : [methods]);
+
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        methods: methodSet,
+        predicate,
+        reject,
+        resolve,
+        timeout: setTimeout(() => {
+          this.eventWaiters.delete(waiter);
+          reject(new Error(`${label} timed out.`));
+        }, timeoutMs)
+      };
+      this.eventWaiters.add(waiter);
+    });
+  }
+
   async evaluate(expression) {
     const result = await this.send("Runtime.evaluate", {
       awaitPromise: true,
@@ -294,6 +351,11 @@ class CdpPage {
   }
 
   close() {
+    for (const waiter of this.eventWaiters) {
+      clearTimeout(waiter.timeout);
+      waiter.reject?.(new Error("Browser page closed."));
+    }
+    this.eventWaiters.clear();
     this.ws.close();
   }
 }
@@ -721,6 +783,329 @@ async function assertAdminLanguageSwitch(page) {
   await waitForText(page, "Accounts & Permissions", "English admin heading");
 }
 
+async function assertMyTasksLanguageSwitchAndMobileLayout(page) {
+  await page.setViewport(360, 800, true);
+  await page.navigate(`${BASE_URL}/me`);
+  await switchLanguage(page, "zh-CN");
+  await waitForText(page, "我的任务", "Chinese My Tasks heading");
+  await page.waitForExpression(`/T\\d+ 试模/.test(document.body.innerText)`, "Chinese My Tasks trial title");
+  await waitForText(page, "日期待确认", "Chinese date-confirmation label");
+
+  const layout = await page.evaluate(
+    clientFunction(() => {
+      const dashboardLink = document.querySelector('.myTasksHeaderActions a[href="/"]');
+      const languageSelect = document.querySelector(".myTasksHeaderActions .languageSwitcher select");
+
+      if (!(dashboardLink instanceof HTMLElement) || !(languageSelect instanceof HTMLElement)) {
+        throw new Error("My Tasks mobile header controls were not found.");
+      }
+
+      const a = dashboardLink.getBoundingClientRect();
+      const b = languageSelect.getBoundingClientRect();
+      const overlaps = Math.max(a.left, b.left) < Math.min(a.right, b.right) && Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+
+      return {
+        clientWidth: document.documentElement.clientWidth,
+        overlaps,
+        scrollWidth: document.documentElement.scrollWidth
+      };
+    })
+  );
+
+  assert.equal(layout.overlaps, false, "Dashboard and language controls must not overlap at 360px.");
+  assert.equal(layout.scrollWidth <= layout.clientWidth, true, "My Tasks must not overflow horizontally at 360px.");
+
+  await page.navigate(`${BASE_URL}/`);
+  await page.waitForExpression(`/T\\d+ 试模/.test(document.body.innerText)`, "Chinese dashboard-embedded task title");
+  await page.navigate(`${BASE_URL}/me`);
+  await switchLanguage(page, "en");
+  await waitForText(page, "My tasks", "English My Tasks heading");
+  await page.waitForExpression(`/T\\d+ trial/.test(document.body.innerText)`, "English My Tasks trial title");
+  await page.navigate(`${BASE_URL}/`);
+  await page.waitForExpression(`/T\\d+ trial/.test(document.body.innerText)`, "English dashboard-embedded task title");
+  await page.setViewport(1280, 900, false);
+}
+
+async function dashboardReportNavigation(page) {
+  return page.evaluate(
+    clientFunction(() => ({
+      myScore: document.querySelector('a[href="/score"]') != null,
+      reports: document.querySelector('a[href="/reports"]') != null
+    }))
+  );
+}
+
+async function assertReportsMobileContainment(page, url) {
+  await page.setViewport(360, 800, true);
+  await page.navigate(url);
+  await waitForText(page, "Management Reports", "mobile Management Reports");
+  const layout = await page.evaluate(
+    clientFunction(() => {
+      const tableWrap = document.querySelector(".reportTableWrap");
+      const tableWrapRect = tableWrap?.getBoundingClientRect() ?? null;
+      return {
+        clientWidth: document.documentElement.clientWidth,
+        offenders: [...document.querySelectorAll("body *")]
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${
+                typeof element.className === "string" && element.className.length > 0
+                  ? `.${element.className.trim().replace(/\s+/g, ".")}`
+                  : ""
+              }`,
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              width: Math.round(rect.width)
+            };
+          })
+          .filter((row) => row.left < -1 || row.right > document.documentElement.clientWidth + 1)
+          .slice(0, 12),
+        page: `${location.pathname}${location.search}`,
+        scrollWidth: document.documentElement.scrollWidth,
+        tableContained:
+          tableWrapRect == null ||
+          (tableWrapRect.left >= -0.5 && tableWrapRect.right <= document.documentElement.clientWidth + 0.5)
+      };
+    })
+  );
+  assert.equal(
+    layout.scrollWidth <= layout.clientWidth,
+    true,
+    `Reports must not cause page-wide horizontal overflow at 360px: ${JSON.stringify(layout)}`
+  );
+  assert.equal(layout.tableContained, true, "The Issues table scroller must remain inside the mobile viewport.");
+}
+
+async function assertManagementReportsWorkflow(page) {
+  await page.setViewport(1280, 900, false);
+  await page.navigate(`${BASE_URL}/`);
+  await switchUser(page, "admin");
+  await waitForText(page, "Trial Dashboard", "Admin dashboard before Reports");
+  assert.deepEqual(await dashboardReportNavigation(page), { myScore: false, reports: true });
+
+  await page.navigate(`${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await waitForText(page, "Management Reports", "Admin Management Reports");
+  await waitForText(page, "Mold-trial workload", "Admin report workload");
+  await waitForText(page, "Management Attention", "Admin report attention");
+  await waitForText(page, "M-REPORT-002", "report fixture attention source");
+
+  await page.navigate(`${BASE_URL}/reports?tab=issues&month=2026-07`);
+  await waitForText(page, "Critical process instability requires retest", "selected-month report issue");
+  await waitForText(page, "Not resolved yet", "open issue resolution state");
+  await switchLanguage(page, "zh-CN");
+  await waitForText(page, "管理报表", "Chinese Management Reports");
+  await waitForText(page, "尚未解决", "Chinese unresolved issue state");
+  await waitForText(page, "Critical process instability requires retest", "user-entered issue title preserved in Chinese");
+  await switchLanguage(page, "en");
+  await waitForText(page, "Management Reports", "English Management Reports restored");
+
+  await page.navigate(`${BASE_URL}/reports?tab=scorecards&month=2026-07`);
+  await page.waitForExpression("document.querySelector('#kpi-scores-heading') != null", "Admin report scorecards");
+  await page.waitForExpression("document.querySelector('.kpiScoreRow') != null", "Admin scorecard rows");
+
+  await assertReportsMobileContainment(page, `${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await assertReportsMobileContainment(page, `${BASE_URL}/reports?tab=issues&month=2026-07`);
+  await page.setViewport(1280, 900, false);
+
+  await page.navigate(`${BASE_URL}/`);
+  await switchUser(page, "xie");
+  assert.deepEqual(await dashboardReportNavigation(page), { myScore: false, reports: true });
+  await page.navigate(`${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await waitForText(page, "Management Reports", "GM Management Reports");
+
+  await page.navigate(`${BASE_URL}/`);
+  await switchUser(page, "wang");
+  assert.deepEqual(await dashboardReportNavigation(page), { myScore: true, reports: false });
+  await page.navigate(`${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await waitForText(page, "Reports access unavailable", "scored staff Reports denial");
+
+  await page.navigate(`${BASE_URL}/`);
+  await switchUser(page, "viewer");
+  assert.deepEqual(await dashboardReportNavigation(page), { myScore: false, reports: false });
+  await page.navigate(`${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await waitForText(page, "Reports access unavailable", "Viewer Reports denial");
+  assert.equal(await page.evaluate("document.body.innerText.includes('Completed trial runs')"), false);
+
+  await setViewerReportPermission(true);
+  await page.navigate(`${BASE_URL}/reports?tab=overview&month=2026-07`);
+  await waitForText(page, "Completed trial runs", "report-only Viewer overview");
+  await page.navigate(`${BASE_URL}/reports?tab=scorecards&month=2026-07`);
+  await waitForText(page, "Current user cannot view individual scorecards.", "report-only Viewer scorecard denial");
+  assert.equal(await page.evaluate("document.querySelector('.kpiScoreRow') == null"), true);
+
+  await setViewerReportPermission(false);
+  await page.navigate(`${BASE_URL}/`);
+  await switchUser(page, "admin");
+}
+
+async function assertProcessSheetPdfExportDownload(page, downloadDir) {
+  const project = await prisma.moldTrialProject.findFirst({
+    where: { clientProjectRef: PROJECT_CODE },
+    select: { id: true, projectCode: true }
+  });
+  assert.ok(project, "workflow project must exist before the PDF export check");
+
+  await page.enableDownloads(downloadDir);
+  const [attachmentCountBefore, activityCountBefore] = await Promise.all([
+    prisma.fileAttachment.count({
+      where: {
+        moldTrialProjectId: project.id,
+        entityType: "PROCESS_SHEET_EXPORT"
+      }
+    }),
+    prisma.activityLog.count({ where: { action: "exported_process_sheet_pdf" } })
+  ]);
+
+  const downloadWillBegin = page.waitForEvent(
+    ["Browser.downloadWillBegin", "Page.downloadWillBegin"],
+    "Process Sheet PDF browser download",
+    (params) => typeof params.suggestedFilename === "string" && params.suggestedFilename.endsWith(".pdf")
+  );
+  const downloadCompleted = page.waitForEvent(
+    ["Browser.downloadProgress", "Page.downloadProgress"],
+    "Process Sheet PDF download completion",
+    (params) => params.state === "completed" || params.state === "canceled"
+  );
+
+  await page.evaluate(
+    clientFunction(() => {
+      const button = document.querySelector('[data-process-sheet-pdf-export="true"]');
+      if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        throw new Error("Export Customer PDF button is unavailable.");
+      }
+      button.click();
+      return true;
+    })
+  );
+
+  const [beginEvent, completionEvent] = await Promise.all([downloadWillBegin, downloadCompleted]);
+  assert.equal(completionEvent.params.state, "completed", "Chrome PDF download should complete");
+  assert.equal(completionEvent.params.guid, beginEvent.params.guid, "download events should refer to the same PDF");
+  assert.match(beginEvent.params.suggestedFilename, /\.pdf$/i);
+
+  const downloaded = await waitFor(async () => {
+    const names = (await readdir(downloadDir)).filter((name) => name.toLowerCase().endsWith(".pdf"));
+    if (names.length === 0) {
+      return false;
+    }
+
+    const bytes = await readFile(path.join(downloadDir, names[0]));
+    return bytes.length > 0 ? { bytes, fileName: names[0] } : false;
+  }, "non-empty Process Sheet PDF on disk");
+  assert.equal(downloaded.bytes.subarray(0, 5).toString("utf8"), "%PDF-");
+
+  await waitFor(
+    async () =>
+      (await prisma.fileAttachment.count({
+        where: {
+          moldTrialProjectId: project.id,
+          entityType: "PROCESS_SHEET_EXPORT"
+        }
+      })) ===
+      attachmentCountBefore + 1,
+    "one Process Sheet FileAttachment"
+  );
+
+  const attachment = await prisma.fileAttachment.findFirst({
+    where: {
+      moldTrialProjectId: project.id,
+      entityType: "PROCESS_SHEET_EXPORT"
+    },
+    orderBy: { uploadedAt: "desc" }
+  });
+  assert.ok(attachment, "exported Process Sheet attachment should exist");
+  assert.equal(attachment.fileType, "PROCESS_SHEET_PDF");
+  assert.equal(attachment.contentType, "application/pdf");
+  assert.equal(attachment.sizeBytes, downloaded.bytes.length);
+  assert.equal(attachment.visibility, "CUSTOMER_SAFE");
+  assert.equal(attachment.storageKey.includes("generated/process-sheet-exports"), false);
+  assert.equal(attachment.fileName, beginEvent.params.suggestedFilename);
+
+  const exportLogs = await prisma.activityLog.findMany({
+    where: {
+      entityType: "FileAttachment",
+      entityId: attachment.id,
+      action: "exported_process_sheet_pdf"
+    }
+  });
+  assert.equal(exportLogs.length, 1, "one export click should create one ActivityLog");
+  assert.equal(await prisma.activityLog.count({ where: { action: "exported_process_sheet_pdf" } }), activityCountBefore + 1);
+  assert.deepEqual(exportLogs[0]?.afterJson, {
+    projectCode: project.projectCode,
+    attachmentId: attachment.id,
+    fileName: attachment.fileName,
+    sizeBytes: attachment.sizeBytes,
+    visibility: "CUSTOMER_SAFE"
+  });
+
+  const routeResult = await page.evaluate(
+    clientFunction(async (attachmentId) => {
+      const response = await fetch(`/api/attachments/${attachmentId}`, {
+        cache: "no-store",
+        credentials: "same-origin"
+      });
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      return {
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+        contentDisposition: response.headers.get("content-disposition"),
+        byteLength: bytes.byteLength,
+        signature: String.fromCharCode(...bytes.slice(0, 5))
+      };
+    }, attachment.id)
+  );
+  assert.equal(routeResult.status, 200);
+  assert.equal(routeResult.contentType, "application/pdf");
+  assert.equal(Number(routeResult.contentLength), attachment.sizeBytes);
+  assert.match(routeResult.contentDisposition, /^attachment;/);
+  assert.equal(routeResult.byteLength, attachment.sizeBytes);
+  assert.equal(routeResult.signature, "%PDF-");
+
+  await waitForDomText(page, attachment.fileName, "export in Customer Files");
+  const attachmentCountAfterExport = await prisma.fileAttachment.count({
+    where: { moldTrialProjectId: project.id, entityType: "PROCESS_SHEET_EXPORT" }
+  });
+  const activityCountAfterExport = await prisma.activityLog.count({ where: { action: "exported_process_sheet_pdf" } });
+  const repeatDownloadWillBegin = page.waitForEvent(
+    ["Browser.downloadWillBegin", "Page.downloadWillBegin"],
+    "Customer Files PDF re-download",
+    (params) => params.suggestedFilename === attachment.fileName
+  );
+  const repeatDownloadCompleted = page.waitForEvent(
+    ["Browser.downloadProgress", "Page.downloadProgress"],
+    "Customer Files PDF re-download completion",
+    (params) => params.state === "completed" || params.state === "canceled"
+  );
+
+  await page.evaluate(
+    clientFunction((attachmentId) => {
+      const link = document.querySelector(`a[href="/api/attachments/${CSS.escape(attachmentId)}"]`);
+      if (!(link instanceof HTMLAnchorElement)) {
+        throw new Error("Customer Files PDF download link was not found.");
+      }
+      link.click();
+      return true;
+    }, attachment.id)
+  );
+  const [repeatBegin, repeatComplete] = await Promise.all([repeatDownloadWillBegin, repeatDownloadCompleted]);
+  assert.equal(repeatComplete.params.state, "completed");
+  assert.equal(repeatComplete.params.guid, repeatBegin.params.guid);
+  assert.equal(
+    await prisma.fileAttachment.count({
+      where: { moldTrialProjectId: project.id, entityType: "PROCESS_SHEET_EXPORT" }
+    }),
+    attachmentCountAfterExport,
+    "re-downloading from Customer Files must not create another attachment"
+  );
+  assert.equal(
+    await prisma.activityLog.count({ where: { action: "exported_process_sheet_pdf" } }),
+    activityCountAfterExport,
+    "re-downloading from Customer Files must not create another export log"
+  );
+}
+
 async function switchUser(page, username) {
   const password = userPasswords.get(username) ?? `WorkflowPass!${username}`;
   const returnUrl = await page.evaluate("location.href");
@@ -793,7 +1178,8 @@ async function switchUser(page, username) {
     await page.navigate(returnUrl);
   }
 
-  await waitForText(page, username, `active account ${username}`);
+  const accountIdentity = username === "admin" ? "Admin" : username === "viewer" ? "Viewer" : username;
+  await waitForText(page, accountIdentity, `active account ${username}`);
 }
 
 async function sectionIsBlocked(page, headingText) {
@@ -958,15 +1344,74 @@ async function prepareDatabase() {
   await prisma.user.deleteMany({ where: { username: ADMIN_TEST_USERNAME } });
   await prisma.role.deleteMany({ where: { code: ADMIN_TEST_ROLE_CODE } });
 
-  const admin = await prisma.user.findUnique({ where: { username: "admin" } });
-  const qcRole = await prisma.role.findUnique({ where: { code: "qc" } });
-  const reschedule = await prisma.permission.findUnique({ where: { code: "trial.schedule.reschedule" } });
+  const [admin, qcRole, reschedule, viewerRole, viewerUser, reportPermission, scoreboardSetting] = await Promise.all([
+    prisma.user.findUnique({ where: { username: "admin" } }),
+    prisma.role.findUnique({ where: { code: "qc" } }),
+    prisma.permission.findUnique({ where: { code: "trial.schedule.reschedule" } }),
+    prisma.role.findUnique({ where: { code: "viewer" } }),
+    prisma.user.findUnique({ where: { username: "viewer" } }),
+    prisma.permission.findUnique({ where: { code: "reports.management.view" } }),
+    prisma.systemSetting.findUnique({ where: { key: "scoreboard_enabled" } })
+  ]);
 
-  if (admin == null || qcRole == null || reschedule == null) {
-    throw new Error("Seeded admin user, QC role, or reschedule permission is missing. Run pnpm pilot:seed first.");
+  if (
+    admin == null ||
+    qcRole == null ||
+    reschedule == null ||
+    viewerRole == null ||
+    viewerUser == null ||
+    reportPermission == null
+  ) {
+    throw new Error("Seeded users, roles, or required permissions are missing. Run pnpm pilot:seed first.");
   }
 
+  originalScoreboardSetting = scoreboardSetting == null
+    ? null
+    : { value: scoreboardSetting.value, updatedById: scoreboardSetting.updatedById };
+  originalViewerReportGrant = await prisma.rolePermission.findUnique({
+    where: {
+      roleId_permissionId: {
+        roleId: viewerRole.id,
+        permissionId: reportPermission.id
+      }
+    },
+    select: { enabled: true, updatedById: true }
+  });
+  originalViewerReportOverride = await prisma.userPermissionOverride.findUnique({
+    where: {
+      userId_permissionId: {
+        userId: viewerUser.id,
+        permissionId: reportPermission.id
+      }
+    },
+    select: { effect: true, expiresAt: true, reason: true, updatedById: true }
+  });
+
   await resetWorkflowLoginUsers();
+
+  await prisma.systemSetting.upsert({
+    where: { key: "scoreboard_enabled" },
+    update: { value: "true", updatedById: admin.id },
+    create: { key: "scoreboard_enabled", value: "true", updatedById: admin.id }
+  });
+  await prisma.userPermissionOverride.deleteMany({
+    where: { userId: viewerUser.id, permissionId: reportPermission.id }
+  });
+  await prisma.rolePermission.upsert({
+    where: {
+      roleId_permissionId: {
+        roleId: viewerRole.id,
+        permissionId: reportPermission.id
+      }
+    },
+    update: { enabled: false, updatedById: admin.id },
+    create: {
+      roleId: viewerRole.id,
+      permissionId: reportPermission.id,
+      enabled: false,
+      updatedById: admin.id
+    }
+  });
 
   await prisma.rolePermission.upsert({
     where: {
@@ -986,6 +1431,104 @@ async function prepareDatabase() {
       updatedById: admin.id
     }
   });
+}
+
+async function setViewerReportPermission(enabled) {
+  const [admin, viewerRole, reportPermission] = await Promise.all([
+    prisma.user.findUnique({ where: { username: "admin" }, select: { id: true } }),
+    prisma.role.findUnique({ where: { code: "viewer" }, select: { id: true } }),
+    prisma.permission.findUnique({ where: { code: "reports.management.view" }, select: { id: true } })
+  ]);
+  if (admin == null || viewerRole == null || reportPermission == null) {
+    throw new Error("Cannot prepare the report-only Viewer permission check.");
+  }
+  await prisma.rolePermission.upsert({
+    where: {
+      roleId_permissionId: {
+        roleId: viewerRole.id,
+        permissionId: reportPermission.id
+      }
+    },
+    update: { enabled, updatedById: admin.id },
+    create: {
+      roleId: viewerRole.id,
+      permissionId: reportPermission.id,
+      enabled,
+      updatedById: admin.id
+    }
+  });
+}
+
+async function restoreReportTestState() {
+  if (
+    originalScoreboardSetting === undefined ||
+    originalViewerReportGrant === undefined ||
+    originalViewerReportOverride === undefined
+  ) {
+    return;
+  }
+
+  const [admin, viewerRole, viewerUser, reportPermission] = await Promise.all([
+    prisma.user.findUnique({ where: { username: "admin" }, select: { id: true } }),
+    prisma.role.findUnique({ where: { code: "viewer" }, select: { id: true } }),
+    prisma.user.findUnique({ where: { username: "viewer" }, select: { id: true } }),
+    prisma.permission.findUnique({ where: { code: "reports.management.view" }, select: { id: true } })
+  ]);
+  if (admin == null || viewerRole == null || viewerUser == null || reportPermission == null) {
+    return;
+  }
+
+  if (originalScoreboardSetting == null) {
+    await prisma.systemSetting.deleteMany({ where: { key: "scoreboard_enabled" } });
+  } else {
+    await prisma.systemSetting.upsert({
+      where: { key: "scoreboard_enabled" },
+      update: originalScoreboardSetting,
+      create: { key: "scoreboard_enabled", ...originalScoreboardSetting }
+    });
+  }
+
+  if (originalViewerReportGrant == null) {
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: viewerRole.id, permissionId: reportPermission.id }
+    });
+  } else {
+    await prisma.rolePermission.upsert({
+      where: {
+        roleId_permissionId: {
+          roleId: viewerRole.id,
+          permissionId: reportPermission.id
+        }
+      },
+      update: originalViewerReportGrant,
+      create: {
+        roleId: viewerRole.id,
+        permissionId: reportPermission.id,
+        ...originalViewerReportGrant
+      }
+    });
+  }
+
+  if (originalViewerReportOverride == null) {
+    await prisma.userPermissionOverride.deleteMany({
+      where: { userId: viewerUser.id, permissionId: reportPermission.id }
+    });
+  } else {
+    await prisma.userPermissionOverride.upsert({
+      where: {
+        userId_permissionId: {
+          userId: viewerUser.id,
+          permissionId: reportPermission.id
+        }
+      },
+      update: originalViewerReportOverride,
+      create: {
+        userId: viewerUser.id,
+        permissionId: reportPermission.id,
+        ...originalViewerReportOverride
+      }
+    });
+  }
 }
 
 async function restoreQcPermission() {
@@ -1100,6 +1643,8 @@ async function main() {
     chrome = launched.chrome;
     userDataDir = launched.userDataDir;
     page = await createBrowserPage(launched.port);
+    const downloadDir = path.join(userDataDir, "downloads");
+    await page.setViewport(1280, 900, false);
     const workflowCustomer = await prisma.customer.findUnique({ where: { code: "C-WF" } });
     assert.ok(workflowCustomer?.active, "C-WF active Customer Master record should exist");
 
@@ -1131,6 +1676,10 @@ async function main() {
     await waitForText(page, "First T0 planned date set.", "T0 schedule");
     await waitForText(page, "Digital Process Sheet", "Digital Process Sheet after T0 exists");
     console.log("[OK] Planning PM set T0.");
+
+    await assertMyTasksLanguageSwitchAndMobileLayout(page);
+    console.log("[OK] My Tasks switches languages and fits a 360px mobile viewport without overlap or horizontal overflow.");
+    await page.navigate(`${BASE_URL}${workflowProjectPath}`);
 
     await switchUser(page, "gong");
     assert.equal(await sectionIsBlocked(page, "Add Next Planned Trial"), true);
@@ -1179,6 +1728,10 @@ async function main() {
     });
     await waitForText(page, "New planned trial added.", "Technical PM T1");
     console.log("[OK] Technical PM added T1 after T0 completion.");
+
+    await switchUser(page, "yvonne");
+    await assertProcessSheetPdfExportDownload(page, downloadDir);
+    console.log("[OK] Marketing exported, downloaded, and re-downloaded one customer-safe Process Sheet PDF.");
 
     await switchUser(page, "zhong");
     await openTrialPanel(page, "T0");
@@ -1310,6 +1863,9 @@ async function main() {
     assert.equal(await sectionIsBlocked(page, "Add Next Planned Trial"), true);
     console.log("[OK] Admin role permission toggle changed UI and server-action behavior.");
 
+    await assertManagementReportsWorkflow(page);
+    console.log("[OK] Management Reports passed Admin, GM, scored-staff, report-only, bilingual, and 360px browser checks.");
+
     await verifyWorkflowOutcome();
     console.log(`[OK] ${PROJECT_CODE} completed browser/server-action workflow E2E.`);
   } finally {
@@ -1330,6 +1886,7 @@ async function main() {
       }
     }
     await restoreQcPermission();
+    await restoreReportTestState();
     await resetWorkflowLoginUsers();
     await prisma.$disconnect();
   }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
+import { SubmitButton } from "@/components/ui";
 import { createTranslator } from "@/i18n";
 import { getDictionary } from "@/i18n/server";
 import { changeOwnCredentials } from "@/server/auth-actions";
@@ -84,7 +85,7 @@ export default async function ChangePasswordPage({ searchParams }: PageProps) {
             <input name="confirmPassword" autoComplete="new-password" type="password" required />
           </label>
           <div className="formActions">
-            <button type="submit">{t("auth.savePassword")}</button>
+            <SubmitButton>{t("auth.savePassword")}</SubmitButton>
           </div>
         </form>
       </section>

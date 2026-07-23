@@ -71,7 +71,22 @@ export type PlateIssueRecord = {
   projectTechnicalPmId: string | null;
 };
 
+/**
+ * A design-change event, reduced to what the "Design: revisions" section filters
+ * on. `hasDrawing` is the server's data join (a live, non-deleted DRAWING
+ * attachment on this DESIGN_CHANGE_EVENT); `projectStatus` is the owning
+ * project's Prisma `ProjectStatus` enum value (DB form) so terminal projects drop
+ * out.
+ */
+export type PlateDesignChangeRecord = {
+  projectStatus: string;
+  hasDrawing: boolean;
+};
+
 const OPEN_ISSUE_EXCLUDED_STATUSES: ReadonlySet<IssueStatusDbValue> = new Set(["VERIFIED", "CLOSED"]);
+
+/** Project statuses that end a project — a design revision on one is no longer waiting. */
+const TERMINAL_PROJECT_STATUSES: ReadonlySet<string> = new Set(["CANCELLED", "CLOSED"]);
 
 /**
  * Roles whose "Department inbox" is exactly one department group. PM is handled
@@ -83,7 +98,8 @@ export const directDepartmentInboxGroupByRole: Partial<Record<RoleCode, string>>
   ASSEMBLY: "assembly",
   INJECTION: "injection",
   MARKETING: "marketing",
-  QC: "qc"
+  QC: "qc",
+  DESIGN: "design"
 };
 const pmDepartmentInboxGroups: ReadonlySet<string> = new Set(["pm", "planning", "technical"]);
 
@@ -319,6 +335,25 @@ export function belongsToQcReportsToUploadSection(
   const actual = startOfUtcDay(trial.actualDate);
 
   return actual.getTime() >= windowStart.getTime() && actual.getTime() <= startOfToday.getTime();
+}
+
+/**
+ * "Design: revisions": for DESIGN users, design-change events on a live (non-
+ * terminal) project that do not yet have a DRAWING attached. Whether a drawing
+ * actually exists is a data join the server applies (`hasDrawing`); this pure
+ * rule owns the role + project-liveness gate. Once the first drawing lands the
+ * card clears.
+ */
+export function belongsToDesignRevisionsSection(viewer: PlateViewer, record: PlateDesignChangeRecord): boolean {
+  if (viewer.roleCode !== "DESIGN") {
+    return false;
+  }
+
+  if (TERMINAL_PROJECT_STATUSES.has(record.projectStatus)) {
+    return false;
+  }
+
+  return !record.hasDrawing;
 }
 
 /**

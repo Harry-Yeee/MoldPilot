@@ -1,6 +1,9 @@
 export { Button } from "./Button";
 export type { ButtonProps, ButtonSize, ButtonVariant } from "./Button";
 
+export { SubmitButton } from "./SubmitButton";
+export type { SubmitButtonProps } from "./SubmitButton";
+
 export { StatusBadge } from "./StatusBadge";
 export type { StatusBadgeProps } from "./StatusBadge";
 
@@ -12,6 +15,9 @@ export type { StatusTone } from "./status-colors";
 
 export { Card, CardBody } from "./Card";
 export type { CardBodyProps, CardProps } from "./Card";
+
+export { HeadlineCard } from "./HeadlineCard";
+export type { HeadlineCardProps, HeadlineCardTone } from "./HeadlineCard";
 
 export { SectionHeading } from "./SectionHeading";
 export type { SectionHeadingProps } from "./SectionHeading";

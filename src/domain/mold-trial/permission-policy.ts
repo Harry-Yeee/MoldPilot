@@ -198,6 +198,12 @@ export const permissionDefinitions = [
     name: "View all KPI scores",
     processGroup: "KPI",
     description: "View every user's monthly scorecard and toggle staff scoreboard visibility."
+  },
+  {
+    code: "reports.management.view",
+    name: "View management reports",
+    processGroup: "Reports",
+    description: "View internal monthly mold-trial Management Reports Overview and Issues."
   }
 ] as const;
 
@@ -210,6 +216,7 @@ export const roleCodes = [
   "INJECTION",
   "ASSEMBLY",
   "QC",
+  "DESIGN",
   "VIEWER",
   "ADMIN"
 ] as const satisfies readonly RoleCode[];
@@ -221,6 +228,7 @@ export const dbRoleCodeByRoleCode: Record<RoleCode, string> = {
   INJECTION: "injection",
   ASSEMBLY: "assembly",
   QC: "qc",
+  DESIGN: "design",
   VIEWER: "viewer",
   ADMIN: "admin"
 };
@@ -230,7 +238,13 @@ export const roleCodeByDbRoleCode = Object.fromEntries(
 ) as Record<string, RoleCode>;
 
 export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCode[]> = {
-  GM: ["trial.issue.create", "trial.issue.close", "attachment.download.internal", "kpi.scores.view_all"],
+  GM: [
+    "trial.issue.create",
+    "trial.issue.close",
+    "attachment.download.internal",
+    "kpi.scores.view_all",
+    "reports.management.view"
+  ],
   PM: [
     "project.intake.create",
     "project.basic.edit",
@@ -283,6 +297,13 @@ export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCod
     "attachment.download.internal",
     "qc.measurement_report.upload",
     "qc.measurement_report.replace"
+  ],
+  DESIGN: [
+    "trial.issue.create",
+    "trial.issue.edit_root_cause",
+    "trial.issue.close",
+    "attachment.upload",
+    "attachment.download.internal"
   ],
   VIEWER: ["attachment.download.internal"],
   ADMIN: permissionDefinitions.map((permission) => permission.code)

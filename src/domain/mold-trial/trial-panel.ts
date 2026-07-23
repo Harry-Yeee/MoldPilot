@@ -2,6 +2,7 @@ import type {
   DateLike,
   DesignChangeEvent,
   NewTrialReasonCategory,
+  Severity,
   TrialCode,
   TrialIssueStatus,
   TrialLimitSummary,
@@ -38,6 +39,8 @@ export type TrialPanelIssue = {
   id?: string;
   title: string;
   status: TrialIssueStatus;
+  /** Domain severity label (e.g. "Medium"); drives the V6 severity chip. */
+  severity?: Severity | null;
   foundAtTrialSequenceNumber?: number | null;
   verificationResult?: string | null;
 };

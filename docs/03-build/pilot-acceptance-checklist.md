@@ -18,7 +18,10 @@ Open `http://localhost:3000`. With the dev server running, run `pnpm pilot:check
 - Login page shows the language switcher.
 - English is the default language when no preference exists.
 - Switch to Simplified Chinese and reload/navigate.
-- Dashboard, project detail, trial panels, Digital Process Sheet controls, Admin tabs, common buttons, and status labels remain usable in Chinese.
+- Dashboard, project detail, trial panels, Digital Process Sheet controls, Admin tabs, `/me`, the dashboard-embedded My Tasks panel, common buttons, and status labels remain usable in Chinese.
+- On `/me`, confirm the Dashboard link and Language Switcher fit cleanly at 360–430 px without overlap or horizontal scrolling.
+- Confirm My Tasks section headings, bottom sheets, trial/issue statuses, severity, missed-reason/responsible-area/issue-status options, requester labels, countdown/date-confirmation labels, and generated titles such as `T0 试模` are translated.
+- Navigate from `/me` to the dashboard and confirm the embedded task panel keeps the same selected language.
 - Switch back to English and confirm labels return to English.
 - Mold codes, client/project refs, client names, part codes, issue titles, notes, machine brands, and generated/exported business data stay exactly as entered.
 
@@ -67,7 +70,8 @@ Expected:
   - Copy Previous Trial fills blank current-trial machine/process values from the immediate previous trial without copying result/issues/accountability fields.
   - Existing current-trial values are not overwritten unless explicitly confirmed.
   - No editable Trial Summary section or rows for trial result, major issue summary, correction summary, next action, or internal private note.
-- Customer-safe Process Sheet PDF export is available to permitted Marketing/PM/Admin users and creates ActivityLog/FileAttachment records.
+- Customer-safe Process Sheet PDF export is available to permitted Marketing/PM/Admin users. Clicking it starts one real non-empty Chrome `.pdf` download, stores one `CUSTOMER_SAFE` FileAttachment with correct MIME/size metadata, creates one ActivityLog, and surfaces the reusable download in Customer Files.
+- As Marketing, download the generated PDF again from Customer Files and confirm protected file access works without creating a duplicate export record. Confirm a failed export does not start an empty download.
 - Trial Issues show:
   - Technical mold design issue.
   - Injection process issue.
@@ -143,6 +147,24 @@ Expected server-side behavior:
   - Can manage users, roles, permission assignments, Customer Master records, Injection Machine Master records, and fixed report-template assignments.
   - Business-state changes must still produce ActivityLog records and require reasons where the workflow requires them.
 
+## Management Reports Smoke Check
+
+Use Admin and GM accounts, then repeat direct-route checks with a normal role.
+
+- Admin/GM dashboard navigation shows `Reports`; their non-scored accounts are not directed to an empty `My Score` page.
+- Scored staff retain `My Score` when the staff scoreboard is enabled.
+- `/reports` opens `Overview`, `Issues`, and `Scorecards`; Overview/Issues require `reports.management.view`, while Scorecards additionally require `kpi.scores.view_all`.
+- A user without report permission is blocked by the server when requesting the route/data directly.
+- Select the current month and compare key values with the immediately previous month.
+- Completed trial runs count actual Completed trials, not planned records; unique molds de-duplicate repeat trials; new molds reaching T0 count first actual T0 only.
+- On-time rate visibly includes numerator/denominator and keeps due missed/delayed trials in the denominator.
+- Target performance separates approved-with-target eligibility from missing target dates; low-loop approval means first approval within T0/T1.
+- Current over-limit attention excludes Approved, Cancelled, and Closed projects. Open Critical excludes Closed and Verified issues.
+- Issues tab shows severity, current status, fix owner, due/overdue state, fix summary/time, closure, verification, and `Not resolved yet` for open issues.
+- Management Attention links back to source projects/trials/issues and contains no report-side business-state mutation controls.
+- Switch English/Chinese and check desktop plus 360-430 px layouts for overlap/clipping.
+- Confirm no customer country, contacts, email, phone, quote value, sales pipeline, or communication history appears in UI or report payloads.
+
 ## Non-Scope Guardrail
 
-Do not validate ERP, purchasing, customer portal, file attachment, or full task-board behavior in this pilot run. Phase 1 acceptance is limited to the mold trial tracking loop.
+Do not validate full ERP, purchasing, customer portal, full file-manager, full department task-board, BI report-designer, or factory-utilization behavior in this pilot run. Phase 1 acceptance is limited to the mold trial tracking loop and its approved support surfaces.

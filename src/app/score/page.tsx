@@ -1,12 +1,15 @@
 import { StatusBadge } from "@/components/ui";
-import { isScoredRole, kpiLabels } from "@/domain/mold-trial/kpi-rules";
-import { pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { barHitPercent, isScoredRole, kpiLabels } from "@/domain/mold-trial/kpi-rules";
+import { missBufferAtBar, onTimeNeededForBar } from "@/domain/mold-trial/kpi-scoring";
+import { type BilingualLabel, pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import { getCurrentLanguage } from "@/i18n/server";
 import { prisma } from "@/lib/prisma";
 import { computeMonthlyScores, type ScoredUser } from "@/server/kpi-scores";
 import { isScoreboardEnabled } from "@/server/kpi-settings";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes } from "@/server/permissions";
+import { buildNavVisibility } from "@/server/nav";
 
 export const dynamic = "force-dynamic";
 
@@ -32,12 +35,20 @@ export default async function ScorePage() {
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
   const isAdmin = permissionCodes.has("kpi.scores.view_all");
   const enabled = await isScoreboardEnabled();
+  // Reuse the scoreboard flag we already resolved — the pure builder adds no query.
+  const nav = buildNavVisibility({
+    permissionCodes,
+    roleCode: currentUser.roleCode,
+    dbRoleCode: currentUser.role.code,
+    scoreboardEnabled: enabled
+  });
 
   // Visibility gate: staff only see the page when the flag is on; admins always
   // see it (with a preview badge) so they can validate before opening it.
   if (!enabled && !isAdmin) {
     return (
       <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-6">
+        <AppHeader current="score" nav={nav} currentUser={currentUser} />
         <header className="grid gap-1">
           <a className="text-sm text-blue-700 underline" href="/">
             ← {pickLabel(kpiLabels.scoreboardTitle, locale)}
@@ -57,6 +68,7 @@ export default async function ScorePage() {
   if (!isScoredRole(currentUser.role.code)) {
     return (
       <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-6">
+        <AppHeader current="score" nav={nav} currentUser={currentUser} />
         <header className="grid gap-1">
           <a className="text-sm text-blue-700 underline" href="/">
             ← {pickLabel(kpiLabels.scoreboardTitle, locale)}
@@ -102,8 +114,36 @@ export default async function ScorePage() {
   const name = locale === "ZH_CN" && currentUser.chineseName != null ? currentUser.chineseName : currentUser.displayName;
   const barHit = card?.barHit ?? true;
 
+  // "Hope math": one encouraging path-forward line under the verdict banner, so a
+  // leader sitting below the bar mid-month sees the exact climb back instead of a
+  // dead end. Amber when recovering, quiet green when already over — never red.
+  let hopeLine: string | null = null;
+  let hopeTone = "";
+  if (card != null && card.applicable >= 1) {
+    const fill = (label: BilingualLabel, value: number): string =>
+      pickLabel(label, locale).replace("{n}", String(value));
+    if (card.barHitByFloor) {
+      // <5-events floor zone: protected regardless. Only nudge when the raw rate
+      // is under the bar, phrased as guidance for when the month fills up.
+      if (card.percent < barHitPercent) {
+        hopeLine = fill(kpiLabels.hopeFloorGuidance, onTimeNeededForBar(card.onTime, card.applicable, barHitPercent));
+        hopeTone = "text-amber-700";
+      }
+    } else if (!card.barHit) {
+      // Below the bar with a real rate (≥5 events): the exact climb back over.
+      hopeLine = fill(kpiLabels.hopeRecovery, onTimeNeededForBar(card.onTime, card.applicable, barHitPercent));
+      hopeTone = "text-amber-700";
+    } else {
+      // At/over the bar (≥5 events): how much slack remains before slipping under.
+      const buffer = missBufferAtBar(card.onTime, card.applicable, barHitPercent);
+      hopeLine = buffer === 0 ? pickLabel(kpiLabels.hopeNoRoom, locale) : fill(kpiLabels.hopeBuffer, buffer);
+      hopeTone = "text-emerald-700";
+    }
+  }
+
   return (
     <main className="mx-auto grid w-full max-w-2xl gap-4 px-4 py-6">
+      <AppHeader current="score" nav={nav} currentUser={currentUser} />
       <header className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-blue-800 pb-3">
         <div className="grid gap-1">
           <a className="text-sm text-blue-700 underline" href="/">
@@ -264,13 +304,16 @@ export default async function ScorePage() {
         </div>
 
         <div
-          className={`border-t px-4 py-3 text-sm font-bold ${barHit ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-800"}`}
+          className={`border-t px-4 py-3 ${barHit ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-800"}`}
         >
-          {card == null || card.barHitByFloor
-            ? pickLabel(kpiLabels.notEnough, locale)
-            : barHit
-              ? `${pickLabel(kpiLabels.hit, locale)} ${card.percent}%`
-              : `${pickLabel(kpiLabels.miss, locale)} ${card.percent}%`}
+          <div className="text-sm font-bold">
+            {card == null || card.barHitByFloor
+              ? pickLabel(kpiLabels.notEnough, locale)
+              : barHit
+                ? `${pickLabel(kpiLabels.hit, locale)} ${card.percent}%`
+                : `${pickLabel(kpiLabels.miss, locale)} ${card.percent}%`}
+          </div>
+          {hopeLine != null ? <div className={`mt-1 text-xs font-medium ${hopeTone}`}>{hopeLine}</div> : null}
         </div>
       </section>
 

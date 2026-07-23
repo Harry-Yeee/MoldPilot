@@ -14,7 +14,9 @@ import { buildStorageKey, resolveStoragePath } from "@/domain/mold-trial/attachm
 export function attachmentStorageRoot(): string {
   const configured = process.env.MOLDPILOT_STORAGE_DIR;
   const root = configured != null && configured.trim().length > 0 ? configured : path.join("storage", "uploads");
-  return path.isAbsolute(root) ? root : path.resolve(process.cwd(), root);
+  return path.isAbsolute(root)
+    ? root
+    : path.resolve(/* turbopackIgnore: true */ process.cwd(), root);
 }
 
 /**

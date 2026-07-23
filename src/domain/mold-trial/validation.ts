@@ -281,19 +281,11 @@ export function validateTrialIssueCreate(input: TrialIssueCreateInput): Validati
     });
   }
 
-  if (isBlank(input.ownerUserId)) {
-    issues.push({
-      field: "owner",
-      message: "Trial issue owner is required."
-    });
-  }
-
-  if (isMissing(input.dueDate)) {
-    issues.push({
-      field: "dueDate",
-      message: "Trial issue due date is required."
-    });
-  }
+  // R1 (blame-free intake): the creator never names a person and the due date is
+  // optional. When no owner is supplied the server routes the issue to a
+  // department inbox by type; when no due date is supplied the server applies the
+  // DEFAULT_ISSUE_DUE_HOURS policy. So owner and due date are no longer required
+  // here — an explicit reassignment/due date still flows through unchanged.
 
   if (input.actorRole === "MARKETING") {
     if (input.source != null && !marketingAllowedIssueSources.has(input.source)) {

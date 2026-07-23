@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>每一步谁做什么 · Who does what at every step</title>
+<style>
+  @page { size: A3 portrait; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 297mm; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    color: #182230; background: white; padding: 10mm 12mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .hero { text-align: center; padding: 4mm 0 5mm; }
+  .hero .zh { font-size: 34pt; font-weight: 800; color: #1d4f91; }
+  .hero .en { font-size: 12pt; color: #536579; margin-top: 2mm; }
+  .stage { display: grid; grid-template-columns: 34mm 1fr; gap: 4mm; border: 0.4mm solid #d6dde6; border-radius: 3mm; padding: 3.5mm 4.5mm; margin-bottom: 3.5mm; }
+  .stage .n { display: flex; flex-direction: column; justify-content: center; align-items: center; background: #eef5ff; border-radius: 2.5mm; padding: 2mm; }
+  .stage .n .s { font-size: 8pt; font-weight: 700; color: #536579; letter-spacing: 0.5mm; }
+  .stage .n .zh { font-size: 14pt; font-weight: 800; color: #0c447c; margin-top: 1mm; text-align: center; line-height: 1.25; }
+  .stage .n .en { font-size: 7.5pt; color: #536579; margin-top: 1mm; text-align: center; }
+  .duty { display: grid; grid-template-columns: 26mm 1fr; gap: 3mm; align-items: baseline; padding: 1.2mm 0; }
+  .who { font-size: 10pt; font-weight: 800; border-radius: 2mm; text-align: center; padding: 0.8mm 0; }
+  .pm { background: #e6f1fb; color: #0c447c; } .mkt { background: #fbeaf0; color: #72243e; }
+  .inj { background: #faeeda; color: #633806; } .asm { background: #e1f5ee; color: #085041; }
+  .qc { background: #eeedfe; color: #3c3489; } .des { background: #faece7; color: #712b13; }
+  .all { background: #f1efe8; color: #444441; } .sys { background: #2d3b4d; color: white; }
+  .what { font-size: 11pt; line-height: 1.5; }
+  .what .en { display: block; font-size: 7.5pt; color: #536579; line-height: 1.35; }
+  .clock { display: inline-block; background: #fff5db; color: #8a5a00; border-radius: 2mm; font-size: 9pt; font-weight: 800; padding: 0 2mm; margin-left: 1.5mm; }
+  .foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3.5mm; margin-top: 4mm; }
+  .tip { border-radius: 3mm; padding: 3.5mm 4mm; }
+  .tip .t { font-size: 11pt; font-weight: 800; margin-bottom: 1.5mm; }
+  .tip .b { font-size: 9.5pt; line-height: 1.55; }
+  .tip .en { font-size: 7pt; color: #536579; margin-top: 1.5mm; line-height: 1.35; }
+  .tip.blue { background: #eef5ff; border: 0.4mm solid #85b7eb; } .tip.blue .t { color: #0c447c; }
+  .tip.green { background: #e1f5ee; border: 0.4mm solid #5dcaa5; } .tip.green .t { color: #085041; }
+  .tip.amber { background: #fff5db; border: 0.4mm solid #f0c36a; } .tip.amber .t { color: #8a5a00; }
+  .tip.red { background: #fcebeb; border: 0.4mm solid #f09595; } .tip.red .t { color: #791f1f; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <div class="zh">每一步，谁做什么</div>
+    <div class="en">The mold-trial workflow — who does what, at every step · 时限为小时数，周末照算</div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 1</div><div class="zh">项目立项</div><div class="en">Project intake</div></div>
+    <div>
+      <div class="duty"><div class="who mkt">市场部</div><div class="what">创建立项：客户、零件、需求摘要<span class="en">Create the intake: customer, parts, request summary</span></div></div>
+      <div class="duty"><div class="who pm">项目管理</div><div class="what">审核立项，录入模具编号，设定首次 T0 日期<span class="en">Review, enter the mold code, set the first T0 date</span></div></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 2</div><div class="zh">排期确认</div><div class="en">Date confirmation</div></div>
+    <div>
+      <div class="duty"><div class="who pm">项目管理</div><div class="what">设定试模日期（T0 / T1 / T2…）<span class="en">Plan the trial date</span></div></div>
+      <div class="duty"><div class="who inj">注塑</div><div class="what">确认日期并选定机台；有冲突则说明原因提议新日期<span class="clock">≤24小时</span><span class="en">Confirm date + machine, or propose a new date with a reason</span></div></div>
+      <div class="duty"><div class="who mkt">市场部</div><div class="what">对照客户交期，批准或退回日期变更<span class="clock">≤24小时</span><span class="en">Approve or return date changes against the customer deadline</span></div></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 3</div><div class="zh">试模当天</div><div class="en">Trial day</div></div>
+    <div>
+      <div class="duty"><div class="who inj">注塑</div><div class="what">执行试模，录入工艺参数（可复制上次参数）<span class="en">Run the trial, enter process values (copy last trial to start)</span></div></div>
+      <div class="duty"><div class="who pm">项目管理</div><div class="what">录入试模结果<span class="clock">≤24小时</span>；未通过必须登记问题<span class="en">Record the result; failed trials must have issues filed</span></div></div>
+      <div class="duty"><div class="who all">发现问题的人</div><div class="what">登记问题只要两样：<b>一句话 + 一张照片</b>。不选谁的错，不指名任何人——系统自动送到对应部门的收件箱<span class="en">Reporting = one line + one photo. No fault field, no name — the system routes it to the department inbox</span></div></div>
+      <div class="duty"><div class="who qc">质检</div><div class="what">检验样品，记录尺寸与外观问题；严重度由质检在验证时定级<span class="en">Inspect samples; QC sets/adjusts severity at verification</span></div></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 4</div><div class="zh">整改循环</div><div class="en">Correction loop</div></div>
+    <div>
+      <div class="duty"><div class="who all">各部门</div><div class="what">收件箱问题点「我来处理」<span class="clock">≤48小时</span>——处理是加分，不是认错；无人认领时组长指派，属正常管理<span class="en">Press "I'll take this" within 48h — handling is credit, not blame; the leader assigns if nobody volunteers</span></div></div>
+      <div class="duty"><div class="who asm">装配</div><div class="what">确认整改并给出预计完成日<span class="clock">≤24小时</span>；下次试模前完成自检<span class="en">Acknowledge with estimated finish; self-check before the next trial</span></div></div>
+      <div class="duty"><div class="who des">设计</div><div class="what">完成设计变更修订并上传图纸<span class="clock">≤48小时</span><span class="en">Turn around design-change revisions, attach drawings</span></div></div>
+      <div class="duty"><div class="who pm">项目管理</div><div class="what">确认整改就绪，安排下一次试模<span class="en">Confirm readiness, plan the next trial</span></div></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 5</div><div class="zh">验证与报告</div><div class="en">Verify &amp; report</div></div>
+    <div>
+      <div class="duty"><div class="who qc">质检</div><div class="what">在试模现场验证整改并记录结论；上传测量报告<span class="clock">≤48小时</span><span class="en">Verify fixes at the trial, record verdicts; upload the measurement report</span></div></div>
+      <div class="duty"><div class="who mkt">市场部</div><div class="what">下载客户可见文件，发送给客户<span class="en">Download customer-safe files, send to the client</span></div></div>
+      <div class="duty"><div class="who sys">系统</div><div class="what">整改未经验证不算完成——下次试模就是裁判<span class="en">A fix only counts after verification — the next trial is the judge</span></div></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="n"><div class="s">STAGE 6</div><div class="zh">计数与收尾</div><div class="en">Count &amp; close</div></div>
+    <div>
+      <div class="duty"><div class="who sys">系统</div><div class="what">每次完成的试模计入次数上限（默认 3 次；批准的设计变更 +1）<span class="en">Each completed trial counts toward the limit (3 by default; +1 per approved design change)</span></div></div>
+      <div class="duty"><div class="who pm">项目管理</div><div class="what">客户批准后结案；漏录结果次日自动标记，须如实填写原因<span class="clock">≤24小时</span><span class="en">Close on approval; auto-missed trials need an honest reason</span></div></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="tip blue"><div class="t">手机就是任务清单</div><div class="b">打开系统，首页就是你的待办。做完点掉，别的不用管。</div><div class="en">Your phone home screen IS your to-do list. Nothing else to find.</div></div>
+    <div class="tip red"><div class="t">红条 = 加急</div><div class="b">列表左边的红条表示已超期，黄条表示快到期——先做有颜色的。</div><div class="en">Red stripe = overdue, amber = due soon. Do the striped ones first.</div></div>
+    <div class="tip green"><div class="t">照片就是证据</div><div class="b">缺陷必须拍照。没有照片是口说，有照片是证据。</div><div class="en">Defects need photos. Words argue; photos prove.</div></div>
+    <div class="tip amber"><div class="t">如实填写，永不追责</div><div class="b">诚实的原因永远不受罚。系统记录的是流程，不是罪状。</div><div class="en">Honest reasons are never punished. The system records process, not guilt.</div></div>
+  </div>
+</body>
+</html>

@@ -21,6 +21,42 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-14: Manager-Facing Reports Replace Manager-Facing My Score
+
+Management needs a monthly operational view of mold-trial workload, workflow health, issue resolution, trial-limit pressure, and team habit trends. The planned GM/Admin KPI dashboard is therefore presented as **Reports** rather than sending non-scored manager accounts to a personal **My Score** page.
+
+Decision:
+
+- Add a top-level `/reports` management view with `Overview`, `Issues`, and `Scorecards` tabs.
+- Admin and GM receive `reports.management.view` by default. Every report query and route must enforce that permission server-side.
+- Admin/GM navigation shows `Reports`. Scored staff keep `My Score` when the staff scoreboard is enabled. `/score` remains the personal staff scorecard and is not replaced globally.
+- The `Scorecards` tab reuses the existing KPI scoring service and scorecard UI. It does not create a second scoring engine. Viewing every individual's score still requires `kpi.scores.view_all`.
+- Reports are an internal management tool. They must not expose customer country, contacts, email, phone, quote value, sales pipeline, or other CRM data.
+- Operational report metrics describe process and workload, not personal blame. A TrialIssue owner remains the fixer, not the person who caused the issue. Cause trends are grouped by issue type, reason, process, or department, never by individual culprit counts.
+- Phase 1 calculates reports from existing operational records and KPI snapshots. Do not add a generic Report table or stored duplicate report rows unless measured performance later requires it.
+
+Locked metric definitions:
+
+- **Completed trial runs:** actual TrialEvents completed during the selected calendar month. This measures mold-trial workload; planned trials are not counted as completed workload.
+- **New molds reaching T0:** projects whose first actual completed trial is T0 during the selected month.
+- **Unique molds trialed:** distinct mold projects represented by completed trial runs during the selected month.
+- **Month comparison:** show the selected month's absolute value and change from the immediately previous calendar month. Use the `Asia/Shanghai` business timezone and half-open month boundaries.
+- **Critical issues:** TrialIssues with Critical severity whose current status is neither Closed nor Verified.
+- **Finished early - target measure:** projects first approved during the selected month on or before their customer target date. Projects without a customer target date are excluded from the eligible denominator and shown as missing-target data, not treated as failures.
+- **Finished early - low-loop measure:** projects first approved during the selected month within their first two counted completed trials, corresponding to T0 or T1.
+- **Over-limit molds:** active/non-terminal mold projects whose counted completed-trial total is greater than `currentTrialLimit`. Approved, Cancelled, and Closed projects are not current over-limit attention items.
+- **On-time trial rate:** among non-cancelled/non-skipped trial stages due in the selected month up to the report's as-of date, the share completed on or before their planned date. Delayed or missed due trials remain in the denominator.
+- **Issue reporting:** issues created and closed are counted by their own timestamps. Current open backlog and aging are explicitly labeled as current-state measures; Phase 1 does not pretend to reconstruct historical month-end issue status from today's row state.
+- **Factory activity wording:** use `Mold-trial workload`, not `Factory utilization`, because MoldPilot does not track normal production capacity.
+
+The Overview also shows planned trials for the next 30 days, approvals, near/at/over-limit counts, missed trials, missing trial/process/QC records, and a Management Attention list. The Issues tab shows severity, status, fix owner, due/overdue state, fix summary, approximate fix time, close/verification details, and filters. Open issues show that no resolution exists yet instead of requiring a false resolution.
+
+Reason:
+
+- Admin, GM, and Viewer are intentionally not scored, so `My Score` is the wrong manager destination.
+- Management needs an operational picture before opening individual scorecard audits.
+- Keeping operational reports and personal scorecards distinct avoids turning ordinary workload or issue counts into automatic employee judgment.
+
 ### 2026-07-07: KPI Phase-1 Implementation Decisions (Rules Panel + Scoreboard)
 
 Locked while building the KPI data layer (see `docs/06-kpi/kpi-system-design.md` §9 for what shipped):

@@ -1,6 +1,11 @@
 import type { FileType as PrismaFileType, FileVisibility as PrismaFileVisibility } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { validateAttachmentUpload } from "@/domain/mold-trial/attachments";
+import {
+  DUPLICATE_SUBMISSION_WINDOW_MS,
+  isDuplicateAttachmentSubmission,
+  type ExistingAttachmentSubmission
+} from "@/domain/mold-trial/submission-guards";
 import { prisma } from "@/lib/prisma";
 import { writeAttachmentFile } from "@/server/attachment-storage";
 
@@ -39,6 +44,33 @@ export async function storeIssuePhotos(input: {
   const failures: IssuePhotoFailure[] = [];
   let storedCount = 0;
 
+  // Double-tap guard: a re-submitted edit (same issue) that re-sends the same
+  // photos should not add duplicate rows. Load this uploader's very recent
+  // photos on the issue once, then skip any incoming file that matches one
+  // (same stored name + byte size) within the window.
+  const now = new Date();
+  const duplicateWindowStart = new Date(now.getTime() - DUPLICATE_SUBMISSION_WINDOW_MS);
+  const recentPhotos: ExistingAttachmentSubmission[] = (
+    await prisma.fileAttachment.findMany({
+      where: {
+        moldTrialProjectId: input.projectId,
+        entityType: "TRIAL_ISSUE",
+        entityId: input.issueId,
+        fileType: "TRIAL_PHOTO",
+        uploadedById: input.actorId,
+        deletedAt: null,
+        uploadedAt: { gte: duplicateWindowStart }
+      },
+      select: { entityId: true, uploadedById: true, fileName: true, sizeBytes: true, uploadedAt: true }
+    })
+  ).map((row) => ({
+    entityId: row.entityId,
+    uploadedById: row.uploadedById,
+    fileName: row.fileName,
+    sizeBytes: row.sizeBytes,
+    uploadedAt: row.uploadedAt
+  }));
+
   for (const file of input.files) {
     if (!(file instanceof File) || file.size === 0) {
       continue;
@@ -59,6 +91,17 @@ export async function storeIssuePhotos(input: {
         fileName: displayName,
         message: validation.issues[0]?.message ?? "This photo cannot be uploaded."
       });
+      continue;
+    }
+
+    const photoKey = {
+      entityId: input.issueId,
+      uploadedById: input.actorId,
+      fileName: validation.safeFileName,
+      sizeBytes: file.size
+    };
+    if (recentPhotos.some((existing) => isDuplicateAttachmentSubmission(existing, photoKey, now))) {
+      // Already stored within the window (double-tapped edit) — skip silently.
       continue;
     }
 
@@ -107,6 +150,9 @@ export async function storeIssuePhotos(input: {
         });
       });
 
+      // Track the just-stored photo so a repeated file within the same batch is
+      // also treated as a duplicate.
+      recentPhotos.push({ ...photoKey, uploadedAt: new Date() });
       storedCount += 1;
     } catch {
       failures.push({ fileName: displayName, message: "Could not be saved." });

@@ -45,13 +45,17 @@ describe("workflow validation domain rules", () => {
       assert.doesNotMatch(recordResultSource, new RegExp(removedField));
     }
 
-    for (const fieldName of ["title", "affectedPartId", "issueType", "source", "severity", "status", "ownerUsername", "dueDate", "description"]) {
+    for (const fieldName of ["title", "affectedPartId", "issueType", "source", "severity", "status", "dueDate", "description"]) {
       assert.match(addIssueSource, new RegExp(`name="${fieldName}"`));
     }
 
-    assert.match(addIssueSource, /name="ownerUsername"[\s\S]*required/);
-    assert.match(addIssueSource, /name="dueDate"[\s\S]*required/);
-    assert.doesNotMatch(addIssueSource, /<UserOptions includeBlank users=\{activeUserOptions\}/);
+    // R1 (blame-free intake): title is the only required decision. The person
+    // picker is removed entirely and the due date is no longer required; the
+    // secondary fields collapse into the "More details" <details> block.
+    assert.match(addIssueSource, /name="title"[\s\S]*required/);
+    assert.match(addIssueSource, /issueMoreDetails/);
+    assert.doesNotMatch(addIssueSource, /name="ownerUsername"/);
+    assert.doesNotMatch(addIssueSource, /name="dueDate"[^>]*required/);
 
     for (const removedField of [
       "name=\"affectedScope\"",
@@ -229,34 +233,27 @@ describe("workflow validation domain rules", () => {
     assert.equal(result.issues[0]?.field, "moldCode");
   });
 
-  test("AT-008 rejects trial issue creation without required issue fields, owner, and due date", () => {
+  test("AT-008 rejects trial issue creation without the required issue fields", () => {
     const result = validateTrialIssueCreate({});
 
     assert.equal(result.ok, false);
+    // R1: owner and due date are no longer required — the server routes to a
+    // department inbox and applies a default due window.
     assert.deepEqual(
       result.issues.map((issue) => issue.field),
-      ["title", "issueType", "source", "severity", "status", "owner", "dueDate"]
+      ["title", "issueType", "source", "severity", "status"]
     );
   });
 
-  test("AT-008 requires owner user and due date for new trial issue accountability", () => {
-    const missingOwner = validateTrialIssueCreate({
+  test("R1 accepts trial issue creation without a named owner or due date (blame-free intake)", () => {
+    const withoutOwnerOrDueDate = validateTrialIssueCreate({
       title: "Flash at gate",
       issueType: "Mold Design Issue",
       source: "Internal Trial",
       severity: "Medium",
-      status: "Open",
-      dueDate: "2026-03-08"
+      status: "Open"
     });
-    const missingDueDate = validateTrialIssueCreate({
-      title: "Flash at gate",
-      issueType: "Mold Design Issue",
-      source: "Internal Trial",
-      severity: "Medium",
-      status: "Open",
-      ownerUserId: "pm-1"
-    });
-    const valid = validateTrialIssueCreate({
+    const withOwnerAndDueDate = validateTrialIssueCreate({
       title: "Flash at gate",
       issueType: "Mold Design Issue",
       source: "Internal Trial",
@@ -266,13 +263,8 @@ describe("workflow validation domain rules", () => {
       dueDate: "2026-03-08"
     });
 
-    assert.equal(missingOwner.ok, false);
-    assert.equal(missingOwner.issues[0]?.field, "owner");
-    assert.equal(missingOwner.issues[0]?.message, "Trial issue owner is required.");
-    assert.equal(missingDueDate.ok, false);
-    assert.equal(missingDueDate.issues[0]?.field, "dueDate");
-    assert.equal(missingDueDate.issues[0]?.message, "Trial issue due date is required.");
-    assert.equal(valid.ok, true);
+    assert.equal(withoutOwnerOrDueDate.ok, true);
+    assert.equal(withOwnerAndDueDate.ok, true);
   });
 
   test("AT-008A allows Marketing/Sales to create client-feedback issue", () => {

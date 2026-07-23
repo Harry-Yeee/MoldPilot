@@ -139,16 +139,25 @@ async function optionalHttpSmoke() {
       headers,
       signal: AbortSignal.timeout(3000)
     });
+    const reports = await fetch("http://localhost:3000/reports?tab=overview&month=2026-07", {
+      headers,
+      signal: AbortSignal.timeout(3000)
+    });
     const dashboardText = await dashboard.text();
     const detailText = await detail.text();
+    const reportsText = await reports.text();
 
     assert.equal(dashboard.status, 200);
     assert.equal(detail.status, 200);
+    assert.equal(reports.status, 200);
     assert.match(dashboardText, new RegExp(PROJECT_CODE));
     assert.match(detailText, /Trial Issues/);
     assert.match(detailText, /Activity Timeline/);
-    assert.match(detailText, /Assembly Ready/);
-    console.log("[OK] HTTP pages include the E2E pilot project.");
+    assert.match(detailText, /Trial Panel/);
+    assert.match(reportsText, /Management Reports/);
+    assert.match(reportsText, /Mold-trial workload/);
+    assert.match(reportsText, /Management Attention/);
+    console.log("[OK] HTTP pages include the E2E pilot project and Management Reports.");
   } catch (error) {
     console.log(
       `[WARN] HTTP page check skipped. Start pnpm dev and open http://localhost:3000 to inspect ${PROJECT_CODE}. ${

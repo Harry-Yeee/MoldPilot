@@ -442,6 +442,14 @@ That becomes useful later when reviewing rework.
 
 ## Module 7: Purchasing and Outsourcing Tracker
 
+> **Planning update (2026-07-17):** The purchasing vision is now being explored as a
+> separate bounded subsystem named **SupplyDesk**. Its current concept includes RFQs,
+> immutable supplier quote versions, line-level comparison and award approval,
+> supplier-order progress, receiving/QC acceptance, discrepancies, and purchasing
+> cost history. This supersedes the manual-only purchasing assumptions below for
+> future planning, while remaining outside active MoldPilot Phase 1. See
+> `docs/99-future-expansion/supplydesk-concept.md`.
+
 This should be in the MVP because steel and outsourced parts can delay everything.
 
 The purchasing tracker does not need to be a full purchasing ERP.

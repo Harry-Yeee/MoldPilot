@@ -148,6 +148,105 @@ function roundPercent(onTime: number, applicable: number): number {
 }
 
 /**
+ * Format a scorecard's on-time percent for the Scores panel (pure/display-only).
+ *
+ *  - `applicable === 0` → an em dash ("—"): there is genuinely no rate, so we
+ *    never surface the engine's placeholder 100%.
+ *  - otherwise the whole-number percent with a "%" suffix. When the <5-events
+ *    floor granted the bar (applicable 1–4) this is still the *raw* rate; the
+ *    caller renders it muted because the verdict badge already explains it.
+ */
+export function formatScorePercent(input: { percent: number; applicable: number }): string {
+  if (input.applicable === 0) {
+    return "—";
+  }
+  return `${input.percent}%`;
+}
+
+/**
+ * "Hope math" #1 — the smallest number of consecutive future on-time completions
+ * that pulls a below-bar rate back over the habit bar. This is the number that
+ * turns a mid-month "60% on the 15th, why bother" into a concrete path.
+ *
+ * Returns the smallest integer `k ≥ 0` such that `(onTime + k) / (applicable + k)`
+ * reaches the bar. `bar` is the WHOLE-NUMBER percent — pass `barHitPercent`, never
+ * a re-hardcoded 85. The boundary is decided with integer-only multiplication so
+ * float rounding of 0.85 never flips the answer:
+ *
+ *   (onTime + k) · 100 ≥ bar · (applicable + k)
+ *
+ * The closed form gives a candidate; the ±1 loops correct any float drift and
+ * pin down the exact smallest `k`.
+ *
+ *  - `applicable === 0` → 0 (no rate to recover; the display suppresses the line,
+ *    and 0 is deliberately NOT the <5-events floor's 5).
+ *  - already at/over the bar → 0.
+ *  - `onTime > applicable` cannot occur; clamped defensively.
+ */
+export function onTimeNeededForBar(onTime: number, applicable: number, bar: number): number {
+  if (applicable <= 0) {
+    return 0;
+  }
+  const safeOnTime = Math.max(0, Math.min(onTime, applicable));
+  const meetsBar = (k: number): boolean => (safeOnTime + k) * 100 >= bar * (applicable + k);
+  // Closed form: k ≥ (bar·applicable − 100·onTime) / (100 − bar). The division is
+  // the ONLY float step; the integer-safe ±1 correction below is what we trust.
+  let k =
+    bar >= 100 || bar < 0
+      ? 0
+      : Math.max(0, Math.ceil((bar * applicable - 100 * safeOnTime) / (100 - bar)));
+  if (!Number.isFinite(k) || k < 0) {
+    k = 0;
+  }
+  while (!meetsBar(k)) {
+    k += 1;
+  }
+  while (k > 0 && meetsBar(k - 1)) {
+    k -= 1;
+  }
+  return k;
+}
+
+/**
+ * "Hope math" #2 — the largest number of future misses an already-over-bar rate
+ * can absorb before it would slip under the bar (each miss grows the denominator
+ * only). This is the "you have room to breathe" number for someone at/over the bar.
+ *
+ * Returns the largest integer `m ≥ 0` such that `onTime / (applicable + m)` stays
+ * at/over the bar. `bar` is the WHOLE-NUMBER percent (pass `barHitPercent`).
+ * Integer-safe boundary check:
+ *
+ *   onTime · 100 ≥ bar · (applicable + m)
+ *
+ *  - `applicable === 0` or currently under the bar → 0 (no slack to report).
+ *  - `onTime > applicable` cannot occur; clamped defensively.
+ */
+export function missBufferAtBar(onTime: number, applicable: number, bar: number): number {
+  if (applicable <= 0 || bar <= 0) {
+    return 0;
+  }
+  const safeOnTime = Math.max(0, Math.min(onTime, applicable));
+  const staysOverBar = (m: number): boolean => safeOnTime * 100 >= bar * (applicable + m);
+  if (!staysOverBar(0)) {
+    // Under the bar right now — there is no buffer to speak of.
+    return 0;
+  }
+  // Closed form: m ≤ (100·onTime − bar·applicable) / bar. Float division for the
+  // candidate, then integer-safe ±1 correction to the exact largest `m`.
+  let m = Math.max(0, Math.floor((100 * safeOnTime - bar * applicable) / bar));
+  if (!Number.isFinite(m) || m < 0) {
+    m = 0;
+  }
+  while (m > 0 && !staysOverBar(m)) {
+    m -= 1;
+  }
+  while (staysOverBar(m + 1)) {
+    m += 1;
+  }
+  return m;
+}
+
+/**
  * Build a single user's monthly scorecard from their attributed events and the
  * points candidates. Events for inactive rules are ignored. `now` decides the
  * pending/late boundary for not-yet-done clock events.

@@ -1,6 +1,7 @@
 import type { MoldTrialDashboardRow } from "./dashboard.ts";
 
 export type DashboardSortKey =
+  | "urgency"
   | "projectCode"
   | "workingIdentifier"
   | "clientProjectRef"
@@ -120,12 +121,51 @@ function projectCodeTieBreak(left: MoldTrialDashboardRow, right: MoldTrialDashbo
   return textCollator.compare(left.projectCode, right.projectCode);
 }
 
+/**
+ * Urgency tier for the default dashboard order. Mirrors the status/limit -> tone
+ * mapping in `src/components/ui/status-colors.ts` (the single source used for the
+ * table's urgency stripe): a row is "missed" (tier 0) when its project status or
+ * trial-limit state maps to the missed tone, "at-risk" (tier 1) when either maps
+ * to the at-risk tone, and otherwise tier 2. Kept local (no cross-layer import)
+ * so this stays a pure, dependency-free domain helper the tests can run directly.
+ */
+const MISSED_STATUS_LABELS = new Set(["Trial Delayed", "Delayed", "Blocked", "Over Limit"]);
+const AT_RISK_STATUS_LABELS = new Set(["At Risk", "Auto Missed - Reason Required"]);
+const MISSED_WARNING_STATES = new Set<MoldTrialDashboardRow["warningState"]>(["Over Limit"]);
+const AT_RISK_WARNING_STATES = new Set<MoldTrialDashboardRow["warningState"]>(["Near Limit", "At Limit"]);
+
+export function urgencyTier(row: MoldTrialDashboardRow): 0 | 1 | 2 {
+  if (MISSED_STATUS_LABELS.has(row.status) || MISSED_WARNING_STATES.has(row.warningState)) {
+    return 0;
+  }
+  if (AT_RISK_STATUS_LABELS.has(row.status) || AT_RISK_WARNING_STATES.has(row.warningState)) {
+    return 1;
+  }
+  return 2;
+}
+
+/**
+ * Default "urgency" ordering: tone-missed rows first, then at-risk, then the rest;
+ * within each tier by next planned trial date ascending (undated rows last), then
+ * a stable project-code tie-break. Pure + direction-independent (this is the
+ * initial order, not a clickable column).
+ */
+export function compareByUrgency(left: MoldTrialDashboardRow, right: MoldTrialDashboardRow): number {
+  return (
+    urgencyTier(left) - urgencyTier(right) ||
+    compareDates(left.nextPlannedDate, right.nextPlannedDate, "asc") ||
+    textCollator.compare(left.projectCode, right.projectCode)
+  );
+}
+
 function compareRows(
   left: MoldTrialDashboardRow,
   right: MoldTrialDashboardRow,
   sort: DashboardSortState
 ): number {
   switch (sort.key) {
+    case "urgency":
+      return compareByUrgency(left, right);
     case "projectCode":
     case "workingIdentifier":
     case "clientProjectRef":

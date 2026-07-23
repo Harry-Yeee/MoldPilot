@@ -11,8 +11,9 @@
 
 import {
   defaultKpiRules,
-  isKpiRuleCode,
+  isKpiRefereeGroupCode,
   isScoredRole,
+  kpiLeaderGroupLabels,
   roleScopeDepartmentGroupCode,
   type KpiRoleScope
 } from "@/domain/mold-trial/kpi-rules";
@@ -21,11 +22,17 @@ import {
   computeScorecard,
   type KpiHabitEvent,
   type KpiPointsEvent,
-  type Scorecard,
-  type ScoringRule
+  type Scorecard
 } from "@/domain/mold-trial/kpi-scoring";
+import {
+  leaderBoardEntries,
+  type LeaderBoardEntry,
+  type LeaderGroupInput,
+  type LeaderMemberScorecard
+} from "@/domain/mold-trial/kpi-leader-bar";
+import type { BilingualLabel } from "@/domain/mold-trial/labels";
 import { roleCodeLabels } from "@/server/mold-trial-codecs";
-import { extractKpiEvents, monthWindow, type RuleHoursByCode } from "@/server/kpi-events";
+import { extractKpiEvents, loadRuleConfig, monthWindow } from "@/server/kpi-events";
 import { prisma } from "@/lib/prisma";
 
 export type ScoredUser = {
@@ -50,11 +57,36 @@ export type DepartmentRollup = {
   barHitByFloor: boolean;
 };
 
+/**
+ * One row on the Scores tab's Leaders section: a domain leader-board entry plus
+ * the display fields the panel needs — the prize `tier` (award ¥400 vs referee
+ * ¥250) and the leader's own name. `kind` distinguishes a real group aggregate
+ * from an award-tier individual (a PM whose bar is their own card).
+ */
+export type LeaderEntry = LeaderBoardEntry & {
+  tier: "award" | "referee";
+  leaderDisplayName: string;
+  leaderChineseName: string | null;
+};
+
 export type MonthlyScores = {
   month: string;
   users: ScoredUser[];
   departments: DepartmentRollup[];
+  /** Per-leader group bars (award tier + referee tier) from real membership. */
+  leaders: LeaderEntry[];
 };
+
+export async function loadKpiRuleLabels(): Promise<Record<string, { en: string; zh: string }>> {
+  const rows = await prisma.kpiRule.findMany({
+    select: { code: true, labelEn: true, labelZh: true }
+  });
+
+  return {
+    ...Object.fromEntries(defaultKpiRules.map((rule) => [rule.code, { en: rule.labelEn, zh: rule.labelZh }])),
+    ...Object.fromEntries(rows.map((rule) => [rule.code, { en: rule.labelEn, zh: rule.labelZh }]))
+  };
+}
 
 /** Map a DB role code to the role scope whose bar that role's events feed. */
 function roleScopeForRole(dbRoleCode: string): KpiRoleScope | null {
@@ -72,30 +104,6 @@ function roleScopeForRole(dbRoleCode: string): KpiRoleScope | null {
     default:
       return null;
   }
-}
-
-/** Load the active rule config projected for the engine + an hours lookup. */
-async function loadRuleConfig(): Promise<{ rules: ScoringRule[]; ruleHours: RuleHoursByCode }> {
-  const rows = await prisma.kpiRule.findMany();
-  const rules: ScoringRule[] = [];
-  const ruleHours: RuleHoursByCode = {};
-
-  const source =
-    rows.length > 0
-      ? rows.map((row) => ({ code: row.code, hours: row.hours, active: row.active }))
-      : // Fall back to defaults if the registry has not been seeded yet, so the
-        // engine still runs in a fresh environment.
-        defaultKpiRules.map((rule) => ({ code: rule.code, hours: rule.hours, active: rule.active }));
-
-  for (const row of source) {
-    if (!isKpiRuleCode(row.code)) {
-      continue;
-    }
-    rules.push({ code: row.code, hours: row.hours, active: row.active });
-    ruleHours[row.code] = row.hours;
-  }
-
-  return { rules, ruleHours };
 }
 
 /**
@@ -173,7 +181,100 @@ export async function computeMonthlyScores(month: string, now: Date = new Date()
     departments.push({ roleScope, groupCode, ...rollup });
   }
 
-  return { month, users: scoredUsers, departments };
+  // ── Leader-designation layer ──────────────────────────────────────────────
+  // Turn per-user scorecards into per-leader GROUP bars from real membership:
+  // each scored user's card feeds exactly one KPI group via departmentGroupId,
+  // and each group's designated leader (DepartmentGroup.kpiLeaderId) owns the
+  // aggregate. The `pm` group has NO leader by design — its members are award-
+  // tier individuals whose bar is their own card. Referees (qc, marketing)
+  // aggregate the same way; their entries are the referee service bars.
+  const groupRows = await prisma.departmentGroup.findMany({
+    select: { id: true, code: true, name: true, kpiLeaderId: true }
+  });
+  const groupByCode = new Map(groupRows.map((group) => [group.code, group]));
+  const userById = new Map(users.map((user) => [user.id, user]));
+
+  const memberIdsByGroupId = new Map<string, string[]>();
+  for (const user of users) {
+    if (user.departmentGroupId == null) {
+      continue;
+    }
+    const list = memberIdsByGroupId.get(user.departmentGroupId) ?? [];
+    list.push(user.id);
+    memberIdsByGroupId.set(user.departmentGroupId, list);
+  }
+
+  const userScorecards: LeaderMemberScorecard[] = scoredUsers.map((scored) => ({
+    userId: scored.userId,
+    username: scored.username,
+    displayName: scored.displayName,
+    chineseName: scored.chineseName,
+    scorecard: scored.scorecard
+  }));
+
+  const groupLabel = (code: string, fallbackName: string): BilingualLabel =>
+    kpiLeaderGroupLabels[code] ?? { en: fallbackName, zh: fallbackName };
+
+  const ledGroupInput = (code: string): LeaderGroupInput | null => {
+    const group = groupByCode.get(code);
+    if (group == null || group.kpiLeaderId == null) {
+      return null;
+    }
+    return {
+      leaderUserId: group.kpiLeaderId,
+      groupId: group.id,
+      groupCode: group.code,
+      label: groupLabel(group.code, group.name),
+      kind: "group",
+      memberUserIds: memberIdsByGroupId.get(group.id) ?? []
+    };
+  };
+
+  // PMs: the pm group carries no leader, so each member is their own individual
+  // (their "leader bar" is their own user scorecard, by design).
+  const pmGroup = groupByCode.get("pm");
+  const pmIndividualInputs: LeaderGroupInput[] =
+    pmGroup == null || pmGroup.kpiLeaderId != null
+      ? []
+      : (memberIdsByGroupId.get(pmGroup.id) ?? [])
+          .map((id) => userById.get(id))
+          .filter((user): user is (typeof users)[number] => user != null)
+          .sort((left, right) => left.username.localeCompare(right.username))
+          .map((user) => ({
+            leaderUserId: user.id,
+            groupId: null,
+            groupCode: null,
+            label: groupLabel("pm", "PM"),
+            kind: "individual" as const,
+            memberUserIds: [user.id]
+          }));
+
+  // Display order: award tier (Design, PMs, Assembly A/B, Injection) then the
+  // referee pair (QC, Marketing).
+  const leaderInputs: LeaderGroupInput[] = [];
+  const designInput = ledGroupInput("design");
+  if (designInput != null) {
+    leaderInputs.push(designInput);
+  }
+  leaderInputs.push(...pmIndividualInputs);
+  for (const code of ["assembly-a", "assembly-b", "injection", "qc", "marketing"]) {
+    const input = ledGroupInput(code);
+    if (input != null) {
+      leaderInputs.push(input);
+    }
+  }
+
+  const leaders: LeaderEntry[] = leaderBoardEntries(leaderInputs, userScorecards).map((entry) => {
+    const leader = userById.get(entry.leaderUserId);
+    return {
+      ...entry,
+      tier: entry.groupCode != null && isKpiRefereeGroupCode(entry.groupCode) ? "referee" : "award",
+      leaderDisplayName: leader?.displayName ?? entry.leaderUserId,
+      leaderChineseName: leader?.chineseName ?? null
+    };
+  });
+
+  return { month, users: scoredUsers, departments, leaders };
 }
 
 /** JSON-safe scorecard (dates as ISO strings) for KpiSnapshot.metricsJson. */
@@ -215,10 +316,6 @@ export async function writeKpiSnapshots(month: string, snapshotDate: Date, now: 
   const scores = await computeMonthlyScores(month, now);
   const dateOnly = new Date(Date.UTC(snapshotDate.getUTCFullYear(), snapshotDate.getUTCMonth(), snapshotDate.getUTCDate()));
 
-  const groupByCode = new Map(
-    (await prisma.departmentGroup.findMany({ select: { id: true, code: true } })).map((group) => [group.code, group.id])
-  );
-
   let written = 0;
 
   await prisma.$transaction(async (tx) => {
@@ -244,26 +341,32 @@ export async function writeKpiSnapshots(month: string, snapshotDate: Date, now: 
       written += 1;
     }
 
-    // DEPARTMENT_GROUP scope
-    for (const department of scores.departments) {
-      const groupId = groupByCode.get(department.groupCode) ?? null;
+    // DEPARTMENT_GROUP scope — one row per real KPI group (leader bar), keyed on
+    // the DepartmentGroup id. Award-tier PM individuals (kind "individual") carry
+    // no backing group and are captured in USER scope, not here.
+    for (const leader of scores.leaders) {
+      if (leader.kind !== "group" || leader.groupId == null) {
+        continue;
+      }
       await tx.kpiSnapshot.deleteMany({
-        where: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: groupId }
+        where: { snapshotDate: dateOnly, scopeType: "DEPARTMENT_GROUP", scopeId: leader.groupId }
       });
       await tx.kpiSnapshot.create({
         data: {
           snapshotDate: dateOnly,
           scopeType: "DEPARTMENT_GROUP",
-          scopeId: groupId,
+          scopeId: leader.groupId,
           metricsJson: {
             month,
-            roleScope: department.roleScope,
-            groupCode: department.groupCode,
-            applicable: department.applicable,
-            onTime: department.onTime,
-            percent: department.percent,
-            barHit: department.barHit,
-            barHitByFloor: department.barHitByFloor
+            groupCode: leader.groupCode,
+            tier: leader.tier,
+            leaderUserId: leader.leaderUserId,
+            memberCount: leader.members.length,
+            applicable: leader.applicable,
+            onTime: leader.onTime,
+            percent: leader.percent,
+            barHit: leader.barHit,
+            barHitByFloor: leader.barHitByFloor
           }
         }
       });

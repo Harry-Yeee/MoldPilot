@@ -61,10 +61,17 @@ model DepartmentGroup {
   name          String
   groupType     DepartmentGroupType @default(DEPARTMENT) @map("group_type")
   parentGroupId String?             @map("parent_group_id") @db.Uuid
+  // The user whose monthly "leader bar" is THIS group's aggregate scorecard (KPI
+  // leader-designation layer). Null on a group with no designated leader — e.g.
+  // the `pm` group, whose members are award-tier individuals, or the `assembly`
+  // DEPARTMENT parent, whose leaders live on its `assembly-a`/`assembly-b`
+  // children. Issue routing keys on `code`, never on this field.
+  kpiLeaderId   String?             @map("kpi_leader_id") @db.Uuid
   active        Boolean             @default(true)
 
   parentGroup DepartmentGroup?  @relation("DepartmentGroupHierarchy", fields: [parentGroupId], references: [id])
   childGroups DepartmentGroup[] @relation("DepartmentGroupHierarchy")
+  kpiLeader   User?             @relation("DepartmentGroupKpiLeader", fields: [kpiLeaderId], references: [id], onDelete: SetNull)
   users       User[]
   ownedIssues TrialIssue[]      @relation("IssueOwnerGroup")
 
@@ -91,6 +98,7 @@ model User {
 
   role                       Role                   @relation(fields: [roleId], references: [id])
   departmentGroup            DepartmentGroup?       @relation(fields: [departmentGroupId], references: [id])
+  kpiLedGroups               DepartmentGroup[]      @relation("DepartmentGroupKpiLeader")
   planningProjects           MoldTrialProject[]     @relation("PlanningPMProjects")
   technicalProjects          MoldTrialProject[]     @relation("TechnicalPMProjects")
   createdProjects            MoldTrialProject[]     @relation("ProjectCreator")

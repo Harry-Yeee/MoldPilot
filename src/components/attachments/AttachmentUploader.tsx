@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, FormField, Select } from "@/components/ui";
+import { FormField, Select, SubmitButton } from "@/components/ui";
 import {
   selectableVisibilities,
   uploadableFileTypes,
@@ -25,6 +25,13 @@ export type AttachmentUploaderProps = {
   entityId: string;
   redirectTo: string;
   locale: Locale;
+  /**
+   * Whether the actor may choose a file visibility. Required (no default) so every
+   * call site decides based on the viewer's role. When false the visibility select
+   * is not rendered at all; the server then applies its FileType-aware safe default
+   * (see `parseVisibility` in src/server/attachment-actions.ts).
+   */
+  canChooseVisibility: boolean;
 };
 
 /** Native CAD FileTypes whose visibility defaults to TECHNICAL + get the IP hint. */
@@ -75,12 +82,23 @@ function acceptAndHint(fileType: AttachmentFileType, locale: Locale): { accept: 
  * default — the user must pick it deliberately. The same default is enforced
  * server-side when the field is omitted.
  */
-export function AttachmentUploader({ projectId, entityType, entityId, redirectTo, locale }: AttachmentUploaderProps) {
+export function AttachmentUploader({
+  projectId,
+  entityType,
+  entityId,
+  redirectTo,
+  locale,
+  canChooseVisibility
+}: AttachmentUploaderProps) {
   const [fileType, setFileType] = useState<AttachmentFileType>("OTHER");
   const [visibility, setVisibility] = useState<AttachmentVisibility>(defaultVisibilityForFileType("OTHER"));
 
   const isCad = CAD_FILE_TYPES.includes(fileType);
   const { accept, hint } = acceptAndHint(fileType, locale);
+  // The CAD confidentiality reminder normally lives under the Visibility select.
+  // When that select is hidden (workers), keep the reminder visible by hanging it
+  // under the File type field instead, so a CAD upload never loses the warning.
+  const cadHint = isCad ? pickLabel(attachmentLabels.cadConfidentialHint, locale) : undefined;
 
   function onFileTypeChange(next: AttachmentFileType): void {
     setFileType(next);
@@ -97,7 +115,12 @@ export function AttachmentUploader({ projectId, entityType, entityId, redirectTo
       <input type="hidden" name="entityId" value={entityId} />
       <input type="hidden" name="redirectTo" value={redirectTo} />
 
-      <FormField label={pickLabel(attachmentLabels.fileType, locale)} htmlFor="attachment-file-type" className="sm:col-span-1">
+      <FormField
+        label={pickLabel(attachmentLabels.fileType, locale)}
+        htmlFor="attachment-file-type"
+        hint={canChooseVisibility ? undefined : cadHint}
+        className="sm:col-span-1"
+      >
         <Select
           id="attachment-file-type"
           name="fileType"
@@ -113,26 +136,28 @@ export function AttachmentUploader({ projectId, entityType, entityId, redirectTo
         </Select>
       </FormField>
 
-      <FormField
-        label={pickLabel(attachmentLabels.visibility, locale)}
-        htmlFor="attachment-visibility"
-        hint={isCad ? pickLabel(attachmentLabels.cadConfidentialHint, locale) : undefined}
-        className="sm:col-span-1"
-      >
-        <Select
-          id="attachment-visibility"
-          name="visibility"
-          value={visibility}
-          onChange={(event) => setVisibility(event.target.value as AttachmentVisibility)}
-          required
+      {canChooseVisibility ? (
+        <FormField
+          label={pickLabel(attachmentLabels.visibility, locale)}
+          htmlFor="attachment-visibility"
+          hint={cadHint}
+          className="sm:col-span-1"
         >
-          {selectableVisibilities.map((option) => (
-            <option key={option} value={option}>
-              {pickLabel(fileVisibilityLabels[option], locale)}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+          <Select
+            id="attachment-visibility"
+            name="visibility"
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value as AttachmentVisibility)}
+            required
+          >
+            {selectableVisibilities.map((option) => (
+              <option key={option} value={option}>
+                {pickLabel(fileVisibilityLabels[option], locale)}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      ) : null}
 
       <FormField
         label={pickLabel(attachmentLabels.chooseFile, locale)}
@@ -151,9 +176,9 @@ export function AttachmentUploader({ projectId, entityType, entityId, redirectTo
       </FormField>
 
       <div className="sm:col-span-3">
-        <Button type="submit" size="lg">
+        <SubmitButton size="lg">
           {pickLabel(attachmentLabels.upload, locale)}
-        </Button>
+        </SubmitButton>
       </div>
     </form>
   );

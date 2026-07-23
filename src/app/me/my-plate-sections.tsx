@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Button,
+  SubmitButton,
   ConfirmationBadge,
   StatusBadge,
   BottomSheet,
@@ -14,24 +15,38 @@ import {
 } from "@/components/ui";
 import { IssuePhotoCountChip, IssuePhotoGallery } from "@/components/attachments/issue-photo-gallery";
 import {
+  attachmentLabels,
   fileVisibilityLabels,
+  formatMyPlateTrialTitle,
+  localeFromLanguage,
   measurementReportLabels,
   myPlateLabels,
   pickLabel,
   type Locale
 } from "@/domain/mold-trial/labels";
+import { translateLabel, type Dictionary } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
+import {
+  countdownTone,
+  formatCountdown,
+  type CountdownTone
+} from "@/domain/mold-trial/deadline-countdown";
+import { kpiRuleLabelByCode } from "@/domain/mold-trial/kpi-rules";
 import type {
   ApproveDateChangeRow,
   ComingUpRow,
   ConfirmTrialDateRow,
+  DesignRevisionRow,
   IssueLifecycleRow,
   MachineOption,
   MyOpenIssueRow,
   MyPlateData,
   NeedsReasonRow,
+  PlateDeadline,
   PlateOption,
   QcReportToUploadRow,
-  ReturnedDateRow
+  ReturnedDateRow,
+  SelfCheckDeadline
 } from "@/server/my-plate";
 import { closeTrialIssue, resolveAutoMissedTrial, updateTrialIssue } from "@/server/mold-trial-actions";
 import {
@@ -42,9 +57,12 @@ import {
   rejectTrialDateChange
 } from "@/server/date-confirmation-actions";
 import { uploadMeasurementReport } from "@/server/qc-report-actions";
+import { uploadAttachment } from "@/server/attachment-actions";
 
 /** QC_REPORT accept list — pdf/office/csv/slides, same as the desktop report panel. */
 const REPORT_ACCEPT = "application/pdf,.pdf,.xlsx,.xls,.docx,.csv,.pptx,.ppt";
+/** DRAWING accept list — native CAD + drawing formats + pdf (same as the Files uploader). */
+const DRAWING_ACCEPT = ".stp,.step,.igs,.iges,.dwg,.dxf,.pdf,application/pdf";
 /** Visibilities the uploader may pick for a report — customer-safe (default) or internal draft. */
 const REPORT_VISIBILITIES = ["CUSTOMER_SAFE", "INTERNAL"] as const;
 
@@ -52,7 +70,6 @@ const TIME_PRESETS = [15, 30, 60, 120] as const;
 
 type Props = {
   data: MyPlateData;
-  locale: Locale;
   todayInput: string;
   viewerUsername: string;
   /** Where each action form redirects after submit. "/me" for the deep-link page, "/" for the dashboard. */
@@ -61,6 +78,108 @@ type Props = {
 
 function label(key: keyof typeof myPlateLabels, locale: Locale): string {
   return pickLabel(myPlateLabels[key], locale);
+}
+
+function localizedOptions(options: PlateOption[], group: string, dictionary: Dictionary): PlateOption[] {
+  return options.map((option) => ({
+    ...option,
+    label: translateLabel(dictionary, group, option.label)
+  }));
+}
+
+function TranslatedStatusBadge({
+  displayLabel,
+  group,
+  toneLabel
+}: {
+  displayLabel?: string;
+  group?: "issueStatus" | "severity" | "trialStatus";
+  toneLabel: string;
+}) {
+  const { dictionary } = useI18n();
+  const translatedLabel = displayLabel ?? (group == null ? toneLabel : translateLabel(dictionary, group, toneLabel));
+
+  return <StatusBadge status={toneLabel}>{translatedLabel}</StatusBadge>;
+}
+
+/** Chip background/text per tone — consistent with the ConfirmationBadge palette. */
+const countdownToneClass: Record<CountdownTone, string> = {
+  neutral: "bg-neutral-100 text-neutral-600",
+  amber: "bg-amber-100 text-amber-800",
+  red: "bg-red-100 text-red-800"
+};
+
+/**
+ * V2 urgency stripe for phone task cards: a 4px left border driven by the same
+ * remaining-hours value the countdown chip uses — red when overdue (< 0h), amber
+ * when under 24h remain, none otherwise. Cards without a deadline get no stripe.
+ */
+function deadlineStripeClass(remainingHours: number | null | undefined): string {
+  if (remainingHours == null) {
+    return "";
+  }
+  if (remainingHours < 0) {
+    return " border-l-4 border-l-status-missed";
+  }
+  if (remainingHours < 24) {
+    return " border-l-4 border-l-status-at-risk";
+  }
+  return "";
+}
+
+/**
+ * Compact deadline countdown: "Nh left / 剩N小时" (amber ≤ 8h, red overdue). The
+ * remaining hours are computed server-side at request time (no client ticking);
+ * this only formats + tones them. Info only — overdue never blocks the action.
+ * Renders nothing when the row has no chip (rule inactive / anchor unavailable).
+ */
+function CountdownChip({ deadline, locale }: { deadline: PlateDeadline | null; locale: Locale }) {
+  if (deadline == null) {
+    return null;
+  }
+
+  const tone = countdownTone(deadline.remainingHours);
+  const ruleLabel = pickLabel(kpiRuleLabelByCode[deadline.ruleCode], locale);
+  const title =
+    locale === "ZH_CN"
+      ? `${label("deadlineRulePrefix", locale)}：${ruleLabel} · ${deadline.ruleHours}小时（${label("adminConfigurable", locale)}）`
+      : `${label("deadlineRulePrefix", locale)}: ${ruleLabel} · ${deadline.ruleHours}h (${label("adminConfigurable", locale)})`;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[0.75rem] font-bold tabular-nums ${countdownToneClass[tone]}`}
+      title={title}
+    >
+      {formatCountdown(deadline.remainingHours, locale)}
+    </span>
+  );
+}
+
+/**
+ * Assembly self-check has no hours rule — its soft deadline is the next planned
+ * trial, so the chip reads "before next trial · <date>", toned by how close that
+ * trial is. Only present when the next trial is inside the 72h window.
+ */
+function SelfCheckChip({ selfCheck, locale }: { selfCheck: SelfCheckDeadline | null; locale: Locale }) {
+  if (selfCheck == null) {
+    return null;
+  }
+
+  const tone = countdownTone(selfCheck.remainingHours);
+  const ruleLabel = pickLabel(kpiRuleLabelByCode["asm.self_check"], locale);
+  const title =
+    locale === "ZH_CN"
+      ? `${label("deadlineRulePrefix", locale)}：${ruleLabel} · ${label("nextPlannedTrial", locale)} ${selfCheck.nextTrialDate}`
+      : `${label("deadlineRulePrefix", locale)}: ${ruleLabel} · ${label("nextPlannedTrial", locale)} ${selfCheck.nextTrialDate}`;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[0.75rem] font-bold ${countdownToneClass[tone]}`}
+      title={title}
+    >
+      {label("beforeNextTrial", locale)} · {selfCheck.nextTrialDate}
+    </span>
+  );
 }
 
 /** One collapsible section with a count badge; hidden entirely when empty. */
@@ -97,32 +216,46 @@ function AccordionCard({
   moldCode,
   title,
   statusLabel,
+  statusDisplayLabel,
+  statusLabelGroup,
   severityLabel,
+  severityLabelGroup,
   dateLabel,
   dateValue,
   overdue,
   primaryAction,
   headerExtra,
+  countdown,
+  stripeHours,
   details
 }: {
   projectCode: string;
   customerShortName: string;
   moldCode: string;
   title: string;
+  /** English domain label retained as the badge tone key. */
   statusLabel: string;
+  statusDisplayLabel?: string;
+  statusLabelGroup?: "issueStatus" | "trialStatus";
+  /** English domain label retained as the badge tone key. */
   severityLabel?: string;
+  severityLabelGroup?: "severity";
   dateLabel?: string;
   dateValue?: string | null;
   overdue?: boolean;
   primaryAction?: ReactNode;
   /** Extra content in the header badge row (e.g. a photo-count chip). */
   headerExtra?: ReactNode;
+  /** Deadline-countdown chip shown in the collapsed header row. */
+  countdown?: ReactNode;
+  /** Remaining hours to the card's deadline; drives the V2 urgency stripe. */
+  stripeHours?: number | null;
   details: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="rounded-lg border border-neutral-300 bg-white shadow-card">
+    <div className={`rounded-lg border border-neutral-300 bg-white shadow-card${deadlineStripeClass(stripeHours)}`}>
       <div className="flex items-stretch justify-between gap-2">
         <button
           type="button"
@@ -139,9 +272,12 @@ function AccordionCard({
             </span>
             <span className="text-[0.9375rem] font-bold text-neutral-900">{title}</span>
             <span className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <StatusBadge status={statusLabel} />
-              {severityLabel == null ? null : <StatusBadge status={severityLabel} />}
+              <TranslatedStatusBadge toneLabel={statusLabel} displayLabel={statusDisplayLabel} group={statusLabelGroup} />
+              {severityLabel == null ? null : (
+                <TranslatedStatusBadge toneLabel={severityLabel} group={severityLabelGroup} />
+              )}
               {headerExtra}
+              {countdown}
               {dateValue == null ? null : (
                 <span className={overdue ? "text-sm font-bold text-status-missed" : "text-sm font-bold text-neutral-600"}>
                   {dateLabel}: {dateValue}
@@ -170,9 +306,9 @@ function DetailLine({ term, children }: { term: string; children: ReactNode }) {
 function SheetActions({ locale }: { locale: Locale }) {
   return (
     <div className="pt-1">
-      <Button type="submit" variant="primary" size="lg" className="w-full">
+      <SubmitButton variant="primary" size="lg" className="w-full">
         {label("submit", locale)}
-      </Button>
+      </SubmitButton>
     </div>
   );
 }
@@ -192,7 +328,11 @@ function SimpleCard({
   dateValue,
   overdue,
   statusLabel,
+  statusDisplayLabel,
+  statusLabelGroup,
   action,
+  countdown,
+  stripeHours,
   extra
 }: {
   projectCode: string;
@@ -202,24 +342,33 @@ function SimpleCard({
   dateValue: string | null;
   overdue?: boolean;
   statusLabel?: string;
+  statusDisplayLabel?: string;
+  statusLabelGroup?: "issueStatus" | "trialStatus";
   action?: ReactNode;
+  /** Deadline-countdown chip shown in the badge row. */
+  countdown?: ReactNode;
+  /** Remaining hours to the card's deadline; drives the V2 urgency stripe. */
+  stripeHours?: number | null;
   /** Extra badge-row content (e.g. a small date-confirmation pill). */
   extra?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card">
+    <div className={`flex items-center justify-between gap-2 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card${deadlineStripeClass(stripeHours)}`}>
       <div className="grid min-w-0 gap-1">
         <span className="text-[0.8125rem] font-bold text-neutral-500 [overflow-wrap:anywhere]">
           {moldCode || projectCode} · {customerShortName}
         </span>
         <span className="text-[0.9375rem] font-bold text-neutral-900 [overflow-wrap:anywhere]">{title}</span>
         <span className="flex flex-wrap items-center gap-1.5">
-          {statusLabel == null ? null : <StatusBadge status={statusLabel} />}
+          {statusLabel == null ? null : (
+            <TranslatedStatusBadge toneLabel={statusLabel} displayLabel={statusDisplayLabel} group={statusLabelGroup} />
+          )}
           {dateValue == null ? null : (
             <span className={overdue ? "text-sm font-bold text-status-missed" : "text-sm font-bold text-neutral-600"}>
               {dateValue}
             </span>
           )}
+          {countdown}
           {extra}
         </span>
       </div>
@@ -257,10 +406,13 @@ function NeedsReasonCard({
         projectCode={row.projectCode}
         customerShortName={row.customerShortName}
         moldCode={row.moldCode}
-        title={row.title}
+        title={formatMyPlateTrialTitle(row.trialCode, locale)}
         statusLabel={row.statusLabel}
+        statusLabelGroup="trialStatus"
         dateValue={row.plannedDate}
         overdue={row.overdue}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         action={action}
       />
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={`${label("resolve", locale)} · ${row.trialCode}`}>
@@ -334,10 +486,13 @@ function ConfirmTrialDateCard({
         projectCode={row.projectCode}
         customerShortName={row.customerShortName}
         moldCode={row.moldCode}
-        title={row.title}
+        title={formatMyPlateTrialTitle(row.trialCode, locale)}
         statusLabel={row.statusValue === "PLANNED" ? undefined : row.statusLabel}
+        statusLabelGroup="trialStatus"
         dateValue={row.plannedDate}
         overdue={row.overdue}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         action={action}
       />
 
@@ -368,9 +523,9 @@ function ConfirmTrialDateCard({
             </Select>
           </FormField>
           <div className="pt-1">
-            <Button type="submit" variant="primary" size="lg" className="w-full">
+            <SubmitButton variant="primary" size="lg" className="w-full">
               {label("confirmDate", locale)}
-            </Button>
+            </SubmitButton>
           </div>
         </form>
         <div className="pt-2">
@@ -439,12 +594,19 @@ function ApproveDateChangeCard({
 
   return (
     <>
-      <div className="grid gap-3 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card">
+      <div className={`grid gap-3 rounded-lg border border-neutral-300 bg-white p-3.5 shadow-card${deadlineStripeClass(row.deadline?.remainingHours)}`}>
         <div className="grid gap-1">
           <span className="text-[0.8125rem] font-bold text-neutral-500 [overflow-wrap:anywhere]">
             {row.moldCode || row.projectCode} · {row.customerShortName}
           </span>
-          <span className="text-[0.9375rem] font-bold text-neutral-900 [overflow-wrap:anywhere]">{row.title}</span>
+          <span className="text-[0.9375rem] font-bold text-neutral-900 [overflow-wrap:anywhere]">
+            {formatMyPlateTrialTitle(row.trialCode, locale)}
+          </span>
+          {row.deadline == null ? null : (
+            <span className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <CountdownChip deadline={row.deadline} locale={locale} />
+            </span>
+          )}
         </div>
         <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
           <DetailLine term={label("currentPlannedDate", locale)}>{row.plannedDate ?? "—"}</DetailLine>
@@ -467,9 +629,9 @@ function ApproveDateChangeCard({
             <input type="hidden" name="projectCode" value={row.projectCode} />
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <input type="hidden" name="trialEventId" value={row.trialEventId} />
-            <Button type="submit" variant="primary" size="lg">
+            <SubmitButton variant="primary" size="lg">
               {label("approve", locale)}
-            </Button>
+            </SubmitButton>
           </form>
           <Button type="button" variant="secondary" size="lg" onClick={() => setRejectOpen(true)}>
             {label("reject", locale)}
@@ -522,11 +684,14 @@ function ReturnedDateCard({
         projectCode={row.projectCode}
         customerShortName={row.customerShortName}
         moldCode={row.moldCode}
-        title={row.title}
-        statusLabel={label("returnedToPm", locale)}
+        title={formatMyPlateTrialTitle(row.trialCode, locale)}
+        statusLabel={myPlateLabels.returnedToPm.en}
+        statusDisplayLabel={label("returnedToPm", locale)}
         dateLabel={label("plannedDate", locale)}
         dateValue={row.plannedDate}
         primaryAction={action}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         details={
           <>
             {row.rejectReason == null ? null : (
@@ -584,7 +749,9 @@ function MyOpenIssueCard({
         moldCode={row.moldCode}
         title={row.title}
         statusLabel={row.statusLabel}
+        statusLabelGroup="issueStatus"
         severityLabel={row.severityLabel}
+        severityLabelGroup="severity"
         dateLabel={label("dueDate", locale)}
         dateValue={row.dueDate}
         overdue={row.overdue}
@@ -747,11 +914,15 @@ function DepartmentInboxCard({
         moldCode={row.moldCode}
         title={row.title}
         statusLabel={row.statusLabel}
+        statusLabelGroup="issueStatus"
         severityLabel={row.severityLabel}
+        severityLabelGroup="severity"
         dateLabel={label("dueDate", locale)}
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         details={
           <>
             {row.description == null ? null : (
@@ -768,6 +939,94 @@ function DepartmentInboxCard({
         <form action={updateTrialIssue} className="grid gap-3">
           <LifecycleRoundTripFields row={row} redirectTo={redirectTo} ownerUsername={viewerUsername} />
           <SheetActions locale={locale} />
+        </form>
+      </BottomSheet>
+    </>
+  );
+}
+
+/* ------------------------------ Design: revisions ---------------------------- */
+
+/**
+ * A design-change event still awaiting its first drawing. The primary action
+ * opens a BottomSheet with a native file picker that posts straight to the
+ * generic `uploadAttachment` action, filing a DRAWING onto the DESIGN_CHANGE_EVENT
+ * (TECHNICAL visibility, the CAD default). This is upload-of-an-existing-file
+ * (a STEP/PDF produced in CAD), so the phone's file picker is the right control —
+ * no deep-link needed; a successful upload clears the card on reload.
+ */
+function DesignRevisionCard({
+  row,
+  locale,
+  redirectTo
+}: {
+  row: DesignRevisionRow;
+  locale: Locale;
+  redirectTo: string;
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const { dictionary } = useI18n();
+
+  const action = (
+    <Button type="button" variant="primary" size="lg" onClick={() => setSheetOpen(true)}>
+      {label("uploadDrawing", locale)}
+    </Button>
+  );
+
+  return (
+    <>
+      <SimpleCard
+        projectCode={row.projectCode}
+        customerShortName={row.customerShortName}
+        moldCode={row.moldCode}
+        title={row.title}
+        dateValue={row.createdDate}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
+        extra={
+          <span className="text-sm font-bold text-neutral-600">
+            {label("requester", locale)}: {translateLabel(dictionary, "changeRequester", row.requesterLabel)}
+          </span>
+        }
+        action={action}
+      />
+      <BottomSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={`${label("uploadDrawing", locale)} · ${row.title}`}
+      >
+        <form action={uploadAttachment} className="grid gap-3" encType="multipart/form-data">
+          <input type="hidden" name="projectId" value={row.projectId} />
+          <input type="hidden" name="entityType" value="DESIGN_CHANGE_EVENT" />
+          <input type="hidden" name="entityId" value={row.designChangeEventId} />
+          <input type="hidden" name="fileType" value="DRAWING" />
+          <input type="hidden" name="visibility" value="TECHNICAL" />
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+
+          {row.changeDate == null ? null : (
+            <DetailLine term={label("changeDate", locale)}>{row.changeDate}</DetailLine>
+          )}
+
+          <FormField
+            label={label("drawingFile", locale)}
+            htmlFor={`design-drawing-file-${row.designChangeEventId}`}
+            hint={pickLabel(attachmentLabels.drawingHint, locale)}
+          >
+            <input
+              id={`design-drawing-file-${row.designChangeEventId}`}
+              name="file"
+              type="file"
+              required
+              accept={DRAWING_ACCEPT}
+              className="w-full min-h-11 rounded-lg border border-neutral-400 bg-white px-2.5 py-2 text-neutral-900 font-normal file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:font-bold file:text-brand-600"
+            />
+          </FormField>
+
+          <div className="pt-1">
+            <SubmitButton variant="primary" size="lg" className="w-full">
+              {label("submit", locale)}
+            </SubmitButton>
+          </div>
         </form>
       </BottomSheet>
     </>
@@ -800,11 +1059,15 @@ function AssemblyAcknowledgeCard({
         moldCode={row.moldCode}
         title={row.title}
         statusLabel={row.statusLabel}
+        statusLabelGroup="issueStatus"
         severityLabel={row.severityLabel}
+        severityLabelGroup="severity"
         dateLabel={label("dueDate", locale)}
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         details={
           <>
             {row.description == null ? null : (
@@ -859,11 +1122,15 @@ function AssemblySelfCheckCard({
         moldCode={row.moldCode}
         title={row.title}
         statusLabel={row.statusLabel}
+        statusLabelGroup="issueStatus"
         severityLabel={row.severityLabel}
+        severityLabelGroup="severity"
         dateLabel={label("dueDate", locale)}
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
+        countdown={<SelfCheckChip selfCheck={row.selfCheckDeadline} locale={locale} />}
+        stripeHours={row.selfCheckDeadline?.remainingHours}
         details={
           <>
             {row.description == null ? null : (
@@ -925,7 +1192,9 @@ function PmConfirmReadyCard({
         moldCode={row.moldCode}
         title={row.title}
         statusLabel={row.statusLabel}
+        statusLabelGroup="issueStatus"
         severityLabel={row.severityLabel}
+        severityLabelGroup="severity"
         dateLabel={label("dueDate", locale)}
         dateValue={row.dueDate}
         overdue={row.overdue}
@@ -976,10 +1245,11 @@ function ComingUpCard({ row, locale }: { row: ComingUpRow; locale: Locale }) {
       projectCode={row.projectCode}
       customerShortName={row.customerShortName}
       moldCode={row.moldCode}
-      title={row.title}
+      title={formatMyPlateTrialTitle(row.trialCode, locale)}
       // In "Coming up" a "Planned" badge is noise — show a badge only when the
       // status carries a signal (e.g. AT_RISK).
       statusLabel={row.statusValue === "PLANNED" ? undefined : row.statusLabel}
+      statusLabelGroup="trialStatus"
       dateValue={row.plannedDate}
       overdue={row.overdue}
       // Small date-confirmation badge so the PM sees at a glance whether the date
@@ -1025,9 +1295,12 @@ function QcReportToUploadCard({
         projectCode={row.projectCode}
         customerShortName={row.customerShortName}
         moldCode={row.moldCode}
-        title={row.title}
-        statusLabel={reportLabel("missing")}
+        title={formatMyPlateTrialTitle(row.trialCode, locale)}
+        statusLabel={measurementReportLabels.missing.en}
+        statusDisplayLabel={reportLabel("missing")}
         dateValue={row.actualDate}
+        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        stripeHours={row.deadline?.remainingHours}
         action={action}
       />
       <BottomSheet
@@ -1066,9 +1339,9 @@ function QcReportToUploadCard({
           </FormField>
 
           <div className="pt-1">
-            <Button type="submit" variant="primary" size="lg" className="w-full">
+            <SubmitButton variant="primary" size="lg" className="w-full">
               {reportLabel("submit")}
-            </Button>
+            </SubmitButton>
           </div>
         </form>
       </BottomSheet>
@@ -1078,7 +1351,13 @@ function QcReportToUploadCard({
 
 /* ---------------------------------- Sections --------------------------------- */
 
-export function MyPlateSections({ data, locale, todayInput, viewerUsername, redirectTo }: Props) {
+export function MyPlateSections({ data, todayInput, viewerUsername, redirectTo }: Props) {
+  const { dictionary, language } = useI18n();
+  const locale = localeFromLanguage(language);
+  const missedTrialReasons = localizedOptions(data.options.missedTrialReasons, "reason", dictionary);
+  const responsibleAreas = localizedOptions(data.options.responsibleAreas, "responsibleArea", dictionary);
+  const issueStatuses = localizedOptions(data.options.issueStatuses, "issueStatus", dictionary);
+
   return (
     <div className="grid gap-6">
       <Section title={label("needsReason", locale)} count={data.needsReason.length}>
@@ -1087,8 +1366,8 @@ export function MyPlateSections({ data, locale, todayInput, viewerUsername, redi
             key={row.key}
             row={row}
             locale={locale}
-            reasonOptions={data.options.missedTrialReasons}
-            areaOptions={data.options.responsibleAreas}
+            reasonOptions={missedTrialReasons}
+            areaOptions={responsibleAreas}
             redirectTo={redirectTo}
           />
         ))}
@@ -1125,7 +1404,7 @@ export function MyPlateSections({ data, locale, todayInput, viewerUsername, redi
             key={row.key}
             row={row}
             locale={locale}
-            statusOptions={data.options.issueStatuses}
+            statusOptions={issueStatuses}
             todayInput={todayInput}
             redirectTo={redirectTo}
           />
@@ -1141,6 +1420,12 @@ export function MyPlateSections({ data, locale, todayInput, viewerUsername, redi
             redirectTo={redirectTo}
             viewerUsername={viewerUsername}
           />
+        ))}
+      </Section>
+
+      <Section title={label("designRevisions", locale)} count={data.designRevisions.length}>
+        {data.designRevisions.map((row) => (
+          <DesignRevisionCard key={row.key} row={row} locale={locale} redirectTo={redirectTo} />
         ))}
       </Section>
 

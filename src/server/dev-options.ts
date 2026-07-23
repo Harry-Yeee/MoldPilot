@@ -15,6 +15,8 @@ export const devUsers = [
   { username: "wang", label: "Wang", role: "Injection" },
   { username: "gong", label: "Gong", role: "QC" },
   { username: "shuang", label: "Shuang", role: "QC" },
+  { username: "lin", label: "Lin", role: "Design" },
+  { username: "mei", label: "Mei", role: "Design" },
   { username: "viewer", label: "Viewer", role: "Viewer" }
 ] as const;
 
@@ -25,7 +27,8 @@ export const departmentGroups = [
   { code: "assembly", label: "Assembly" },
   { code: "qc", label: "QC" },
   { code: "planning", label: "Planning" },
-  { code: "marketing", label: "Marketing" }
+  { code: "marketing", label: "Marketing" },
+  { code: "design", label: "Design" }
 ] as const;
 
 export const priorityOptions = [

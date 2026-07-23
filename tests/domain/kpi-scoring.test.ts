@@ -4,6 +4,9 @@ import {
   computeDepartmentRollup,
   computeScorecard,
   evaluateEventOnTime,
+  formatScorePercent,
+  missBufferAtBar,
+  onTimeNeededForBar,
   type KpiHabitEvent,
   type ScoringRule
 } from "../../src/domain/mold-trial/kpi-scoring.ts";
@@ -274,5 +277,101 @@ describe("Scores audit UI shape — no pending items reach the audit list", () =
     }
     assert.equal(line.items.find((i) => i.ref === "PASS")?.onTime, true);
     assert.equal(line.items.find((i) => i.ref === "FAIL")?.onTime, false);
+  });
+});
+
+describe("formatScorePercent — Scores panel percent display", () => {
+  test("nothing applicable renders an em dash, never the placeholder 100%", () => {
+    // The engine returns percent=100 when applicable=0; the display must not.
+    assert.equal(formatScorePercent({ percent: 100, applicable: 0 }), "—");
+  });
+
+  test("the <5 floor case still shows its raw percent (caller styles it muted)", () => {
+    assert.equal(formatScorePercent({ percent: 0, applicable: 3 }), "0%");
+  });
+
+  test("a normal scored rate renders as a whole-number percent", () => {
+    assert.equal(formatScorePercent({ percent: 92, applicable: 24 }), "92%");
+  });
+
+  test("a genuine 100% (with applicable events) is kept", () => {
+    assert.equal(formatScorePercent({ percent: 100, applicable: 10 }), "100%");
+  });
+});
+
+describe("hope math — onTimeNeededForBar / missBufferAtBar", () => {
+  // Reuse the real bar constant; never re-hardcode 85.
+  const bar = barHitPercent;
+
+  // Integer-safe bar predicates mirroring the implementation's invariants — the
+  // tests must not trust float division either.
+  const meetsBarWith = (onTime: number, applicable: number, k: number): boolean =>
+    (onTime + k) * 100 >= bar * (applicable + k);
+  const staysOverWith = (onTime: number, applicable: number, m: number): boolean =>
+    onTime * 100 >= bar * (applicable + m);
+
+  // Grid of (onTime, applicable) covering the poster personas + boundaries.
+  const grid: ReadonlyArray<readonly [number, number]> = [
+    [22, 24], // poster assembly persona — over the bar (92%)
+    [9, 12], // poster injection persona — under (75%)
+    [2, 6], // poster deep-hole persona — well under (33%)
+    [17, 20], // exactly 85%
+    [16, 20], // just under (80%)
+    [20, 20], // 100%
+    [0, 5], // 0% at the floor edge
+    [5, 5], // 100%, small
+    [50, 60], // ~83%
+    [84, 99], // rounds to 85% but the exact rate is under
+    [1, 100] // deep hole, large denominator
+  ];
+
+  for (const [onTime, applicable] of grid) {
+    test(`k invariant holds for ${onTime}/${applicable}`, () => {
+      const k = onTimeNeededForBar(onTime, applicable, bar);
+      assert.ok(k >= 0, `k=${k} must be non-negative`);
+      assert.ok(meetsBarWith(onTime, applicable, k), `k=${k} must reach the bar`);
+      if (k >= 1) {
+        assert.ok(!meetsBarWith(onTime, applicable, k - 1), `k-1=${k - 1} must NOT reach the bar`);
+      }
+    });
+
+    test(`m invariant holds for ${onTime}/${applicable}`, () => {
+      const m = missBufferAtBar(onTime, applicable, bar);
+      assert.ok(m >= 0, `m=${m} must be non-negative`);
+      const currentlyOver = onTime * 100 >= bar * applicable;
+      if (currentlyOver) {
+        assert.ok(staysOverWith(onTime, applicable, m), `m=${m} must stay over the bar`);
+        assert.ok(!staysOverWith(onTime, applicable, m + 1), `m+1=${m + 1} must NOT stay over the bar`);
+      } else {
+        assert.equal(m, 0, "under the bar → no buffer");
+      }
+    });
+  }
+
+  test("poster personas resolve to the documented counts", () => {
+    assert.equal(onTimeNeededForBar(9, 12, bar), 8); // injection climbs back with 8
+    assert.equal(missBufferAtBar(22, 24, bar), 1); // assembly has room for exactly 1 more miss
+    assert.equal(onTimeNeededForBar(2, 6, bar), 21); // deep-hole persona needs 21
+  });
+
+  test("applicable = 0 → k = 0 and m = 0 (never the <5-events floor's 5)", () => {
+    assert.equal(onTimeNeededForBar(0, 0, bar), 0);
+    assert.equal(missBufferAtBar(0, 0, bar), 0);
+  });
+
+  test("already exactly at the bar → k = 0 and m ≥ 0 (right on the line, no slack)", () => {
+    assert.equal(onTimeNeededForBar(17, 20, bar), 0);
+    assert.ok(missBufferAtBar(17, 20, bar) >= 0);
+    assert.equal(missBufferAtBar(17, 20, bar), 0);
+  });
+
+  test("100% (n/n) → k = 0 with a real buffer", () => {
+    assert.equal(onTimeNeededForBar(20, 20, bar), 0);
+    assert.equal(missBufferAtBar(20, 20, bar), 3); // 20/23 = 87% ok, 20/24 = 83% under
+  });
+
+  test("pathological onTime > applicable is clamped, never throws", () => {
+    assert.equal(onTimeNeededForBar(5, 3, bar), 0);
+    assert.ok(missBufferAtBar(5, 3, bar) >= 0);
   });
 });

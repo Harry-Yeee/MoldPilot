@@ -243,7 +243,7 @@ Create activity log entries for:
 - Extra-trial reason recorded.
 - Project closed or cancelled.
 
-### Step 7: Dashboard Metrics
+### Step 7: Dashboard And Management Report Metrics
 
 Compute:
 
@@ -256,8 +256,13 @@ Compute:
 - Open high/critical trial issues.
 - Issues waiting verification.
 - Missed-trial reasons by category.
+- Completed mold-trial runs, new molds reaching T0, and unique molds trialed by selected month versus the previous month.
+- On-time trial numerator/denominator.
+- Projects approved on/before customer target and within T0/T1.
+- Issues created/closed by month plus current open aging and resolution details.
+- Missing Trial Result, Process Sheet, and QC Report records.
 
-For v0.1, live queries are enough. Stored KPI snapshots can wait.
+The operational Trial Dashboard remains the everyday work queue. `/reports` is a read-only Admin/GM monthly management view with Overview, Issues, and reused Scorecards tabs. For Phase 1, live operational queries plus existing KpiSnapshots are enough; do not create a generic Report table.
 
 ## Deferred From v0.1
 
@@ -271,7 +276,8 @@ Do not build these yet:
 - Customer portal.
 - Full file manager.
 - AI summaries.
-- Employee scoring.
+- Automatic employee ranking, blame scoring, or discipline from operational report counts.
+- Full BI/report designer or factory-utilization planning.
 
 Keep references to later expansion in docs, not in active UI.
 
@@ -309,6 +315,7 @@ v0.1 is done when:
 - Role checks block unsafe edits.
 - Permission checks use named permission codes where implemented.
 - Activity logs are created for important state changes.
+- Management Reports enforce `reports.management.view`, preserve the separate personal `/score` experience, and calculate documented month/workload/issue definitions correctly.
 - Acceptance tests in `docs/03-build/acceptance-tests.md` have implementation coverage or are clearly marked deferred.
 
 ## Recommended First Coding Task

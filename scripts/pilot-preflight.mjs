@@ -100,6 +100,10 @@ function isAtLeastVersion(version, minimum) {
   return true;
 }
 
+function dateForCheck(value) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
 function parseDatabaseUrl(databaseUrl) {
   try {
     const parsed = new URL(databaseUrl);
@@ -529,7 +533,17 @@ async function checkSeed(prisma) {
     where: { active: true },
     select: { code: true }
   });
-  const expectedActiveRoles = new Set(["admin", "gm", "pm", "marketing", "assembly", "injection", "qc", "viewer"]);
+  const expectedActiveRoles = new Set([
+    "admin",
+    "gm",
+    "pm",
+    "marketing",
+    "assembly",
+    "injection",
+    "qc",
+    "design",
+    "viewer"
+  ]);
   const actualActiveRoles = new Set(activeRoles.map((role) => role.code));
   const hasExpectedActiveRoles =
     actualActiveRoles.size === expectedActiveRoles.size &&
@@ -554,6 +568,8 @@ async function checkSeed(prisma) {
           "wang",
           "gong",
           "shuang",
+          "lin",
+          "mei",
           "viewer"
         ]
       }
@@ -562,6 +578,11 @@ async function checkSeed(prisma) {
       departmentGroupId: true,
       forcePasswordChange: true,
       chineseName: true,
+      departmentGroup: {
+        select: {
+          code: true
+        }
+      },
       passwordHash: true,
       username: true
     }
@@ -569,20 +590,84 @@ async function checkSeed(prisma) {
   const expectedChineseNames = new Map([
     ["anna", "刘婉霞"],
     ["zoe", "周娟娥"],
-    ["peng", "彭利满"]
+    ["peng", "彭利满"],
+    ["lin", "林工"],
+    ["mei", "梅"]
+  ]);
+  const expectedKpiGroupByUsername = new Map([
+    ["bill", "pm"],
+    ["jun", "pm"],
+    ["cheng", "pm"],
+    ["yvonne", "marketing"],
+    ["anna", "marketing"],
+    ["zoe", "marketing"],
+    ["peng", "marketing"],
+    ["juria", "marketing"],
+    ["sahara", "marketing"],
+    ["zhong", "assembly-a"],
+    ["pei", "assembly-b"],
+    ["wang", "injection"],
+    ["gong", "qc"],
+    ["shuang", "qc"],
+    ["lin", "design"],
+    ["mei", "design"]
   ]);
   const hasSeededUsers =
-    seededUsers.length === 17 &&
+    seededUsers.length === 19 &&
     seededUsers.every((user) => {
       const plaintext = user.username === "admin" ? "admin" : "123456";
       const expectedChineseName = expectedChineseNames.get(user.username) ?? null;
       return (
         user.chineseName === expectedChineseName &&
-        user.departmentGroupId == null &&
         typeof user.passwordHash === "string" &&
         user.passwordHash.startsWith("scrypt-v1$") &&
         user.passwordHash !== plaintext
       );
+    });
+  const hasExpectedKpiMembership = seededUsers.every((user) => {
+    const expectedGroupCode = expectedKpiGroupByUsername.get(user.username) ?? null;
+    return (user.departmentGroup?.code ?? null) === expectedGroupCode && (expectedGroupCode != null || user.departmentGroupId == null);
+  });
+  const kpiGroups = await prisma.departmentGroup.findMany({
+    where: {
+      code: {
+        in: ["pm", "assembly", "assembly-a", "assembly-b", "injection", "qc", "marketing", "design"]
+      }
+    },
+    select: {
+      code: true,
+      groupType: true,
+      kpiLeader: {
+        select: {
+          username: true
+        }
+      },
+      parentGroup: {
+        select: {
+          code: true
+        }
+      }
+    }
+  });
+  const kpiGroupByCode = new Map(kpiGroups.map((group) => [group.code, group]));
+  const expectedKpiLeaders = new Map([
+    ["injection", "wang"],
+    ["qc", "gong"],
+    ["marketing", "yvonne"],
+    ["design", "lin"],
+    ["assembly-a", "zhong"],
+    ["assembly-b", "pei"]
+  ]);
+  const hasExpectedKpiGroups =
+    kpiGroups.length === 8 &&
+    [...expectedKpiLeaders].every(
+      ([groupCode, leaderUsername]) => kpiGroupByCode.get(groupCode)?.kpiLeader?.username === leaderUsername
+    ) &&
+    kpiGroupByCode.get("pm")?.kpiLeader == null &&
+    kpiGroupByCode.get("assembly")?.kpiLeader == null &&
+    ["assembly-a", "assembly-b"].every((groupCode) => {
+      const group = kpiGroupByCode.get(groupCode);
+      return group?.groupType === "GROUP" && group.parentGroup?.code === "assembly";
     });
   const rescheduleGrants = await prisma.rolePermission.findMany({
     where: {
@@ -607,6 +692,101 @@ async function checkSeed(prisma) {
   const hasExpectedRescheduleRoles =
     actualRescheduleRoles.size === expectedRescheduleRoles.size &&
     [...expectedRescheduleRoles].every((roleCode) => actualRescheduleRoles.has(roleCode));
+
+  const [reportProjects, reportPermission] = await Promise.all([
+    prisma.moldTrialProject.findMany({
+      where: {
+        projectCode: {
+          in: ["MP-REPORT-001", "MP-REPORT-002", "MP-REPORT-003", "MP-REPORT-004"]
+        }
+      },
+      include: {
+        processValues: {
+          select: { trialEventId: true }
+        },
+        trialEvents: {
+          select: {
+            actualDate: true,
+            autoMissedResolvedAt: true,
+            result: true,
+            status: true,
+            trialCode: true
+          }
+        },
+        trialIssues: {
+          select: {
+            closedAt: true,
+            fixSummary: true,
+            fixTimeMinutes: true,
+            severity: true,
+            status: true
+          }
+        }
+      }
+    }),
+    prisma.permission.findUnique({
+      where: { code: "reports.management.view" },
+      include: {
+        rolePermissions: {
+          where: { enabled: true },
+          include: {
+            role: {
+              select: { active: true, code: true }
+            }
+          }
+        }
+      }
+    })
+  ]);
+  const reportTrials = reportProjects.flatMap((reportProject) => reportProject.trialEvents);
+  const selectedReportCompleted = reportTrials.filter(
+    (trial) =>
+      trial.status === "COMPLETED" &&
+      trial.actualDate != null &&
+      trial.actualDate >= dateForCheck("2026-07-01") &&
+      trial.actualDate < dateForCheck("2026-08-01")
+  );
+  const previousReportCompleted = reportTrials.filter(
+    (trial) =>
+      trial.status === "COMPLETED" &&
+      trial.actualDate != null &&
+      trial.actualDate >= dateForCheck("2026-06-01") &&
+      trial.actualDate < dateForCheck("2026-07-01")
+  );
+  const reportPermissionRoles = new Set(
+    reportPermission?.rolePermissions
+      .filter((grant) => grant.role.active)
+      .map((grant) => grant.role.code) ?? []
+  );
+  const hasReportPermissionDefaults =
+    reportPermission?.processGroup === "Reports" &&
+    reportPermissionRoles.size === 2 &&
+    reportPermissionRoles.has("admin") &&
+    reportPermissionRoles.has("gm");
+  const hasManagementReportFixtures =
+    reportProjects.length === 4 &&
+    selectedReportCompleted.length >= 3 &&
+    previousReportCompleted.length >= 2 &&
+    selectedReportCompleted.some((trial) => trial.result === "INVALID_TRIAL") &&
+    selectedReportCompleted.some((trial) => trial.result == null) &&
+    reportProjects.some((reportProject) => reportProject.processValues.length > 0) &&
+    reportProjects.some((reportProject) =>
+      reportProject.trialIssues.some(
+        (issue) =>
+          issue.status === "CLOSED" &&
+          issue.closedAt != null &&
+          issue.fixSummary != null &&
+          issue.fixTimeMinutes != null
+      )
+    ) &&
+    reportProjects.some((reportProject) =>
+      reportProject.trialIssues.some(
+        (issue) => issue.severity === "CRITICAL" && issue.status !== "CLOSED" && issue.status !== "VERIFIED"
+      )
+    ) &&
+    reportTrials.some(
+      (trial) => trial.status === "AUTO_MISSED_REASON_REQUIRED" && trial.autoMissedResolvedAt == null
+    );
 
   const activityEntityIds = [
     project.id,
@@ -652,9 +832,13 @@ async function checkSeed(prisma) {
     [hasCustomerMaster, "Client Master records exist and MP-PILOT-001 is linked to C-PILOT"],
     [hasWorkbookClients, "75 workbook clients exist with Anna/Zoe/Peng owner mapping"],
     [hasMultiPartFamilyMold, "multi-part family mold seed exists with affected part issue"],
-    [hasExpectedActiveRoles, "active pilot roles are Admin/GM/PM/Marketing/Assembly/Injection/QC/Viewer"],
-    [hasSeededUsers, "seeded pilot users exist with hashed passwords, Chinese names, and no account department group"],
+    [hasExpectedActiveRoles, "active pilot roles include Design and the eight original pilot roles"],
+    [hasSeededUsers, "19 seeded pilot users exist with hashed passwords and expected Chinese names"],
+    [hasExpectedKpiMembership, "scored users belong to their expected KPI groups and non-scored users remain unassigned"],
+    [hasExpectedKpiGroups, "KPI groups, Assembly split, hierarchy, and leader designations exist"],
     [permissionCount >= 17 && hasExpectedRescheduleRoles, "permission seed and reschedule defaults exist"],
+    [hasReportPermissionDefaults, "Management Reports permission defaults exist for active Admin and GM only"],
+    [hasManagementReportFixtures, "Management Reports current/previous month, issue, and completeness fixtures exist"],
     [hasActivityLogs, "ActivityLog rows exist for pilot entities"]
   ];
   const missing = checks.filter(([ok]) => !ok).map(([, label]) => label);
@@ -667,7 +851,7 @@ async function checkSeed(prisma) {
 
   pass(
     "Pilot seed",
-    `${PROJECT_CODE} has Client Master link, workbook clients, missed T0 audit without duplicate visible T0, completed T0, planned T1, issues, design change, limit adjustment, Assembly estimate/self-check, process-sheet values, real machine import/snapshots, activity logs, permission defaults, and MP-SEED-011 multi-part fixture.`
+    `${PROJECT_CODE} has Client Master link, workbook clients, missed T0 audit without duplicate visible T0, completed T0, planned T1, issues, design change, limit adjustment, Assembly estimate/self-check, process-sheet values, real machine import/snapshots, KPI memberships/leader groups, Management Reports fixtures/defaults, activity logs, permission defaults, and MP-SEED-011 multi-part fixture.`
   );
   return true;
 }
@@ -740,8 +924,10 @@ async function checkHttpSmoke({ required = true, userId = null } = {}) {
     const headers = { Cookie: `${SESSION_COOKIE_NAME}=${createSessionToken(userId)}` };
     const dashboard = await fetchText("http://localhost:3000/", headers);
     const detail = await fetchText(`http://localhost:3000/projects/${PROJECT_CODE}`, headers);
+    const reports = await fetchText("http://localhost:3000/reports?tab=overview&month=2026-07", headers);
     const dashboardText = visibleText(dashboard.body);
     const detailText = visibleText(detail.body);
+    const reportsText = visibleText(reports.body);
     const dashboardOk = dashboard.response.status === 200 && dashboardText.includes(PROJECT_CODE);
     const detailRequiredText = [
       "Trial Panel",
@@ -755,6 +941,11 @@ async function checkHttpSmoke({ required = true, userId = null } = {}) {
       detail.response.status === 200 &&
       detailRequiredText.every((text) => detailText.includes(text)) &&
       /1\s+\/\s+4\s+Design Change Allowance/.test(detailText);
+    const reportsOk =
+      reports.response.status === 200 &&
+      ["Management Reports", "Mold-trial workload", "Management Attention", "Completed trial runs"].every((text) =>
+        reportsText.includes(text)
+      );
 
     if (!dashboardOk) {
       fail("HTTP smoke", "`/` did not return 200 with MP-PILOT-001.");
@@ -766,7 +957,12 @@ async function checkHttpSmoke({ required = true, userId = null } = {}) {
       return false;
     }
 
-    pass("HTTP smoke", "Login gate works, and authenticated dashboard/detail pages returned expected content.");
+    if (!reportsOk) {
+      fail("HTTP smoke", "`/reports?tab=overview&month=2026-07` did not return the expected Admin report content.");
+      return false;
+    }
+
+    pass("HTTP smoke", "Login gate works, and authenticated dashboard/detail/Management Reports pages returned expected content.");
     return true;
   } catch (error) {
     const message = `Unable to fetch localhost:3000: ${error instanceof Error ? error.message : String(error)}.`;

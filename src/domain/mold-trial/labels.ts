@@ -3,8 +3,9 @@
  *
  * The app already has a full runtime i18n layer in `src/i18n`. This module is a
  * simpler, dependency-free way to co-locate an English + Chinese string on a
- * value and pick one by the user's `User.locale` (`EN_US | ZH_CN`). Upcoming
- * mobile/QC features will use it for short, data-adjacent labels.
+ * value and pick one from the active LanguageProvider language. The cookie
+ * language remains the UI source of truth; `Locale` is only a display adapter
+ * used by these compact data-adjacent labels.
  */
 
 export type Locale = "EN_US" | "ZH_CN";
@@ -18,6 +19,10 @@ export function pickLabel(label: BilingualLabel, locale: Locale): string {
   return locale === "ZH_CN" ? label.zh : label.en;
 }
 
+export function localeFromLanguage(language: "en" | "zh-CN"): Locale {
+  return language === "zh-CN" ? "ZH_CN" : "EN_US";
+}
+
 /** Dashboard summary-card titles — first usage of the bilingual scaffolding. */
 export const dashboardSummaryLabels = {
   activeMolds: { en: "Active molds", zh: "在产模具" },
@@ -29,7 +34,8 @@ export const dashboardSummaryLabels = {
   completed: { en: "Completed", zh: "已完成" },
   highCriticalOpen: { en: "High / critical open", zh: "高 / 严重未关闭" },
   pendingFollowUp: { en: "Pending follow-up", zh: "待跟进" },
-  missingQcReport: { en: "Missing QC report", zh: "缺少质检报告" }
+  missingQcReport: { en: "Missing QC report", zh: "缺少质检报告" },
+  trialsThisWeek: { en: "Trials this week", zh: "本周试模" }
 } as const satisfies Record<string, BilingualLabel>;
 
 /** QC measurement-report workflow labels (trial panel, customer files, phone section). */
@@ -104,6 +110,11 @@ export const issuePhotoLabels = {
   photoCount: { en: "photos", zh: "张照片" }
 } as const satisfies Record<string, BilingualLabel>;
 
+/** Trial-issue create form labels (blame-free intake — R1). */
+export const issueFormLabels = {
+  moreDetails: { en: "More details (optional)", zh: "更多细节（可选）" }
+} as const satisfies Record<string, BilingualLabel>;
+
 /** Photo lightbox viewer labels (thumbnail grid + fullscreen viewer). */
 export const lightboxLabels = {
   photos: { en: "Photos", zh: "照片" },
@@ -155,10 +166,12 @@ export function formatFileSize(sizeBytes: number): string {
 export const navLabels = {
   admin: { en: "Admin", zh: "管理" },
   createIntake: { en: "Create intake", zh: "新建立项" },
+  newIntake: { en: "New intake", zh: "新建立项" },
   myTasks: { en: "My tasks", zh: "我的任务" },
   dashboard: { en: "Dashboard", zh: "仪表板" },
   calendar: { en: "Calendar", zh: "日历" },
-  myScore: { en: "My score", zh: "我的成绩" }
+  myScore: { en: "My score", zh: "我的成绩" },
+  reports: { en: "Reports", zh: "报表" }
 } as const satisfies Record<string, BilingualLabel>;
 
 /** Trial-calendar labels (Feature 7): month grid, day panel, phone agenda. */
@@ -174,6 +187,8 @@ export const calendarLabels = {
   legendTitle: { en: "Machine load", zh: "机台负荷" },
   legendAmber: { en: "3 on one machine", zh: "同一机台 3 个" },
   legendRed: { en: "4+ on one machine", zh: "同一机台 4 个及以上" },
+  // Entry-colour legend (date-confirmation status) under the grid.
+  legendDateStatusTitle: { en: "Date status", zh: "日期状态" },
   // Day detail panel.
   daySelected: { en: "Trials on", zh: "当日试模" },
   noTrialsThisDay: { en: "No trials planned for this day.", zh: "当天没有计划试模。" },
@@ -209,15 +224,18 @@ export const myPlateLabels = {
   returnedDates: { en: "Returned dates", zh: "退回的日期" },
   myOpenIssues: { en: "My open issues", zh: "我的未结问题" },
   departmentInbox: { en: "Department inbox", zh: "部门待领" },
+  designRevisions: { en: "Design: revisions", zh: "设计：修订" },
   assemblyAcknowledge: { en: "Assembly: acknowledge", zh: "装配：确认接收" },
   assemblySelfCheck: { en: "Assembly: self-check", zh: "装配：自检" },
   pmConfirmReady: { en: "PM: confirm ready", zh: "PM：确认就绪" },
   comingUp: { en: "Coming up", zh: "即将进行" },
+  trial: { en: "trial", zh: "试模" },
   // Row + sheet actions
   resolve: { en: "Resolve", zh: "处理" },
   done: { en: "Done", zh: "完成" },
-  claim: { en: "Claim", zh: "认领" },
+  claim: { en: "I'll take this", zh: "我来处理" },
   updateStatus: { en: "Update status", zh: "更新状态" },
+  uploadDrawing: { en: "Upload drawing", zh: "上传图纸" },
   acknowledge: { en: "Acknowledge", zh: "确认接收" },
   selfCheck: { en: "Self-check done", zh: "自检完成" },
   confirmReady: { en: "Confirm ready", zh: "确认就绪" },
@@ -262,5 +280,19 @@ export const myPlateLabels = {
   plannedDate: { en: "Planned", zh: "计划" },
   description: { en: "Description", zh: "描述" },
   partCavity: { en: "Part / cavity", zh: "零件 / 型腔" },
-  overdue: { en: "Overdue", zh: "已逾期" }
+  overdue: { en: "Overdue", zh: "已逾期" },
+  // Design: revisions section
+  requester: { en: "Requester", zh: "申请方" },
+  changeCreated: { en: "Created", zh: "创建" },
+  changeDate: { en: "Change date", zh: "变更日期" },
+  drawingFile: { en: "Drawing file", zh: "图纸文件" },
+  // Deadline-countdown chip (driven by the KPI rule hours + anchors)
+  beforeNextTrial: { en: "before next trial", zh: "试模前" },
+  deadlineRulePrefix: { en: "Deadline rule", zh: "截止规则" },
+  adminConfigurable: { en: "admin-configurable", zh: "管理员可配置" },
+  nextPlannedTrial: { en: "next planned trial", zh: "下次计划试模" }
 } as const satisfies Record<string, BilingualLabel>;
+
+export function formatMyPlateTrialTitle(trialCode: string, locale: Locale): string {
+  return `${trialCode} ${pickLabel(myPlateLabels.trial, locale)}`;
+}

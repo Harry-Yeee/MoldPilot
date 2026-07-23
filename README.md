@@ -27,6 +27,48 @@ node scripts/debug-my-plate.mjs <username>    # explain why an issue does/doesn'
 python3 scripts/migrate-and-verify.py         # migrate + seed + typecheck + tests in one go (restart dev server after)
 ```
 
+## End-to-end smoke test
+
+`pnpm test` covers the pure domain rules but never actually renders a page or hits
+a route. `pnpm e2e:smoke` fills that gap: it forges role session cookies and drives
+a running app to catch the bugs unit tests structurally cannot — pages that explode
+at runtime, routes with broken auth, and pipeline wiring gaps.
+
+**When to run:** after every migration or feature that touches a page, server
+action, route, or the seed/simulator — and once more right before a pilot launch.
+
+**Two-terminal recipe** (needs a seeded DB and MP-SIM- simulator data):
+
+```bash
+# One-time data prep, if not already present:
+pnpm prisma:seed
+node scripts/simulate-kpi-data.mjs
+
+# Terminal 1 — keep the app running:
+pnpm dev
+
+# Terminal 2 — run the sweep:
+pnpm e2e:smoke
+```
+
+It runs three parts and prints a pass/fail summary (exit 0 = all green, 1 = any
+failure):
+
+- **PART A** — page sweep across `/`, `/login`, `/me`, `/score`, `/calendar`,
+  `/projects/[code]`, `/admin` (all tabs) and `/change-password` as admin, PM,
+  Injection, Marketing, Design and viewer, asserting status, a role-appropriate
+  sentinel, and the absence of any runtime-error boundary; plus negative-auth
+  checks (unauthenticated → login, viewer → admin blocked).
+- **PART B** — the `/api/attachments/[id]` route: auth, visibility (INTERNAL vs
+  TECHNICAL), inline content-type, and 401/403/404/Range behaviour.
+- **PART C** — DB golden-path pipeline assertions (prisma + pure domain, no HTTP):
+  confirmed trials, resolved auto-misses, on-disk attachment files, verified-issue
+  scoring, KPI leader groups, and the rule registry.
+
+Each precondition (dev server down, DB unseeded, simulator data missing) fails with
+a one-line instruction instead of a stack trace. Override the origin with
+`MOLDPILOT_BASE_URL` (or `BASE_URL` / `PORT`).
+
 ## Stack
 
 - Next.js + TypeScript
@@ -55,7 +97,7 @@ Open `http://localhost:3000` in Chrome. Prefer `localhost:3000` over `127.0.0.1:
 From Terminal:
 
 ```bash
-cd /Users/ipwaikei/Documents/MoldPilot
+cd /Users/ipwaikei/Documents/LJ_ERP/MoldPilot
 ./scripts/run-local-pilot.sh
 ```
 
@@ -64,7 +106,7 @@ That script checks Node, pnpm, and Docker Desktop, runs `pnpm install`, prepares
 You can also run the root launcher:
 
 ```bash
-cd /Users/ipwaikei/Documents/MoldPilot
+cd /Users/ipwaikei/Documents/LJ_ERP/MoldPilot
 ./run-moldpilot.command
 ```
 
@@ -77,7 +119,7 @@ If using Finder, double-click `run-moldpilot.command`. If macOS says it cannot r
 While online, create the offline cache:
 
 ```bash
-cd /Users/ipwaikei/Documents/MoldPilot
+cd /Users/ipwaikei/Documents/LJ_ERP/MoldPilot
 pnpm offline:cache
 ```
 
@@ -93,7 +135,7 @@ Migrating an existing setup: if you have an old in-repo `.moldpilot-offline/`, m
 Later, without internet, install from the cache:
 
 ```bash
-cd /Users/ipwaikei/Documents/MoldPilot
+cd /Users/ipwaikei/Documents/LJ_ERP/MoldPilot
 pnpm offline:install
 ./scripts/run-local-pilot.sh
 ```

@@ -1,6 +1,6 @@
 import { login } from "@/server/auth-actions";
 import { getOptionalCurrentUser } from "@/server/current-user";
-import { Button, FormField, MessageBanner, TextInput } from "@/components/ui";
+import { FormField, MessageBanner, SubmitButton, TextInput } from "@/components/ui";
 import { createTranslator } from "@/i18n";
 import { LanguageSwitcher } from "@/i18n/language-switcher";
 import { getDictionary } from "@/i18n/server";
@@ -71,9 +71,9 @@ export default async function LoginPage({ searchParams }: PageProps) {
               required
             />
           </FormField>
-          <Button type="submit" size="lg" className="w-full">
+          <SubmitButton size="lg" className="w-full">
             {t("auth.login")}
-          </Button>
+          </SubmitButton>
         </form>
       </section>
     </main>
