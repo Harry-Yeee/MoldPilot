@@ -13,7 +13,8 @@
 # and git bundle are overwritten in place (rsync incremental / bundle refresh).
 #
 # Restore (see also README "Backups" section):
-#   gunzip -c moldpilot-db-YYYYmmdd-HHMMSS.sql.gz | psql "$DATABASE_URL"
+#   PG_DATABASE_URL="${DATABASE_URL%%\?*}"
+#   gunzip -c moldpilot-db-YYYYmmdd-HHMMSS.sql.gz | psql "$PG_DATABASE_URL"
 #   rsync -a "$BACKUP_DIR/uploads-mirror/" ./storage/uploads/
 #   git clone moldpilot-repo.bundle restored-repo
 
@@ -39,19 +40,49 @@ case "$RESOLVED_BACKUP" in
     ;;
 esac
 
-# Read DATABASE_URL from environment or .env
-if [ -z "${DATABASE_URL:-}" ] && [ -f "$PROJECT_ROOT/.env" ]; then
-  DATABASE_URL="$(grep -E '^DATABASE_URL=' "$PROJECT_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '"')"
+# Read server paths from environment or the protected application .env.
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    DATABASE_URL="$(
+      grep -E '^DATABASE_URL=' "$PROJECT_ROOT/.env" |
+        head -1 |
+        cut -d= -f2- |
+        tr -d '"' ||
+        true
+    )"
+  fi
+  if [ -z "${MOLDPILOT_STORAGE_DIR:-}" ]; then
+    MOLDPILOT_STORAGE_DIR="$(
+      grep -E '^MOLDPILOT_STORAGE_DIR=' "$PROJECT_ROOT/.env" |
+        head -1 |
+        cut -d= -f2- |
+        tr -d '"' ||
+        true
+    )"
+  fi
 fi
 [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL not found in environment or .env"
+PG_DATABASE_URL="${DATABASE_URL%%\?*}"
 
 # --- 1. Database dump --------------------------------------------------------
 
 DB_OUT="$RESOLVED_BACKUP/moldpilot-db-$STAMP.sql.gz"
 
-if command -v pg_dump >/dev/null 2>&1; then
+PG_DUMP_BIN="$(command -v pg_dump 2>/dev/null || true)"
+if [ -z "$PG_DUMP_BIN" ]; then
+  for candidate in \
+    /opt/homebrew/opt/postgresql@16/bin/pg_dump \
+    /usr/local/opt/postgresql@16/bin/pg_dump; do
+    if [ -x "$candidate" ]; then
+      PG_DUMP_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -n "$PG_DUMP_BIN" ]; then
   note "pg_dump via host binary"
-  pg_dump --no-owner --no-privileges "$DATABASE_URL" | gzip > "$DB_OUT"
+  "$PG_DUMP_BIN" --no-owner --no-privileges "$PG_DATABASE_URL" | gzip > "$DB_OUT"
 elif command -v docker >/dev/null 2>&1 && docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps --status running 2>/dev/null | grep -q postgres; then
   note "pg_dump via docker compose postgres container"
   docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T postgres \

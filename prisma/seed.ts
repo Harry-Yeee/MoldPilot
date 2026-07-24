@@ -18,6 +18,10 @@ import {
   isProcessSheetSummaryParameter,
   snapshotInjectionMachine
 } from "../src/domain/mold-trial/process-sheet.ts";
+import {
+  assertFreshProductionBootstrap,
+  resolveMoldPilotSeedMode
+} from "../src/domain/mold-trial/seed-mode.ts";
 import { hashPassword } from "../src/server/passwords.ts";
 
 const connectionString =
@@ -25,6 +29,7 @@ const connectionString =
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString })
 });
+const seedMode = resolveMoldPilotSeedMode(process.env.MOLDPILOT_SEED_MODE);
 
 const seedProjectCodes = [
   "MP-SEED-001",
@@ -76,24 +81,39 @@ function dateTime(value: string): Date {
 }
 
 async function main() {
-  await prisma.activityLog.deleteMany({
-    where: {
-      action: {
-        startsWith: "seed_"
+  if (seedMode === "production") {
+    const [users, projects, activityLogs] = await Promise.all([
+      prisma.user.count(),
+      prisma.moldTrialProject.count(),
+      prisma.activityLog.count()
+    ]);
+    assertFreshProductionBootstrap({ users, projects, activityLogs });
+  } else {
+    await prisma.activityLog.deleteMany({
+      where: {
+        action: {
+          startsWith: "seed_"
+        }
       }
-    }
-  });
-  await prisma.moldTrialProject.deleteMany({
-    where: {
-      projectCode: {
-        in: seedProjectCodes
+    });
+    await prisma.moldTrialProject.deleteMany({
+      where: {
+        projectCode: {
+          in: seedProjectCodes
+        }
       }
-    }
-  });
+    });
+  }
 
   const roles = await seedRoles();
   const groups = await seedDepartmentGroups();
   const users = await seedUsers(roles);
+  if (seedMode === "production") {
+    await prisma.user.update({
+      where: { username: "admin" },
+      data: { forcePasswordChange: true }
+    });
+  }
   await seedKpiGroupsAndMembership(groups, users);
   const permissions = await seedPermissions();
   await seedRolePermissions(roles, permissions, users);
@@ -102,6 +122,10 @@ async function main() {
   const defaultProcessTemplate = await seedDefaultProcessSheetTemplate();
   await seedCustomers(users, defaultProcessTemplate);
   await backfillProjectProcessSheetTemplates(defaultProcessTemplate);
+
+  if (seedMode === "production") {
+    return;
+  }
 
   await seedHealthyT0Planned(users);
   await seedDelayedT0(users);
@@ -2230,7 +2254,11 @@ async function createCompletedTrials(
 main()
   .then(async () => {
     await prisma.$disconnect();
-    console.log("Seeded MoldPilot Phase 1 acceptance fixtures.");
+    console.log(
+      seedMode === "production"
+        ? "Bootstrapped MoldPilot production master data without demo projects."
+        : "Seeded MoldPilot Phase 1 acceptance fixtures."
+    );
   })
   .catch(async (error) => {
     console.error(error);

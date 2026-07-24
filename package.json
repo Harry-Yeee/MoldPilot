@@ -19,6 +19,8 @@
     "e2e:smoke": "node scripts/e2e-smoke.mjs",
     "offline:cache": "bash scripts/create-offline-cache.sh",
     "offline:install": "bash scripts/install-offline-deps.sh",
+    "server:bootstrap": "bash scripts/server-bootstrap-macos.sh",
+    "server:deploy": "bash scripts/server-deploy-macos.sh",
     "pilot:preflight": "node scripts/pilot-preflight.mjs",
     "pilot:db": "node scripts/pilot-preflight.mjs --db-up",
     "pilot:setup": "node scripts/local-pilot.mjs --setup-only",
@@ -30,6 +32,7 @@
     "pilot:workflow:e2e": "node scripts/pilot-workflow-e2e.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:bootstrap": "MOLDPILOT_SEED_MODE=production prisma db seed",
     "prisma:seed": "prisma db seed && node scripts/pilot-preflight.mjs --check-seed",
     "prisma:studio": "prisma studio"
   },

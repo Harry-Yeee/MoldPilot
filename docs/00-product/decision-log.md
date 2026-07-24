@@ -675,6 +675,35 @@ Impact:
 - The development log becomes the build-history source of truth.
 - Future reviews should update the development log after meaningful milestones or when a code/docs mismatch is found.
 
+### 2026-07-24: Dedicated Mac Mini Intranet Deployment Baseline
+
+MoldPilot will run on a dedicated Mac mini inside the factory network.
+
+Decision:
+
+- Use wired Ethernet and a router-side DHCP reservation as the stable server address.
+- Keep the server private to the trusted factory LAN; do not forward port 3000 or PostgreSQL through the internet router.
+- Use Homebrew Node.js 24, pnpm 11.5.3, and native PostgreSQL 16. Python and Docker Desktop are not production prerequisites.
+- Use a repository-specific read-only GitHub deploy key for the production checkout.
+- Run the built Next.js application through a per-user launchd agent with `RunAtLoad` and `KeepAlive`.
+- Keep uploads in an absolute persistent directory outside Git and backups on a NAS or external disk.
+- Separate production bootstrap from demo seed. Production bootstrap is fresh-database-only, creates real master data without demo projects, forces the default Admin through first-login password change, and refuses to overwrite operational data.
+- Future production deployments may pull, back up, migrate, verify, build, and restart, but must never seed or reset the live database.
+
+Reason:
+
+- A stable intranet address makes bookmarked phone and desktop access reliable.
+- Native PostgreSQL and launchd fit a Mac mini server without requiring Docker Desktop's GUI session.
+- Read-only deployment credentials and fresh-only initialization reduce the damage from a compromised server or an accidental production command.
+- Keeping production data, uploads, source, and backups separate makes recovery and audits practical.
+
+Impact:
+
+- `scripts/server-bootstrap-macos.sh` is the one-time installation path.
+- `scripts/server-deploy-macos.sh` is the repeatable release path.
+- `docs/08-rollout/mac-mini-intranet-server.md` is the server runbook.
+- The dedicated macOS server user must stay logged in for the user services to run; the screen may remain locked.
+
 ## Conflict Resolution Rule
 
 When docs conflict, prefer this order:

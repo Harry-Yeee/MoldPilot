@@ -39,6 +39,66 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-24: Mac Mini Production Bootstrap And Deployment Path
+
+Context:
+
+The target Mac mini had only Git installed. The repository had local-pilot and
+backup helpers but no repeatable production prerequisite installer, no
+application launch agent, and no safe production-only initialization path.
+The existing Prisma seed also creates acceptance fixtures and updates seeded
+credentials, so it must not become a routine live-server command.
+
+Tried:
+
+Added a macOS bootstrap using official Homebrew installation, Homebrew Node.js
+24, pnpm 11.5.3, and native PostgreSQL 16. Added a production runner and
+repeatable deploy script with clean-checkout, fast-forward pull, optional backup,
+production migrations, verification, build, launchd restart, and health check.
+Added a fresh-database-only production seed mode that skips demo projects,
+forces Admin through first-login password change, and rejects any database with
+users, projects, or activity logs. Documented wired Ethernet, router DHCP
+reservation, power, security, backup, and recovery requirements.
+
+Result:
+
+Worked after two dry-run corrections. The first disposable-database review found
+that the bootstrap's user-count query used Prisma's model name instead of the
+mapped PostgreSQL table name. A separate SQL-path check found that psql
+variables are not expanded inside the selected `-c` form. Both were corrected
+before release. Native-PostgreSQL backup discovery and protected `.env` upload
+path loading were also added so the server backup does not depend on Docker or
+miss external uploads.
+
+Why:
+
+Production should be reproducible from a private Git clone without requiring
+Python or Docker Desktop. Initialization must be distinct from fixture seeding,
+and future deploys must never reset credentials or operational data.
+
+Decision:
+
+Use `server-bootstrap-macos.sh` once and `server-deploy-macos.sh` for later
+releases. Keep production Git credentials read-only and work from a stable
+router-reserved LAN address.
+
+Verification:
+
+`bash -n` passed for bootstrap, deploy, runner, and backup scripts.
+`plutil -lint` passed for the backup launchd template. Prisma validation,
+typecheck, the production build, and all 549 domain tests passed. A disposable
+PostgreSQL database received all 20 migrations and the production bootstrap;
+it contained 19 users, 14 roles, 90 clients, 26 machines, zero projects, and
+Admin first-login enforcement. Re-running production bootstrap failed with the
+fresh-database guard as intended. The disposable database and SQL-test role
+were removed afterward.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/08-rollout/deployment-checklist.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+
 ### 2026-07-23: Pre-Push Hygiene And Deployment Verification
 
 Context:

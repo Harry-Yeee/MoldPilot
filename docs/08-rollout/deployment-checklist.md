@@ -18,9 +18,9 @@ items marked ⛔ are blockers — do not put real users on the system until they
 
 ## ⛔ The commit + a tested backup
 
-5. **Commit everything.** Still one commit in history (b75595d). Every feature since — KPI engine,
-   guards, e2e, today's UI overhaul, posters, docs — is unprotected. Commit + push to the private
-   remote BEFORE deployment, not after.
+5. **Private remote + clean release.** Push the reviewed release to the private GitHub repository.
+   The production Mac mini should pull with its repository-specific read-only deploy key. Never
+   deploy an uncommitted or dirty production checkout.
 6. **Backups armed.** `scripts/backup.sh` is ready but `BACKUP_DIR` is not set anywhere. Point it
    at the NAS/external disk in `com.moldpilot.backup.plist`, load the plist, run one manual backup,
    and do one restore drill (`psql < dump` into a scratch DB + confirm uploads-mirror has bytes).
@@ -28,17 +28,20 @@ items marked ⛔ are blockers — do not put real users on the system until they
 
 ## Production run mode (the server is not `pnpm dev`)
 
-7. **Build + start.** `pnpm build` then `pnpm start` (add `-H 0.0.0.0 -p 3000` so workshop phones
-   can reach it via the LAN IP). Dev mode compiles on demand and will feel broken on first-tap.
+7. **Build + start.** Use `scripts/server-bootstrap-macos.sh --production` for the first Mac mini
+   installation and `scripts/server-deploy-macos.sh` for updates. They build production mode and
+   run Next on `0.0.0.0:3000`; never use `pnpm dev` for workshop users.
 8. **Migrations in prod:** use `pnpm exec prisma migrate deploy` (never `migrate dev` / `reset` on
    the production DB). The step-0 history repair in `migrate-and-verify.py` applies to dev only.
 9. **Storage path.** Attachments default to `<cwd>/storage/uploads`. With launchd the cwd can
    surprise you — set `MOLDPILOT_STORAGE_DIR` to an absolute path (backup.sh already honors it).
-10. **launchd for the app** (like the backup plist): KeepAlive so it survives reboots. Static LAN
-    IP for the server, NTP on (hour-based deadlines need a truthful clock), power settings: never sleep.
+10. **launchd + stable LAN address.** Bootstrap installs `com.moldpilot.app` with KeepAlive. Use
+    wired Ethernet plus a router DHCP reservation, keep NTP on, prevent automatic sleep, and keep
+    the dedicated server account logged in because Homebrew services and the app are user agents.
 11. **Fresh database for go-live.** Baseline month must not contain MP-SIM-*/MP-SEED-* simulator
-    rows: create the prod DB empty → `migrate deploy` → `pnpm seed` → create real projects only.
-    Keep the simulator strictly on the dev machine.
+    rows. Use `pnpm prisma:bootstrap` only on a fresh database; it installs production master data
+    without demo projects and refuses to overwrite users/projects/activity. Never run `prisma:seed`
+    or `pilot:reset` on production.
 
 ## Verification (run these, in order)
 

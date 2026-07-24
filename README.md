@@ -258,6 +258,28 @@ pnpm pilot:check      # verify DB, migrations, seed, dashboard data, and optiona
 
 `pnpm prisma:seed` runs through the Prisma 7 `migrations.seed` setting in `prisma.config.ts`, which points to `node prisma/seed.ts`, then verifies the `MP-PILOT-001` fixture.
 
+## Run A Mac Mini Intranet Server
+
+The production Mac mini does not need Python or Docker Desktop. The supported
+server path uses Homebrew Node.js 24, pnpm 11.5.3, native PostgreSQL 16, a
+fresh-database-only production bootstrap, and a launchd service:
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+bash scripts/server-bootstrap-macos.sh --production
+```
+
+Deploy later releases with:
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+BACKUP_DIR="/Volumes/FactoryBackup/MoldPilot" bash scripts/server-deploy-macos.sh
+```
+
+Use a router DHCP reservation for the Mac mini's wired Ethernet address. See
+`docs/08-rollout/mac-mini-intranet-server.md` for GitHub deploy-key, static LAN
+address, security, service, verification, and restore instructions.
+
 The initial test suite covers the Phase 1 domain rules documented in `docs/03-build/acceptance-tests.md`, especially trial-limit calculation and required workflow validations.
 
 ## Phone access (`/me` My Plate + PWA)
