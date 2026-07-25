@@ -22,8 +22,12 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   turbopack,
   poweredByHeader: false,
+  outputFileTracingIncludes: {
+    "/*": ["./assets/fonts/**/*"]
+  },
   experimental: {
     serverActions: {
       // Large business files stream through /api/uploads. Server Actions retain a

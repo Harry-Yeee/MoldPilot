@@ -21,6 +21,36 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-25: Docker D1 Is A Parallel Runtime Foundation, Not A Production Cutover
+
+MoldPilot needs a repeatable container runtime before the wider LJ_ERP platform
+can own per-application deployment, storage, proxying, backup, and rollback.
+That foundation must not silently replace the working native Mac mini path or
+touch live data while container upload scanning is incomplete.
+
+Decision:
+
+- Build Next.js with standalone output and provide a pinned, multi-architecture
+  Node 24 Debian-slim image that runs the application as a non-root user.
+- Keep migration execution operator-controlled and separate from application
+  startup. The production image never migrates, seeds, resets, or invokes local
+  pilot setup.
+- Expose unauthenticated, non-sensitive liveness and readiness endpoints.
+  Readiness checks PostgreSQL plus writable upload/quarantine directories, but
+  intentionally excludes ClamAV until D2.
+- Prove D1 only against a uniquely named disposable Compose project and
+  disposable PostgreSQL volume. Do not modify the parent LJ_ERP Compose file,
+  live database, native launchd scripts, Caddy, backups, or rollback path.
+- D1 is not approved for production cutover. The native Homebrew/launchd Mac
+  mini deployment remains the accepted runtime and rollback path.
+
+Reason:
+
+Separating image/runtime proof from infrastructure cutover keeps a container
+build from becoming an accidental production migration. D2 must add a
+container-compatible malware-scanning service and persistent-storage tests
+before platform integration can be evaluated safely.
+
 ### 2026-07-25: Session Cookie Security Follows The Actual Deployment Scheme
 
 The current Mac mini pilot may temporarily run over plain HTTP on an isolated,

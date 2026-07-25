@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: moldpilot_d1_smoke
+      POSTGRES_USER: moldpilot_d1_smoke
+      POSTGRES_PASSWORD: ${MOLDPILOT_D1_SMOKE_DB_PASSWORD:?smoke database password is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moldpilot_d1_smoke -d moldpilot_d1_smoke"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - smoke
+    volumes:
+      - smoke-db:/var/lib/postgresql/data
+
+  migrator:
+    image: ${MOLDPILOT_D1_MIGRATOR_IMAGE:?smoke migrator image is required}
+    environment:
+      DATABASE_URL: ${MOLDPILOT_D1_SMOKE_DATABASE_URL:?smoke database URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smoke
+
+  app:
+    image: ${MOLDPILOT_D1_APP_IMAGE:-moldpilot:d1}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      MOLDPILOT_DEPLOYMENT_MODE: production
+      MOLDPILOT_SESSION_SECRET: ${MOLDPILOT_D1_SMOKE_SESSION_SECRET:?smoke session secret is required}
+      MOLDPILOT_BASE_URL: http://app:3000
+      MOLDPILOT_SESSION_COOKIE_SECURE: auto
+      DATABASE_URL: ${MOLDPILOT_D1_SMOKE_DATABASE_URL:?smoke database URL is required}
+      MOLDPILOT_STORAGE_DIR: /data/uploads
+      MOLDPILOT_QUARANTINE_DIR: /data/quarantine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smoke
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    volumes:
+      - smoke-data:/data
+
+networks:
+  smoke:
+    internal: true
+
+volumes:
+  smoke-db:
+  smoke-data:

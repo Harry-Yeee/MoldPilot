@@ -22,6 +22,7 @@
     "offline:install": "bash scripts/install-offline-deps.sh",
     "server:bootstrap": "bash scripts/server-bootstrap-macos.sh",
     "server:deploy": "bash scripts/server-deploy-macos.sh",
+    "docker:d1:smoke": "bash scripts/docker-d1-smoke.sh",
     "pilot:preflight": "node scripts/pilot-preflight.mjs",
     "pilot:db": "node scripts/pilot-preflight.mjs --db-up",
     "pilot:setup": "node scripts/local-pilot.mjs --setup-only",

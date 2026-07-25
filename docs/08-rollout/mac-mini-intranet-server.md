@@ -3,6 +3,20 @@
 This is the source-of-truth setup for running MoldPilot on a dedicated Mac mini
 inside the factory LAN.
 
+## Docker D1 Parallel Track
+
+The native deployment documented below remains the accepted production and
+rollback path. Docker Milestone D1 adds a separately tested standalone image,
+health endpoints, and disposable PostgreSQL smoke environment, but it does not
+change launchd, Homebrew PostgreSQL, Caddy, live data, backup, or the parent
+LJ_ERP Compose structure.
+
+D1 is **not approved for production cutover**. Its upload code still expects a
+host-style ClamAV executable, while the D1 container deliberately performs no
+scanner readiness check. D2 must add a container-compatible ClamAV service and
+persistent-storage test before any platform cutover design. See
+`docker-d1-runtime-foundation.md` for build and smoke instructions.
+
 ## Deployment Shape
 
 - The Mac mini uses wired Ethernet and a router DHCP reservation.

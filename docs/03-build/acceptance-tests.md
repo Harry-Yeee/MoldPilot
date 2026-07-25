@@ -1656,6 +1656,48 @@ Expected:
 - No secrets, business uploads, dumps, certificates, scanner output, or the
   quarantined legacy workbook are committed.
 
+### AT-033: Docker D1 Standalone Runtime Foundation
+
+Layer: Domain + deployment inspection + disposable container smoke
+
+Preconditions:
+
+- Docker Desktop is running on a development machine.
+- No inherited database URL or Compose project name is marked as production.
+- The native Mac mini service and live PostgreSQL database remain untouched.
+
+Steps:
+
+1. Run `docker build -t moldpilot:d1 .`.
+2. Inspect the final image user, environment, filesystem, health check, and
+   architecture metadata.
+3. Run `pnpm docker:d1:smoke`.
+4. Observe the one-time migration target, application health, and cleanup.
+
+Expected:
+
+- The final image uses the pinned Node 24 Debian-slim multi-architecture base,
+  contains Next standalone/static/public assets plus the generated Prisma
+  runtime and CJK PDF font, and runs as UID/GID `10001:10001`.
+- `/api/health/live` returns `200` with `{ "status": "ok" }` without querying
+  PostgreSQL. `/api/health/ready` returns `200` only when PostgreSQL and both
+  persistent directories are ready; failure returns `503` with component
+  states and no path, URL, credential, SQL error, or stack trace.
+- Startup rejects missing production configuration or unwritable persistent
+  directories before Next starts. It does not invoke Homebrew ClamAV.
+- The normal runtime entrypoint never migrates, seeds, or resets data. The
+  disposable migrator applies migrations only to an internal PostgreSQL 16
+  service with no published port.
+- The smoke project name is unique; `/login`, liveness, and readiness return
+  `200`; Docker reports the app healthy; and the process is non-root.
+- Success and failure both remove only the disposable smoke containers,
+  network, and volumes. Production scripts never use `docker compose down -v`.
+- No `.env`, secret, upload, backup, RAW, generated export, browser artifact,
+  or offline package cache exists in the final image.
+- D1 remains a development proof. It is not a production-cutover acceptance
+  until D2 supplies container-compatible malware scanning and persistent
+  storage validation.
+
 ## Exit Criteria
 
 Before Phase 1 v0.1 is accepted:

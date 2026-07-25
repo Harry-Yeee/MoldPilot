@@ -39,6 +39,83 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-25: Docker D1 Standalone Container Runtime Foundation
+
+Context:
+
+MoldPilot needed a secure, reproducible standalone container proof before any
+shared LJ_ERP production integration. The working native Homebrew/launchd Mac
+mini deployment, live database, parent Compose file, backup, and rollback path
+had to remain untouched. Container upload scanning is intentionally deferred to
+D2.
+
+Tried:
+
+Enabled Next standalone output, added a digest-pinned Node 24.18.0
+bookworm-slim multi-stage image, generated Prisma before build, and copied only
+the standalone/static/public runtime plus required startup helpers. The final
+image runs as UID/GID 10001, uses a Node/fetch liveness health check, validates
+production authentication and writable persistent directories, and `exec`s the
+standalone server without migrating or seeding.
+
+Added dynamic no-store liveness and readiness routes. Readiness runs a minimal
+Prisma/PostgreSQL query plus write/delete probes for upload and quarantine
+directories, returning only component states. Added a unique, internal-network
+Compose smoke runner with random test credentials, a separate one-time
+migrator target, non-published PostgreSQL 16, read-only app root, scoped cleanup,
+secret/image inspection, and non-root verification.
+
+Two first attempts exposed useful packaging problems. A broad explicit Prisma
+trace glob pulled stale cached Prisma packages and made local standalone output
+430 MiB. Removing that glob let Next trace the actual generated 7.8.0 runtime
+while retaining the explicit CJK font; standalone fell to 73 MiB and the real
+readiness query proved Prisma worked. The first Debian-slim build also warned
+that OpenSSL was missing. Installing only Debian's `openssl`/`libssl3` in build
+and runtime stages removed the warning; it was not ignored.
+
+Result:
+
+Worked. The final arm64 image is 112,530,778 bytes (107.3 MiB), runs as
+10001:10001, reports Docker health `healthy`, and returns HTTP 200 for liveness,
+readiness, and `/login`. The smoke migrator applied all 21 migrations only to
+its disposable database. Both smoke runs removed their uniquely named
+containers, networks, and volumes. Final image inspection found no `.env`, RAW,
+storage, generated data, or baked runtime secret/configuration. The native
+`scripts/run-production-macos.sh` file was unchanged.
+
+Why:
+
+A buildable image is not a production architecture. Keeping migrations in a
+separate disposable target and requiring runtime configuration prevents normal
+container startup from mutating data. Liveness must not depend on PostgreSQL;
+readiness must fail without revealing dependency details. D1 stops before
+production because uploaded files still need a container-compatible fail-closed
+scanner and tested persistent backup/restore path.
+
+Decision:
+
+Keep D1 as a parallel development foundation. Do not modify parent LJ_ERP
+infrastructure or cut over production. D2 owns ClamAV service integration,
+quarantine/release persistence, storage backup/restore, and later platform
+proxy/database/deploy/rollback design. Keep native launchd operational.
+
+Verification:
+
+`pnpm exec prisma validate`, `CI=true pnpm test` (632/632), `pnpm typecheck`,
+and `pnpm build` passed. `docker build -t moldpilot:d1 .` passed from the pinned
+multi-architecture digest without Prisma/OpenSSL warnings. The final
+`pnpm docker:d1:smoke` passed all HTTP, PostgreSQL, health, identity, cleanup,
+and image-content checks. Shell syntax and focused ESLint checks passed. No
+Prisma schema/migration, live database, live service, shared Compose, or native
+deployment file was changed.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/03-build/acceptance-tests.md` (AT-033)
+- `docs/08-rollout/docker-d1-runtime-foundation.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+
 ### 2026-07-25: Security: Session Revocation On Password Change + Tamper-Evident KPI Snapshot
 
 Context:
