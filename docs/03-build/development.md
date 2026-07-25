@@ -39,6 +39,317 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-25: Security: Session Revocation On Password Change + Tamper-Evident KPI Snapshot
+
+Context:
+
+Two risks left over from the pre-deployment sweep. First, sessions are stateless
+signed cookies (`{ v, userId, issuedAt }`, 12-hour lifetime) with no server-side
+session table, so a password change did NOT invalidate cookies already in the
+wild — the stolen-phone case. An admin resetting a password produced a new
+password and a still-working thief. Second, the monthly KPI snapshot that the CEO
+and both referees sign at the prize meeting was unverifiable paper: nothing tied
+the printed page to the numbers actually stored that night.
+
+Tried:
+
+*Session revocation.* Extracted the decision as a pure function
+`isSessionRevoked(issuedAtMs, passwordUpdatedAtMs, skewMs)` in
+`src/domain/security/session-revocation.ts` and applied it at the one place that
+already loads the actor row after parsing the cookie —
+`getOptionalCurrentUser()` in `src/server/current-user.ts`. `parseSessionToken`
+now returns `{ userId, issuedAtMs }` instead of just the id, and the cookie
+reader is `getSessionClaims()`; `getSessionUserId()` was removed so no caller can
+obtain a user id without the revocation check. A revoked cookie returns `null`
+exactly like an expired one, so `getCurrentUser()` performs the existing bare
+`redirect("/login")` — no new user-facing string, no new i18n key.
+
+*Skew constant.* `SESSION_REVOCATION_SKEW_MS = 60_000`. It covers two things: the
+token stores `issuedAt` in whole seconds (`Math.floor(Date.now() / 1000)`), so a
+cookie re-issued in the same action as the password write can read up to 999 ms
+"older" than `passwordUpdatedAt`; and application/database clocks are not
+identical. The boundary is inclusive — `issuedAt == passwordUpdatedAt - skew`
+survives.
+
+*Password paths.* Audited every write of `passwordHash`. Both already stamped
+`passwordUpdatedAt = new Date()`: `changeOwnCredentials` (which serves BOTH the
+self change and the forced first-login change) and `resetUserPassword` (admin
+reset). Nothing needed adding. Admin *user creation* deliberately leaves
+`passwordUpdatedAt` null, matching `seededUserCreateCredentials` — a brand-new
+account has no sessions to revoke, and null means "never revoked".
+
+*Self-session-survives design decision (deployment-checklist item 17).*
+`changeOwnCredentials` already called `setSessionCookie(updated.id)` after the
+transaction; that call is now load-bearing rather than incidental and is
+commented as such. The order matters: write `passwordUpdatedAt`, then re-issue
+the cookie, then redirect. The alternative — carving out "the session that
+performed the change" — would need session identity we do not have in a
+stateless cookie. Re-issuing is simpler and strictly safer: every *other* cookie
+for that user is now older than `passwordUpdatedAt` and dies on its next request.
+Added one guard for a case the new check would otherwise regress: an admin
+resetting their OWN password through the admin form gets a re-issued cookie too
+(`if (updated.id === actor.id)`), so they keep working and still hit the forced
+first-login gate instead of being bounced to `/login` mid-task. Resetting
+somebody else never touches the admin's cookie.
+
+*Tamper-evident snapshot.* `src/domain/security/snapshot-integrity.ts` is a
+dependency-free pure module (SHA-256 is injected, so `src/domain` gains no Node
+built-in import) providing `canonicalizeForIntegrity`, `snapshotIntegrityHash`,
+`formatIntegrityCode`, `buildSnapshotFile`, and `verifySnapshotFile`.
+Canonicalization: object keys sorted by code unit, array order preserved,
+`undefined` members dropped, `-0` normalised to `0`, non-finite numbers and
+`Date` values rejected (callers must pre-serialise to ISO strings so the hashed
+bytes are exactly the stored bytes). `scripts/run-kpi-snapshot.mjs` now writes a
+JSON archive alongside the `KpiSnapshot` rows. The hash covers the `data` section
+only — `snapshotDate`, `months`, `rowCount`, and every snapshot row
+(`month`/`scopeType`/`scopeId`/`metrics`, sorted by that key) — and deliberately
+excludes `generatedAt` and the `integrity` block itself, so re-running over
+unchanged data reproduces the same code. The run prints month, generated-at, row
+counts by scope, archive path, and the first 12 hex characters as
+`Integrity code / 校验码: XXXX-XXXX-XXXX`. `--verify <file>` recomputes and prints
+PASS/FAIL; it is handled before the Prisma import, so verification needs no
+database. Archive path defaults to `storage/kpi-snapshots/kpi-snapshot-<date>.json`
+(override with `MOLDPILOT_KPI_SNAPSHOT_DIR` or `--out`), written mode `0600`.
+
+Result:
+
+Worked. `npx tsc --noEmit` clean; `node --test tests/domain/*.test.ts` 623/623
+(was 594 — 29 new). `--verify` exercised for real on a synthetic archive: PASS,
+then a one-character `sed` edit of a metric produced FAIL with exit 1 and both
+"recomputed hash does not match" and "printed integrity code does not match".
+
+No database, dev server, migration, seed, or Prisma client generation was
+involved — the sandbox has none of those. Everything asserted here is either a
+pure unit test, a source-level wiring assertion, or the DB-free `--verify` path.
+The two-browser and admin-reset behaviours are reasoned from the code and still
+need Harry's manual run (see `deployment-checklist.md` item 17).
+
+Why:
+
+A stateless cookie cannot be deleted server-side, but every authorising request
+already fetches the user row for permissions — so the revocation check is free:
+no extra query, no session table, no schema change (`passwordUpdatedAt` already
+existed). Reusing the expired-session path means a revoked cookie needs zero new
+UX.
+
+For the snapshot, the honest claim is narrow: the chain is *signed paper ↔
+integrity code ↔ archived JSON (nightly backup, off-machine)*. It EVIDENCES
+tampering after the fact. It does not prevent anyone with database access from
+editing rows, and it is not a signature — anyone who can rewrite the rows can
+also rewrite the archive file, which is why the signed paper (held by three
+people) is the leg that cannot be edited from a keyboard. Precise about the
+off-machine leg: `scripts/backup.sh` tars the database dump plus
+`MOLDPILOT_STORAGE_DIR`, so the `KpiSnapshot` rows behind the code do travel in
+the nightly encrypted archive, but `storage/kpi-snapshots/*.json` does NOT unless
+`MOLDPILOT_KPI_SNAPSHOT_DIR` is pointed inside the backed-up uploads tree.
+`backup.sh` was deliberately left alone (active owner). Operationally the archive
+file is filed with the signed page; the numbers are recoverable from the dump.
+
+Decision:
+
+One clock-skew constant, in the domain layer, at 60 s. Changing your own password
+keeps the current device signed in and logs out every other device — do not
+"improve" this by clearing the cookie in the change action. Never read the
+session cookie without the revocation check; use `getSessionClaims()` and pass
+`user.passwordUpdatedAt` to `isSessionRevoked`. The KPI snapshot's hash covers the
+`data` section only; if a field is added to a snapshot row, the hash changes by
+design and old archives keep verifying against their own recorded hash.
+
+Verification:
+
+Gates: `npx tsc --noEmit` clean, `node --test tests/domain/*.test.ts` 623/623,
+`npx eslint` clean on every changed file. New tests:
+`tests/domain/session-revocation.test.ts` (null `passwordUpdatedAt` never
+revokes; before/after/boundary; explicit and degenerate skews; whole-second
+re-issue flooring; fail-closed on an unreadable issue time; plus wiring
+assertions on `auth-session.ts`, `current-user.ts`, `auth-actions.ts`, and
+`admin-actions.ts`) and `tests/domain/snapshot-integrity.test.ts`
+(canonicalization, insertion-order independence, rejected value types, code
+grouping, `generatedAt` exclusion, PASS/tamper-FAIL, missing-hash reporting).
+Worked example, recorded so a future change is visible: the synthetic
+three-row payload in that test hashes to
+`464c39815679d0f85db073d4911e65eea0e87e2867d2ef11172dc9d20e1fd8a9`, integrity code
+`464C-3981-5679`.
+
+E2E implications: `scripts/e2e-smoke.mjs` needed NO change. Its forged cookies
+use `issuedAt = Math.floor(Date.now() / 1000)` (now), and seeded users — admin
+included — are created with `passwordUpdatedAt: null` via
+`seededUserCreateCredentials`, which `seedManagedUserUpdate` preserves on
+reseed. Null never revokes, so the null direction is green. If a seeded account
+has been given a real `passwordUpdatedAt` on a dev database, a fresh forged
+cookie is still newer than it, so that direction is green too. The smoke script's
+temporary `forcePasswordChange` flip touches neither `passwordHash` nor
+`passwordUpdatedAt`; a regression test now asserts both facts.
+
+Related Docs:
+
+- `docs/08-rollout/deployment-checklist.md` (items 7 and 17)
+- `docs/08-rollout/security-hardening-runbook.md` (§7a key escrow + restore drill)
+- `docs/08-rollout/conversations-workbook.md` (prize-meeting signing line)
+
+### 2026-07-25: Production Cookie Scheme And Credential-Safe Reseeding
+
+Context:
+
+The live Mac mini pilot used an HTTP `MOLDPILOT_BASE_URL`, but production
+sessions inferred `Secure=true` from `NODE_ENV`. Browsers therefore withheld
+the session cookie during forced password change. The demo seed's user-upsert
+update branch also reset password and login lifecycle fields, and local pilot
+launchers could reach migrations/seed when pointed at a production `.env`.
+
+Tried:
+
+Added a pure `auto|true|false` session-cookie resolver and a production
+configuration validator. `auto` follows the configured HTTP/HTTPS scheme and
+falls back to Secure in production when no base URL is available. Production
+bootstrap, deploy, and runtime validate deployment mode, base URL, and cookie
+compatibility; deploy validates before stopping the service. Temporary HTTP
+prints a prominent plaintext warning and binds only to the configured LAN host,
+while preferred HTTPS remains loopback-only behind Caddy.
+
+Added independent production-mode guards to `local-pilot.mjs` and the
+double-click launcher before migration/seed paths. Refactored seed user data so
+existing-user updates contain only seed-managed profile/role fields, while
+new-user creates still receive hashed temporary credentials and first-login
+enforcement.
+
+Result:
+
+Worked. Focused and full regression tests pass. A disposable PostgreSQL proof
+created seeded users, changed Bill's password hash plus all three lifecycle
+values, reran the seed, and confirmed `passwordHash`, `forcePasswordChange`,
+`passwordUpdatedAt`, and `lastLoginAt` were unchanged. Newly created Bill first
+had a non-plaintext hash, forced password change, and null lifecycle dates. The
+disposable database was dropped and no test databases remain.
+
+The first disposable migration attempt failed before seed because its manually
+constructed TCP URL omitted the protected local Docker password. The cleanup
+trap removed that database. The successful proof rebuilt the throwaway URL in
+memory from protected `.env`, copied schema only (no business rows), and never
+printed the credential.
+
+Why:
+
+Cookie security must match the connection the browser actually uses; Secure
+cookies over HTTP break authentication rather than harden it. Seed files may
+own pilot profile defaults but must never become password-reset tools for
+existing accounts. Production markers provide a second boundary against an
+operator accidentally using a local launcher on the server.
+
+Decision:
+
+Require `MOLDPILOT_DEPLOYMENT_MODE=production` and
+`MOLDPILOT_SESSION_COOKIE_SECURE=auto` for normal server configuration. Accept
+direct HTTP only as a temporary isolated-LAN choice with explicit warning;
+prefer HTTPS/Caddy. Never run local pilot or seed commands on production even
+though seed upserts now preserve existing credentials.
+
+Verification:
+
+Shell syntax checks passed for bootstrap, deploy, production runner, local
+runner, and double-click launcher. Prisma validation passed. The complete suite
+passed 594/594 tests. ESLint, strict typecheck, and the Next.js 16.2.11
+production build passed. The HTTP/auto production checker resolved
+`Secure=false` and printed the required warning. No live Mac mini migration,
+seed, environment edit, or service restart was performed.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+- `docs/08-rollout/deployment-checklist.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+
+### 2026-07-25: Security Remediation And Fail-Closed Production Controls
+
+Context:
+
+A security review found a vulnerable Next.js runtime, unaudited production
+dependencies, direct LAN HTTP/port-3000 exposure, no persistent login backoff,
+globally oversized Server Actions, large uploads trusted by extension/MIME,
+no malware-scanning release gate, an unreviewed legacy `.xls`, optional
+unencrypted backup behavior, an inactive backup scheduler, and a bootstrap path
+that could execute the mutable Homebrew `curl | bash` installer.
+
+Tried:
+
+Updated Next.js to the patched 16.2.11 release and pinned the compatible Prisma
+toolchain. Added database-backed HMAC-keyed account/source login throttling with
+temporary progressive backoff, generic failures, dummy password verification,
+and serializable concurrency retries. Replaced large upload Server Actions with
+an authenticated streaming endpoint and private
+quarantine -> signature/archive validation -> local ClamAV scan -> release
+pipeline. Added per-type limits, ZIP/Office abuse checks, opaque storage keys,
+partial/abandoned cleanup, and protected `nosniff` downloads. Reduced the
+Server Action limit to 12 MB for the remaining compressed issue-photo path.
+
+Changed the production runner to loopback-only Next.js, Secure cookies, trusted
+proxy mode, and mandatory scanner health. Added a CIDR-restricted, host-pinned
+Caddy internal-TLS template without HSTS. Hardened bootstrap to reject missing
+reviewed Homebrew/Caddy/ClamAV prerequisites rather than executing a remote
+installer. Replaced backups with versioned `age`-encrypted off-machine archives
+and a guarded scratch restore; normal deploys now require a successful backup.
+Moved active machine seed input to a reviewed JSON fixture and added an
+approval-gated local ClamAV + `olevba` workbook quarantine script.
+
+Result:
+
+Application controls work and fail closed. The production build uses Next.js
+16.2.11 without broad output-tracing warnings. All 21 migrations are applied to
+the local MoldPilot database, including the additive login-throttle table.
+`pilot:check` now tolerates the valid automatic transition of overdue seeded T1
+from Planned to Auto Missed while still enforcing T1 sequence 2.
+
+The current development Mac is **not** production-ready yet. Its protected
+`.env` has no session secret; the shared Docker PostgreSQL listener is
+`*:5432`; Caddy, ClamAV, age, and `olevba` are absent; HTTPS/certificate trust
+and the backup scheduler are not active; no encrypted backup/restore drill has
+run; and the legacy workbook remains in `RAW`. These are intentionally
+unclaimed approval/setup steps. `pnpm audit --prod` is also pending explicit
+consent because it transmits the private dependency inventory to npm.
+
+Why:
+
+Files must never become downloadable based only on client metadata, scanner
+outages must not become availability bypasses, login backoff must survive
+restart, and LAN deployment must not expose application or database plaintext
+listeners. Machine-level service, certificate, firewall, database recreation,
+secret rotation, scheduler, and destructive workbook actions need an operator
+who understands their access impact and rollback.
+
+Decision:
+
+Keep Next.js on `127.0.0.1:3000` behind approved Caddy HTTPS and keep PostgreSQL
+loopback-only. Require a healthy local scanner before production startup and
+explicit clean scans before attachment release. Require encrypted off-machine
+backup before routine deployment. Keep initial HSTS disabled. Follow
+`docs/08-rollout/security-hardening-runbook.md` for every approval-gated
+machine action; never upload business files to public scanning services.
+
+Verification:
+
+Prisma validation, ESLint, strict TypeScript, and the clean Next.js 16.2.11
+production build passed. The full domain suite passed with 583 tests. Focused
+security tests covered progressive throttling, concurrent persistence,
+signature spoofing, double extensions, streaming overflow, ZIP traversal/bomb
+limits, origin/auth ordering, fail-closed scanning, loopback/TLS config,
+encrypted backup design, and workbook quarantine. `pilot:check` passed;
+`e2e:smoke` passed 40/40; pilot data E2E passed; and the full browser/server
+action workflow passed including bilingual mobile tasks, department-inbox
+claim, PDF download/re-download, permissions, Admin lifecycle, and reports.
+The temporary production server was observed on `127.0.0.1:3000` only and was
+stopped afterward.
+
+Related Docs:
+
+- `docs/02-schema/schema-v0.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/03-build/pilot-acceptance-checklist.md`
+- `docs/08-rollout/deployment-checklist.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+- `docs/08-rollout/security-hardening-runbook.md`
+
 ### 2026-07-24: Mac Mini Production Bootstrap And Deployment Path
 
 Context:

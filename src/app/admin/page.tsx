@@ -211,7 +211,6 @@ export default async function AdminPage({ searchParams }: PageProps) {
                     : canViewKpiScores
                       ? "scores"
                       : "users";
-  const adminRedirectTo = `/admin?tab=${activeTab}`;
   const usersRedirectTo = "/admin?tab=users";
   const customersRedirectTo = "/admin?tab=clients";
   const machinesRedirectTo = "/admin?tab=machines";

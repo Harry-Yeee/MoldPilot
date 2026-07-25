@@ -6,20 +6,39 @@ const turbopack = {
   root: projectRoot
 };
 
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "same-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(self), geolocation=(), microphone=(), payment=(), usb=()"
+  },
+  {
+    key: "Content-Security-Policy",
+    value: "base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"
+  }
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   turbopack,
+  poweredByHeader: false,
   experimental: {
     serverActions: {
-      // Uploads go through a Next.js server action. Next's default server-action
-      // body-size limit is 1 MB (node_modules/next/dist/server/app-render/
-      // action-handler.js: `serverActions?.bodySizeLimit ?? 1024 * 1024 // 1 MB`),
-      // so without this even an 8 MB trial photo would fail. Our largest allowed
-      // upload is 300 MB (CAD/video); 320mb leaves headroom for multipart form
-      // overhead (field boundaries + base64-ish framing). `bodySizeLimit` lives
-      // on the `experimental` config in Next 16 (ExperimentalConfig.serverActions).
-      bodySizeLimit: "320mb"
+      // Large business files stream through /api/uploads. Server Actions retain a
+      // narrowly bounded allowance only for up to three client-compressed issue
+      // photos (9 MB combined plus multipart/form overhead).
+      bodySizeLimit: "12mb"
     }
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: securityHeaders
+      }
+    ];
   }
 };
 

@@ -29,9 +29,6 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
 
   useEffect(() => {
     if (!state.success || state.attachmentId == null || state.fileName == null) {
-      if (state.error != null) {
-        setPhase("error");
-      }
       return;
     }
 
@@ -97,9 +94,12 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
     };
   }, [router, state, t]);
 
-  const busy = pending || phase === "exporting" || phase === "downloading";
+  const visiblePhase = state.error != null && !pending ? "error" : phase;
+  const busy =
+    pending ||
+    (visiblePhase !== "error" && (phase === "exporting" || phase === "downloading"));
   const buttonLabel =
-    phase === "downloading"
+    visiblePhase === "downloading"
       ? t("project.downloadingCustomerPdf")
       : busy
         ? t("project.exportingCustomerPdf")
@@ -125,12 +125,12 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
         {buttonLabel}
       </Button>
       <div className="max-w-72 text-right text-xs" aria-live="polite">
-        {phase === "downloaded" && state.fileName != null ? (
+        {visiblePhase === "downloaded" && state.fileName != null ? (
           <span className="text-status-completed">
             {t("project.customerPdfDownloaded")} {state.fileName} {t("project.customerPdfSaved")}
           </span>
         ) : null}
-        {phase === "error" && errorMessage != null ? (
+        {visiblePhase === "error" && errorMessage != null ? (
           <span className="text-status-missed">{errorMessage}</span>
         ) : null}
       </div>

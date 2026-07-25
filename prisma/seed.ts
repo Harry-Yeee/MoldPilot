@@ -22,6 +22,10 @@ import {
   assertFreshProductionBootstrap,
   resolveMoldPilotSeedMode
 } from "../src/domain/mold-trial/seed-mode.ts";
+import {
+  seedManagedUserUpdate,
+  seededUserCreateCredentials
+} from "../src/domain/security/seed-user-policy.ts";
 import { hashPassword } from "../src/server/passwords.ts";
 
 const connectionString =
@@ -254,24 +258,17 @@ async function seedUsers(roles: Awaited<ReturnType<typeof seedRoles>>) {
     userDefinitions.map(([username, displayName, chineseName, roleCode, isDefaultAdmin, password, forcePasswordChange]) =>
       prisma.user.upsert({
         where: { username },
-        update: {
+        update: seedManagedUserUpdate({
           displayName,
           chineseName,
-          passwordHash: hashPassword(password),
-          forcePasswordChange,
-          passwordUpdatedAt: null,
-          lastLoginAt: null,
           roleId: roles[roleCode].id,
-          departmentGroupId: null,
-          isDefaultAdmin,
-          status: "ACTIVE"
-        },
+          isDefaultAdmin
+        }),
         create: {
           username,
           displayName,
           chineseName,
-          passwordHash: hashPassword(password),
-          forcePasswordChange,
+          ...seededUserCreateCredentials(hashPassword(password), forcePasswordChange),
           roleId: roles[roleCode].id,
           departmentGroupId: null,
           isDefaultAdmin,
@@ -662,6 +659,9 @@ function decimalTextFromCell(value: string | null | undefined): string | null {
   return number == null ? null : String(number);
 }
 
+// Retained temporarily only to compare a quarantined legacy workbook during
+// manual recovery review. Production and pilot seeding never call this parser.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function loadWorkbookInjectionMachines(): WorkbookMachineRow[] {
   const workbookPath = path.join(process.cwd(), "RAW", "Injection-Machines-2026.07.02.xls");
 
@@ -713,8 +713,61 @@ function loadWorkbookInjectionMachines(): WorkbookMachineRow[] {
     });
 }
 
+function loadReviewedInjectionMachines(): WorkbookMachineRow[] {
+  const fixturePath = path.join(
+    process.cwd(),
+    "prisma",
+    "fixtures",
+    "injection-machines-2026-07-02.json"
+  );
+  const parsed: unknown = JSON.parse(readFileSync(fixturePath, "utf8"));
+  if (!Array.isArray(parsed) || parsed.length < 25) {
+    throw new Error("Reviewed injection machine fixture is missing or incomplete.");
+  }
+
+  const seenMachineNos = new Set<string>();
+  return parsed.map((raw, index): WorkbookMachineRow => {
+    if (typeof raw !== "object" || raw == null || Array.isArray(raw)) {
+      throw new Error(`Reviewed injection machine fixture row ${index + 1} is invalid.`);
+    }
+    const row = raw as Record<string, unknown>;
+    const machineNo = typeof row.machineNo === "string" ? row.machineNo.trim() : "";
+    const clampingForce = row.clampingForce;
+    const brand = typeof row.brand === "string" ? row.brand.trim() : "";
+    const shotWeight = typeof row.shotWeight === "string" ? row.shotWeight.trim() : "";
+    const active = row.active;
+
+    if (
+      !/^\d+$/.test(machineNo) ||
+      seenMachineNos.has(machineNo) ||
+      typeof clampingForce !== "number" ||
+      !Number.isInteger(clampingForce) ||
+      clampingForce <= 0 ||
+      brand.length === 0 ||
+      !/^\d+(?:\.\d+)?$/.test(shotWeight) ||
+      typeof active !== "boolean"
+    ) {
+      throw new Error(`Reviewed injection machine fixture row ${index + 1} failed validation.`);
+    }
+    seenMachineNos.add(machineNo);
+
+    return {
+      sequence: machineNo,
+      machineNo,
+      displayName: null,
+      brand,
+      model: null,
+      tonnage: clampingForce,
+      shotCapacityG: shotWeight,
+      nozzleOrificeMm: null,
+      notes: "Seeded from reviewed machine master fixture 2026-07-02.",
+      active
+    };
+  });
+}
+
 async function seedInjectionMachines() {
-  const machineDefinitions = loadWorkbookInjectionMachines();
+  const machineDefinitions = loadReviewedInjectionMachines();
 
   if (machineDefinitions.length < 20) {
     throw new Error("Injection machine workbook import produced too few rows for the pilot machine master.");
@@ -755,6 +808,11 @@ async function seedInjectionMachines() {
       notIn: workbookMachineNos
     },
     OR: [
+      {
+        notes: {
+          contains: "machine master fixture 2026-07-02"
+        }
+      },
       {
         notes: {
           contains: "RAW/Injection-Machines-2026.07.02.xls"

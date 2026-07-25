@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Lightbox sources are authenticated attachment or local blob URLs. */
+
 import { useCallback, useEffect, useRef } from "react";
 import { nextImageIndex, prevImageIndex } from "@/domain/mold-trial/attachments";
 import { lightboxLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";

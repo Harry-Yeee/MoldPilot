@@ -477,7 +477,7 @@ async function runPartB(cookies, sim) {
 }
 
 // --- PART C: DB golden-path pipeline -----------------------------------------
-async function runPartC(prisma, sim) {
+async function runPartC(prisma) {
   console.log("\nPART C — DB golden-path pipeline (prisma + pure domain, no HTTP)\n");
   const simProjectFilter = { moldTrialProject: { projectCode: { startsWith: SIM_PREFIX } } };
 
@@ -778,7 +778,7 @@ async function main() {
 
     await runPartA(cookies, sim, scoreboardEnabled);
     await runPartB(cookies, sim);
-    await runPartC(prisma, sim);
+    await runPartC(prisma);
   } finally {
     try {
       await restoreSmokePageSweepUsers(prisma, changedSmokeUsers);

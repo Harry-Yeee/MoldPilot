@@ -4,26 +4,22 @@
 <dict>
   <key>Label</key>
   <string>com.moldpilot.backup</string>
-
-  <!-- EDIT the two paths below for the server Mac, then:
-       cp scripts/com.moldpilot.backup.plist ~/Library/LaunchAgents/
-       launchctl load ~/Library/LaunchAgents/com.moldpilot.backup.plist
-       Test immediately with: launchctl start com.moldpilot.backup -->
-
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/ipwaikei/Documents/LJ_ERP/MoldPilot/scripts/backup.sh</string>
+    <string>__PROJECT_ROOT__/scripts/backup.sh</string>
   </array>
-
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_ROOT__</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>BACKUP_DIR</key>
-    <string>/Volumes/Backup/moldpilot</string>
+    <string>__BACKUP_DIR__</string>
+    <key>BACKUP_AGE_RECIPIENT</key>
+    <string>__AGE_RECIPIENT__</string>
     <key>PATH</key>
-    <string>/opt/homebrew/opt/postgresql@16/bin:/usr/local/opt/postgresql@16/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/opt/homebrew/bin:/opt/homebrew/opt/postgresql@16/bin:/usr/local/bin:/usr/local/opt/postgresql@16/bin:/usr/bin:/bin</string>
   </dict>
-
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
@@ -31,10 +27,13 @@
     <key>Minute</key>
     <integer>30</integer>
   </dict>
-
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
   <key>StandardOutPath</key>
-  <string>/tmp/moldpilot-backup.log</string>
+  <string>__LOG_DIR__/backup.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/moldpilot-backup.err</string>
+  <string>__LOG_DIR__/backup-error.log</string>
 </dict>
 </plist>

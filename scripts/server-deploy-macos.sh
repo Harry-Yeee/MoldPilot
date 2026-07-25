@@ -11,6 +11,7 @@ PLIST_PATH="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/MoldPilot"
 PULL_CHANGES=true
 RUN_TESTS=true
+RUN_BACKUP=true
 
 note() {
   printf '\n[MoldPilot deploy] %s\n' "$*"
@@ -29,13 +30,19 @@ while [ "$#" -gt 0 ]; do
     --skip-tests)
       RUN_TESTS=false
       ;;
+    --skip-backup)
+      RUN_BACKUP=false
+      ;;
     --help|-h)
       cat <<'EOF'
-Usage: bash scripts/server-deploy-macos.sh [--no-pull] [--skip-tests]
+Usage: bash scripts/server-deploy-macos.sh [--no-pull] [--skip-tests] [--skip-backup]
 
-Pulls main with --ff-only, optionally runs a configured backup, stops the
+Pulls main with --ff-only, requires an encrypted off-machine backup, stops the
 launchd service, installs locked dependencies, deploys Prisma migrations,
 verifies and builds, restarts the service, and checks /login.
+
+--skip-backup is an explicit emergency bypass. Record why it was used and take
+a verified backup as soon as the incident is stable.
 EOF
       exit 0
       ;;
@@ -78,17 +85,33 @@ trap cleanup EXIT
 
 cd "$PROJECT_ROOT"
 [ -z "$(git status --porcelain)" ] || fail "The production checkout has local changes. Resolve them before deploying."
+[ -f .env ] || fail "Protected production .env is missing."
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
+"$NODE_BIN/node" "$PROJECT_ROOT/scripts/check-production-config.mjs"
+if [[ "$MOLDPILOT_BASE_URL" == https://* ]]; then
+  [ "${MOLDPILOT_TRUST_PROXY:-}" = "1" ] ||
+    fail "MOLDPILOT_TRUST_PROXY=1 is required behind the approved TLS proxy."
+fi
+"$PROJECT_ROOT/scripts/check-malware-scanner.sh"
 
 if [ "$PULL_CHANGES" = true ]; then
   note "Pulling origin/main with fast-forward only"
   git pull --ff-only origin main
 fi
 
-if [ -n "${BACKUP_DIR:-}" ]; then
-  note "Creating the configured pre-deployment backup"
-  BACKUP_DIR="$BACKUP_DIR" bash scripts/backup.sh
+if [ "$RUN_BACKUP" = true ]; then
+  [ -n "${BACKUP_DIR:-}" ] ||
+    fail "BACKUP_DIR is required for deployment. Configure encrypted off-machine backups or use --skip-backup only for a documented emergency."
+  [ -n "${BACKUP_AGE_RECIPIENT:-}" ] ||
+    fail "BACKUP_AGE_RECIPIENT is required for deployment."
+  note "Creating the required encrypted pre-deployment backup"
+  bash scripts/backup.sh
 else
-  note "BACKUP_DIR is not set; no automatic pre-deployment backup ran"
+  printf '\n[MoldPilot deploy WARNING] Emergency deployment is proceeding without a fresh backup.\n' >&2
 fi
 
 note "Stopping the running application before replacing .next"
@@ -116,9 +139,14 @@ launchctl bootstrap "gui/$UID" "$PLIST_PATH"
 launchctl kickstart -k "gui/$UID/$SERVICE_LABEL"
 SERVICE_STOPPED=false
 
+HEALTH_URL="http://127.0.0.1:3000/login"
+if [[ "$MOLDPILOT_BASE_URL" == http://* ]]; then
+  HEALTH_URL="${MOLDPILOT_BASE_URL%/}/login"
+fi
+
 for _ in $(seq 1 30); do
-  if curl --fail --silent --output /dev/null http://127.0.0.1:3000/login; then
-    note "Deployment healthy at http://127.0.0.1:3000"
+  if curl --fail --silent --output /dev/null "$HEALTH_URL"; then
+    note "Deployment healthy at $HEALTH_URL"
     exit 0
   fi
   sleep 1

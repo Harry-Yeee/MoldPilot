@@ -1,7 +1,20 @@
-import { createReadStream, type ReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { constants, createReadStream, type ReadStream } from "node:fs";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  open,
+  readdir,
+  stat,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { buildStorageKey, resolveStoragePath } from "@/domain/mold-trial/attachments";
+import {
+  countNextUploadChunk,
+  UPLOAD_TIMEOUT_MS
+} from "@/domain/security/upload-security";
 
 /**
  * On-disk storage for file attachments. Single-Mac, LAN-only deployment: files
@@ -17,6 +30,165 @@ export function attachmentStorageRoot(): string {
   return path.isAbsolute(root)
     ? root
     : path.resolve(/* turbopackIgnore: true */ process.cwd(), root);
+}
+
+export function attachmentQuarantineRoot(): string {
+  const configured = process.env.MOLDPILOT_QUARANTINE_DIR;
+  if (configured != null && configured.trim().length > 0) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.resolve(/* turbopackIgnore: true */ process.cwd(), configured);
+  }
+  return path.resolve(attachmentStorageRoot(), "..", "quarantine");
+}
+
+async function ensurePrivateDirectory(directory: string): Promise<void> {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700);
+}
+
+function quarantinePath(id: string): string {
+  const safeId = id.replace(/[^a-zA-Z0-9-]/g, "");
+  if (safeId.length === 0) {
+    throw new Error("Invalid quarantine identifier.");
+  }
+  return path.join(attachmentQuarantineRoot(), `${safeId}.upload`);
+}
+
+export async function writeBufferToQuarantine(input: {
+  id: string;
+  data: Buffer | Uint8Array;
+}): Promise<{ absolutePath: string; sizeBytes: number }> {
+  const root = attachmentQuarantineRoot();
+  await ensurePrivateDirectory(root);
+  const absolutePath = quarantinePath(input.id);
+  const buffer = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data);
+  await writeFile(absolutePath, buffer, { flag: "wx", mode: 0o600 });
+  return { absolutePath, sizeBytes: buffer.byteLength };
+}
+
+export async function streamBodyToQuarantine(input: {
+  id: string;
+  body: ReadableStream<Uint8Array> | null;
+  maxBytes: number;
+  timeoutMs?: number;
+}): Promise<{ absolutePath: string; sizeBytes: number }> {
+  if (input.body == null) {
+    throw new Error("Upload body is missing.");
+  }
+
+  const root = attachmentQuarantineRoot();
+  await ensurePrivateDirectory(root);
+  const absolutePath = quarantinePath(input.id);
+  const handle = await open(absolutePath, "wx", 0o600);
+  const reader = input.body.getReader();
+  const timeoutMs = input.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let sizeBytes = 0;
+
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error("Upload timed out.")), timeoutMs);
+  });
+
+  try {
+    while (true) {
+      const next = await Promise.race([reader.read(), timeoutPromise]);
+      if (next.done) {
+        break;
+      }
+      const counted = countNextUploadChunk(sizeBytes, next.value.byteLength, input.maxBytes);
+      if (!counted.ok) {
+        throw new Error(counted.message);
+      }
+      sizeBytes = counted.sizeBytes;
+      let offset = 0;
+      while (offset < next.value.byteLength) {
+        const written = await handle.write(
+          next.value,
+          offset,
+          next.value.byteLength - offset
+        );
+        if (written.bytesWritten <= 0) {
+          throw new Error("Upload could not be written.");
+        }
+        offset += written.bytesWritten;
+      }
+    }
+    await handle.sync();
+    return { absolutePath, sizeBytes };
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    await handle.close().catch(() => undefined);
+    await unlink(absolutePath).catch(() => undefined);
+    throw error;
+  } finally {
+    if (timeout != null) {
+      clearTimeout(timeout);
+    }
+    await handle.close().catch(() => undefined);
+  }
+}
+
+export async function releaseQuarantinedAttachment(input: {
+  quarantinePath: string;
+  id: string;
+  extension: string;
+}): Promise<{ storageKey: string; sizeBytes: number }> {
+  const storageKey = buildStorageKey(input.id, input.extension);
+  const absolutePath = resolveStoragePath(attachmentStorageRoot(), storageKey);
+  if (absolutePath == null) {
+    throw new Error("Refusing to release attachment outside the storage root.");
+  }
+
+  await ensurePrivateDirectory(path.dirname(absolutePath));
+  await copyFile(input.quarantinePath, absolutePath, constants.COPYFILE_EXCL);
+  await chmod(absolutePath, 0o600);
+  const released = await stat(absolutePath);
+  await unlink(input.quarantinePath);
+  return { storageKey, sizeBytes: released.size };
+}
+
+export async function removeQuarantinedAttachment(absolutePath: string): Promise<void> {
+  const root = attachmentQuarantineRoot();
+  const resolved = path.resolve(absolutePath);
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || relative.length === 0) {
+    return;
+  }
+  await unlink(resolved).catch(() => undefined);
+}
+
+export async function removeStoredAttachment(storageKey: string): Promise<void> {
+  const absolutePath = resolveAttachmentPath(storageKey);
+  if (absolutePath != null) {
+    await unlink(absolutePath).catch(() => undefined);
+  }
+}
+
+export async function cleanupAbandonedQuarantineFiles(
+  olderThan = new Date(Date.now() - 24 * 60 * 60 * 1000)
+): Promise<number> {
+  const root = attachmentQuarantineRoot();
+  let names: string[];
+  try {
+    names = await readdir(root);
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+  for (const name of names) {
+    if (!name.endsWith(".upload")) {
+      continue;
+    }
+    const absolutePath = path.join(root, name);
+    const details = await stat(absolutePath).catch(() => null);
+    if (details?.isFile() && details.mtime < olderThan) {
+      await unlink(absolutePath).catch(() => undefined);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 /**
@@ -36,9 +208,9 @@ export async function writeAttachmentFile(input: {
     throw new Error("Refusing to write attachment outside the storage root.");
   }
 
-  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await ensurePrivateDirectory(path.dirname(absolutePath));
   const buffer = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data);
-  await writeFile(absolutePath, buffer);
+  await writeFile(absolutePath, buffer, { flag: "wx", mode: 0o600 });
 
   return { storageKey, sizeBytes: buffer.byteLength };
 }

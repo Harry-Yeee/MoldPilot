@@ -23,9 +23,28 @@ Plan trial -> trial happens or is missed -> record reason/result -> track issues
 ```bash
 node scripts/simulate-kpi-data.mjs [--reset]  # generate ~6 weeks of MP-SIM- test activity with known persona scores
 node scripts/run-kpi-snapshot.mjs             # persist daily KpiSnapshot rows (schedule nightly via launchd in production)
+node scripts/run-kpi-snapshot.mjs --verify F  # recheck an archived snapshot JSON against its integrity code
 node scripts/debug-my-plate.mjs <username>    # explain why an issue does/doesn't appear on someone's task list
 python3 scripts/migrate-and-verify.py         # migrate + seed + typecheck + tests in one go (restart dev server after)
 ```
+
+### Security & operations notes
+
+- **Changing a password logs out the other devices.** Sessions are signed
+  cookies with no server-side table; a cookie issued before the account's current
+  `passwordUpdatedAt` (60 s clock-skew grace) is rejected like an expired one. The
+  device that performs the change gets a fresh cookie and stays signed in; an
+  admin reset logs the target out everywhere without touching the admin's session.
+- **The monthly KPI snapshot is tamper-evident.** Each run writes a JSON archive
+  (`storage/kpi-snapshots/`, or `MOLDPILOT_KPI_SNAPSHOT_DIR`) and prints an
+  `Integrity code / 校验码` — the first 12 hex characters of the SHA-256 over the
+  snapshot data. Read it aloud at the prize meeting, write it on the page the CEO
+  and both referees sign, and recheck later with `--verify`. Keep the JSON file
+  with the signed page; the rows behind it also travel in the nightly encrypted
+  database dump. It evidences tampering; it does not prevent database edits.
+- **Backup key escrow.** The private age identity lives in two sealed physical
+  copies (office safe + off-site) and is drilled quarterly — see
+  `docs/08-rollout/security-hardening-runbook.md` §7a.
 
 ## End-to-end smoke test
 
@@ -260,9 +279,18 @@ pnpm pilot:check      # verify DB, migrations, seed, dashboard data, and optiona
 
 ## Run A Mac Mini Intranet Server
 
-The production Mac mini does not need Python or Docker Desktop. The supported
-server path uses Homebrew Node.js 24, pnpm 11.5.3, native PostgreSQL 16, a
-fresh-database-only production bootstrap, and a launchd service:
+The production Mac mini does not need Docker Desktop. The supported server path
+uses Homebrew Node.js 24, pnpm 11.5.3, native PostgreSQL 16, Caddy TLS,
+local ClamAV scanning, a fresh-database-only production bootstrap, and a
+launchd application service. Preferred HTTPS keeps Next.js on
+`127.0.0.1:3000` behind Caddy. The documented temporary factory-LAN HTTP mode
+binds only to the stable address in `MOLDPILOT_BASE_URL`, warns that credentials
+are unencrypted, and must never be internet-exposed.
+
+The bootstrap intentionally does not install Homebrew through `curl | bash` and
+does not activate privileged proxy, certificate, firewall, backup-scheduler, or
+legacy-workbook operations. Complete the reviewed prerequisites and
+approval-gated steps in `docs/08-rollout/mac-mini-intranet-server.md`, then run:
 
 ```bash
 cd ~/LJ_ERP/MoldPilot
@@ -273,12 +301,14 @@ Deploy later releases with:
 
 ```bash
 cd ~/LJ_ERP/MoldPilot
-BACKUP_DIR="/Volumes/FactoryBackup/MoldPilot" bash scripts/server-deploy-macos.sh
+bash scripts/server-deploy-macos.sh
 ```
 
-Use a router DHCP reservation for the Mac mini's wired Ethernet address. See
-`docs/08-rollout/mac-mini-intranet-server.md` for GitHub deploy-key, static LAN
-address, security, service, verification, and restore instructions.
+`BACKUP_DIR` and `BACKUP_AGE_RECIPIENT` must be configured in the protected
+production `.env`; a normal deploy stops if its encrypted off-machine backup
+fails. Use a router DHCP reservation for the Mac mini's wired Ethernet address.
+See `docs/08-rollout/mac-mini-intranet-server.md` for deploy-key, TLS,
+certificate, network, scanner, backup, and restore instructions.
 
 The initial test suite covers the Phase 1 domain rules documented in `docs/03-build/acceptance-tests.md`, especially trial-limit calculation and required workflow validations.
 
@@ -288,21 +318,23 @@ The initial test suite covers the Phase 1 domain rules documented in `docs/03-bu
 
 ### Serve on the factory LAN
 
-Build once and run with a production server bound to the machine's LAN IP so staff phones on the same Wi-Fi can reach it:
+Use the production Mac mini deployment above. Preferred access is
+`https://<reserved-server-ip>/me` through approved Caddy after the MoldPilot
+internal CA is installed. During the explicitly accepted temporary HTTP pilot,
+staff use `http://<reserved-server-ip>:3000/me` only on the trusted factory LAN;
+router port forwarding must remain disabled.
 
-```bash
-pnpm build
-# Bind to all interfaces so phones on the LAN can connect.
-MOLDPILOT_BASE_URL="http://192.168.1.50:3000" pnpm start -- --hostname 0.0.0.0 --port 3000
-```
-
-- Replace `192.168.1.50` with this machine's LAN IP (`ipconfig getifaddr en0` on macOS).
-- `MOLDPILOT_BASE_URL` should match the URL staff type on their phones.
+- `MOLDPILOT_BASE_URL` must be the exact HTTP or HTTPS origin staff use.
+- `MOLDPILOT_DEPLOYMENT_MODE=production` prevents local pilot/seed launchers.
+- `MOLDPILOT_SESSION_COOKIE_SECURE=auto` follows that origin's scheme.
+- The reverse proxy restricts requests to the configured factory CIDR and pins
+  the expected Host value when HTTPS mode is active.
+- Initial rollout deliberately does not enable HSTS.
 - There is **no service worker / offline cache** by design — stale factory data is worse than an error page, so phones always fetch live data (or see an error when off-network).
 
 ### Add to the home screen
 
-- **iOS Safari**: open `http://<LAN-IP>:3000/me`, tap the Share button, then **Add to Home Screen**. Launching the icon opens MoldPilot standalone (no browser chrome) straight to `/me`; if not logged in it redirects to the login page first.
+- **iOS Safari**: open the configured `MOLDPILOT_BASE_URL` with `/me`, tap the Share button, then **Add to Home Screen**. Launching the icon opens MoldPilot standalone (no browser chrome) straight to `/me`; if not logged in it redirects to the login page first.
 - **Android Chrome**: open the same URL, then use the **⋮** menu → **Install app** / **Add to Home screen**. The app installs with the MoldPilot monogram icon and opens standalone to `/me`.
 
 The manifest (`src/app/manifest.ts`) sets `start_url` `/me`, `standalone` display, and the brand theme color; icons live in `public/icons` (regenerate with `node scripts/generate-pwa-icons.mjs`).

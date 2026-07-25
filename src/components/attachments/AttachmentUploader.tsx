@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { FormField, Select, SubmitButton } from "@/components/ui";
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { Button, FormField, Select } from "@/components/ui";
 import {
   selectableVisibilities,
   uploadableFileTypes,
@@ -17,19 +18,18 @@ import {
   pickLabel,
   type Locale
 } from "@/domain/mold-trial/labels";
-import { uploadAttachment } from "@/server/attachment-actions";
+import { directUploadFile } from "@/components/attachments/direct-upload";
 
 export type AttachmentUploaderProps = {
   projectId: string;
   entityType: AttachmentEntityTypeValue;
   entityId: string;
-  redirectTo: string;
   locale: Locale;
   /**
    * Whether the actor may choose a file visibility. Required (no default) so every
    * call site decides based on the viewer's role. When false the visibility select
    * is not rendered at all; the server then applies its FileType-aware safe default
-   * (see `parseVisibility` in src/server/attachment-actions.ts).
+   * (see `parseVisibility` in the dedicated upload route).
    */
   canChooseVisibility: boolean;
 };
@@ -72,9 +72,9 @@ function acceptAndHint(fileType: AttachmentFileType, locale: Locale): { accept: 
 }
 
 /**
- * File input plus file-type / visibility selects that posts to the
- * `uploadAttachment` server action. Rendered only when the viewer holds
- * `attachment.upload` (the action re-checks server-side regardless).
+ * File input plus file-type / visibility selects that streams to the protected
+ * upload endpoint. Rendered only when the viewer holds `attachment.upload`
+ * (the endpoint re-checks server-side regardless).
  *
  * Client component so the visibility default can follow the selected FileType:
  * DRAWING / DESIGN_CHANGE / VIDEO default to TECHNICAL (native CAD is
@@ -86,12 +86,14 @@ export function AttachmentUploader({
   projectId,
   entityType,
   entityId,
-  redirectTo,
   locale,
   canChooseVisibility
 }: AttachmentUploaderProps) {
+  const router = useRouter();
   const [fileType, setFileType] = useState<AttachmentFileType>("OTHER");
   const [visibility, setVisibility] = useState<AttachmentVisibility>(defaultVisibilityForFileType("OTHER"));
+  const [uploading, setUploading] = useState(false);
+  const [feedback, setFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   const isCad = CAD_FILE_TYPES.includes(fileType);
   const { accept, hint } = acceptAndHint(fileType, locale);
@@ -106,14 +108,37 @@ export function AttachmentUploader({
     setVisibility(defaultVisibilityForFileType(next));
   }
 
+  async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const selected = new FormData(form).get("file");
+    if (!(selected instanceof File) || selected.size === 0) {
+      setFeedback({ success: false, message: "Choose a file to upload." });
+      return;
+    }
+
+    setUploading(true);
+    setFeedback(null);
+    const result = await directUploadFile(selected, {
+      purpose: "attachment",
+      projectId,
+      entityType,
+      entityId,
+      fileType,
+      visibility: canChooseVisibility ? visibility : undefined
+    });
+    setUploading(false);
+    setFeedback({ success: result.success, message: result.message });
+    if (result.success) {
+      form.reset();
+      router.refresh();
+    }
+  }
+
   return (
     // items-start keeps the two selects on one line: the CAD hint under Visibility
     // grows its cell downward instead of pushing File type out of alignment.
-    <form action={uploadAttachment} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start" encType="multipart/form-data">
-      <input type="hidden" name="projectId" value={projectId} />
-      <input type="hidden" name="entityType" value={entityType} />
-      <input type="hidden" name="entityId" value={entityId} />
-      <input type="hidden" name="redirectTo" value={redirectTo} />
+    <form onSubmit={(event) => void onSubmit(event)} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
 
       <FormField
         label={pickLabel(attachmentLabels.fileType, locale)}
@@ -176,10 +201,18 @@ export function AttachmentUploader({
       </FormField>
 
       <div className="sm:col-span-3">
-        <SubmitButton size="lg">
-          {pickLabel(attachmentLabels.upload, locale)}
-        </SubmitButton>
+        <Button type="submit" size="lg" disabled={uploading}>
+          {uploading ? "Uploading..." : pickLabel(attachmentLabels.upload, locale)}
+        </Button>
       </div>
+      {feedback == null ? null : (
+        <p
+          role="status"
+          className={`sm:col-span-3 m-0 text-sm font-bold ${feedback.success ? "text-status-completed" : "text-status-missed"}`}
+        >
+          {feedback.message}
+        </p>
+      )}
     </form>
   );
 }

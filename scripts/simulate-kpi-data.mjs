@@ -66,10 +66,6 @@ const y = now.getUTCFullYear();
 const m = now.getUTCMonth();
 const runDay = now.getUTCDate();
 
-// Newest moment any event may use: yesterday 20:00 (a comfortable margin before
-// `now`, so nothing a few hours old reads as "future" or unfinished).
-const latestDay = Math.max(1, runDay - 1);
-
 /** A Date `daysBeforeRun` days before the run day (clamped to day 1), at `hour`. */
 function at(daysBeforeRun, hour = 9) {
   const day = Math.max(1, runDay - daysBeforeRun);
@@ -265,7 +261,6 @@ async function ensureMachines(count) {
   let next = 901;
   while (machines.length < count) {
     machines.push(
-      // eslint-disable-next-line no-await-in-loop
       await prisma.injectionMachine.create({ data: { machineNo: String(next), brand: "SIM", tonnage: 200 + next % 100, active: true } })
     );
     next += 1;
@@ -300,7 +295,7 @@ async function createProject(index, { customer, pmId, adminId }) {
  * All day parameters are DAYS-BEFORE-RUN (bigger = older). The timeline is
  * strictly monotonic and entirely in the past:
  *   created (anchor) -> confirmed -> actualDate -> result recorded -> qc upload,
- * each no earlier than the previous and none later than `latestDay`.
+ * each no earlier than the previous and none later than the run day.
  */
 async function completedTrial({
   project,
@@ -535,7 +530,7 @@ async function inboxIssue({ project, creatorId, claimerId, groupId, createdAgo, 
  * `drawerId` (lin). `onTime` decides design.change_revision (48h from the event's
  * createdAt). The drawing upload is the "done" moment.
  */
-async function designChangeWithDrawing({ project, adminId, creatorId, drawerId, createdAgo, onTime, index }) {
+async function designChangeWithDrawing({ project, creatorId, drawerId, createdAgo, onTime, index }) {
   const createdAt = at(createdAgo, 8); // anchor (revision clock start)
   // On-time: next day 14:00 (~30h < 48h). Late: three days on (~78h > 48h).
   const uploadedAt = onTime ? at(createdAgo - 1, 14) : at(createdAgo - 3, 14);
@@ -768,7 +763,6 @@ async function main() {
   for (let i = 0; i < 4; i += 1) {
     await designChangeWithDrawing({
       project: P((i % 8) + 1),
-      adminId: admin.id,
       creatorId: bill.id, // a PM/marketing reports the change; credit lands on the drawing uploader (lin)
       drawerId: lin.id,
       createdAgo: linRevisionAgo[i],

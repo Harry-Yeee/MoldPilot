@@ -37,6 +37,7 @@ Role
 Permission
 RolePermission
 UserPermissionOverride
+LoginThrottleBucket
 DepartmentGroup
 Customer
 InjectionMachine
@@ -112,6 +113,27 @@ User archive rule:
 - Inactive users should not appear in active assignment dropdowns.
 - Inactive users remain referenced in historical records, ActivityLog, projects, and issues.
 - Archive/restore must create ActivityLog records and must not break the last active Admin path.
+
+## LoginThrottleBucket
+
+Persists progressive login backoff across application restarts. This is an
+internal security-control table, not user-facing business data.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| id | uuid | Primary key. |
+| scope | enum | Account or source. |
+| key_hash | text | HMAC-derived bucket key. Raw username and source address are never stored in this table. |
+| failure_count | integer | Consecutive failures inside the reset window. |
+| first_failure_at | datetime | First failure in the current window. |
+| last_failure_at | datetime | Most recent failure. |
+| blocked_until | datetime | Optional progressive-backoff expiry. |
+| updated_at | datetime |  |
+
+Account and source buckets are both evaluated. Missing users still perform a
+dummy password-hash verification and receive the same generic response.
+Backoff is temporary, successful login clears the account bucket, and stale
+buckets are eligible for bounded retention cleanup.
 
 ## Role
 
@@ -695,7 +717,9 @@ This is used for approved design-change allowances, extra-trial reason history, 
 
 ## FileAttachment
 
-Tracks trial photos, QC reports, CAD/drawings, video, and supporting documents. Updated 2026-07-04 (attachment infrastructure) — files live on local disk under `MOLDPILOT_STORAGE_DIR` (default `./storage/uploads`), soft-deleted only.
+Tracks trial photos, QC reports, CAD/drawings, video, and supporting documents.
+Released files live outside Git under `MOLDPILOT_STORAGE_DIR`; incoming bytes
+use a separate private `MOLDPILOT_QUARANTINE_DIR`. Files are soft-deleted only.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -714,7 +738,21 @@ Tracks trial photos, QC reports, CAD/drawings, video, and supporting documents. 
 | deleted_at | datetime | Optional soft delete (files are never hard-deleted). Deleted files 404 on download. |
 | deleted_by_id | uuid | Optional User who soft-deleted. |
 
-Download rule: `/api/attachments/[id]` enforces auth + visibility (`attachment.download.internal` vs `attachment.download.customer_safe`); images and video serve inline (video with HTTP Range support), everything else as attachment.
+Upload rule: authenticated clients use the dedicated `/api/uploads` endpoint,
+not large Server Action bodies. Authorization is checked before the request
+body is consumed. Streaming byte counts enforce the file-type-specific limit.
+The server validates extension, declared MIME, detected signature, and
+archive/container safety before invoking the configured local malware scanner.
+Only an explicit clean result can move opaque server-named bytes from
+quarantine to released storage and create the FileAttachment row. Scanner
+outage/error remains fail-closed in quarantine; rejected, partial, and
+abandoned files are cleaned without becoming downloadable.
+
+Download rule: `/api/attachments/[id]` enforces auth + visibility
+(`attachment.download.internal` vs `attachment.download.customer_safe`),
+returns private/no-store responses with `X-Content-Type-Options: nosniff`, and
+uses attachment disposition for potentially active content. Authorized images
+and video retain their intended inline/range behavior.
 
 ## ActivityLog
 

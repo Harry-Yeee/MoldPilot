@@ -1215,6 +1215,32 @@ Admin local-pilot exception:
 - Default Admin can log in with `admin` / `admin` and open normal app pages without first-login password change.
 - Admin can still use Change Password manually.
 
+### AT-023C: Reseeding Preserves Existing Credentials
+
+Layer: Unit + disposable-database integration
+
+Preconditions:
+
+- Use a disposable database that is not the live Mac mini database.
+- Change one seeded employee's password and password lifecycle timestamps.
+
+Steps:
+
+1. Run the normal demo seed against the disposable database.
+2. Change the employee's password hash, clear `forcePasswordChange`, and set
+   `passwordUpdatedAt` plus `lastLoginAt`.
+3. Run the same seed again.
+
+Expected:
+
+- Seed-managed display name, Chinese name, role, and active profile data may be
+  refreshed.
+- `passwordHash`, `forcePasswordChange`, `passwordUpdatedAt`, and `lastLoginAt`
+  remain byte-for-byte/value-for-value unchanged for the existing account.
+- A newly created seeded employee still receives a hashed temporary password
+  and `forcePasswordChange = true`.
+- No password or password hash is printed in seed output or ActivityLog.
+
 ### AT-024: Admin Can Create User Without Email
 
 Layer: Playwright + integration
@@ -1571,6 +1597,64 @@ Expected:
 - PDF includes customer-safe process values and may include generated trial result, issue summary, correction summary, and next step from TrialEvent/TrialIssue records.
 - PDF does not include duplicated/manual process-sheet Trial Summary rows.
 - PDF does not include internal owner, private notes, Assembly self-check, or unapproved root-cause details.
+
+### AT-032: Security-Control Regression
+
+Layer: Domain + integration + deployment inspection
+
+Preconditions:
+
+- Production environment has `MOLDPILOT_DEPLOYMENT_MODE=production`, a valid
+  HTTP or HTTPS `MOLDPILOT_BASE_URL`, `MOLDPILOT_SESSION_COOKIE_SECURE=auto`
+  (or an explicit matching value), a strong session secret, private
+  release/quarantine paths, and a healthy local malware scanner.
+- For the preferred HTTPS path, approval-gated Caddy, certificate, network,
+  and backup steps have been completed on the target Mac mini.
+- Temporary HTTP mode is restricted to the trusted factory LAN, is not exposed
+  through router port forwarding, and has an explicit plaintext-credential
+  risk acceptance.
+
+Steps:
+
+1. Verify the effective Next.js runtime version is at least `16.2.11`.
+2. Submit repeated invalid logins for one account and from one source, restart
+   the app during the backoff window, then try again.
+3. Submit unauthorized, oversized, signature-mismatched, double-extension,
+   archive-traversal, archive-bomb, and scanner-error upload fixtures.
+4. Inspect released and quarantined storage plus FileAttachment rows.
+5. Download an authorized attachment and inspect security/cache headers.
+6. Inspect listeners for Next.js, PostgreSQL, and Caddy.
+7. Create an encrypted off-machine backup and restore it to an empty scratch
+   database and separate scratch upload directory.
+8. Verify the production configuration checker accepts HTTP + auto as
+   `Secure=false`, accepts HTTPS + auto as `Secure=true`, and rejects either
+   scheme with the opposite explicit cookie value.
+9. Attempt to run the local pilot launcher with
+   `MOLDPILOT_DEPLOYMENT_MODE=production`.
+
+Expected:
+
+- Login errors remain generic. Account and source buckets apply temporary
+  progressive backoff that survives app restart and recovers after expiry.
+- Authorization occurs before upload body processing. Streaming size,
+  allowlist, signature, and archive checks reject unsafe fixtures.
+- Scanner failure never creates a downloadable FileAttachment; bytes remain in
+  private quarantine until cleanup or explicit security review.
+- Released files use opaque names outside executable/public paths.
+- Attachment responses enforce visibility, private/no-store caching,
+  `nosniff`, and attachment disposition where appropriate.
+- In preferred HTTPS mode, Next.js listens only on `127.0.0.1:3000` and Caddy
+  exposes HTTPS to the approved factory CIDR. In temporary HTTP mode, Next.js
+  binds only to the hostname/IP in `MOLDPILOT_BASE_URL`, never `0.0.0.0`, and
+  prints that credentials and cookies are not encrypted.
+- HTTPS resolves to Secure cookies; HTTP resolves to non-Secure cookies while
+  retaining HttpOnly, SameSite=Lax, path, and expiration controls.
+- The local pilot launcher exits before migration or seed in production mode
+  and directs the operator to `scripts/server-deploy-macos.sh`.
+- The backup is versioned, encrypted, off-machine, non-overwriting, and the
+  manifest-verified scratch restore succeeds.
+- No secrets, business uploads, dumps, certificates, scanner output, or the
+  quarantined legacy workbook are committed.
 
 ## Exit Criteria
 

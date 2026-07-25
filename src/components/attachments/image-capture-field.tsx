@@ -1,9 +1,12 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Pending photo previews are local blob URLs. */
+
 import { useEffect, useId, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   addPendingPhotos,
+  MAX_ISSUE_PHOTO_COUNT,
   removePendingPhoto,
   scaledDimensions,
   type PendingPhoto
@@ -129,7 +132,11 @@ export function ImageCaptureField({ name, locale, disabled = false }: ImageCaptu
     // Snapshot the picked files, then immediately restore the input to only the
     // already-processed set: the raw (large, pre-downscale) originals must never
     // be what a mid-processing submit would send.
-    const chosen = Array.from(selected);
+    const remainingSlots = Math.max(0, MAX_ISSUE_PHOTO_COUNT - pending.length);
+    const chosen = Array.from(selected).slice(0, remainingSlots);
+    if (chosen.length === 0) {
+      return;
+    }
     syncInputFiles(pending);
     setBusy(true);
     try {

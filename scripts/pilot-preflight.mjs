@@ -392,8 +392,11 @@ async function checkSeed(prisma) {
       trial.outcomeDisposition === "REWORK_REQUIRED" &&
       trial.countsAgainstLimit
   );
-  const plannedT1 = project.trialEvents.some(
-    (trial) => trial.trialCode === "T1" && trial.sequenceNumber === 2 && trial.status === "PLANNED"
+  const hasSequentialT1 = project.trialEvents.some(
+    (trial) =>
+      trial.trialCode === "T1" &&
+      trial.sequenceNumber === 2 &&
+      ["PLANNED", "AT_RISK", "AUTO_MISSED_REASON_REQUIRED"].includes(trial.status)
   );
   const issueSources = new Set(project.trialIssues.map((issue) => issue.source));
   const hasRequiredIssues =
@@ -427,9 +430,10 @@ async function checkSeed(prisma) {
     prisma.injectionMachine.count(),
     prisma.injectionMachine.count({
       where: {
-        notes: {
-          contains: "RAW/Injection-Machines-2026.07.02.xls"
-        }
+        OR: [
+          { notes: { contains: "machine master fixture 2026-07-02" } },
+          { notes: { contains: "RAW/Injection-Machines-2026.07.02.xls" } }
+        ]
       }
     }),
     prisma.injectionMachine.findMany({
@@ -438,9 +442,10 @@ async function checkSeed(prisma) {
     }),
     prisma.injectionMachine.findMany({
       where: {
-        notes: {
-          contains: "RAW/Injection-Machines-2026.07.02.xls"
-        }
+        OR: [
+          { notes: { contains: "machine master fixture 2026-07-02" } },
+          { notes: { contains: "RAW/Injection-Machines-2026.07.02.xls" } }
+        ]
       },
       select: {
         machineNo: true,
@@ -819,7 +824,7 @@ async function checkSeed(prisma) {
     [countedTrials === 1, "counted trials is 1"],
     [hasMissedT0Audit, "missed T0 audit exists without duplicate visible T0"],
     [completedNotApprovedT0, "completed-not-approved T0 exists"],
-    [plannedT1, "planned T1 exists as sequence 2"],
+    [hasSequentialT1, "T1 exists as sequence 2 in a valid active/auto-missed state"],
     [hasRequiredIssues, "technical/injection/QC/Marketing issues exist"],
     [hasDesignChange, "approved post-T0 design change exists"],
     [hasLimitAdjustment, "design-change limit adjustment exists"],

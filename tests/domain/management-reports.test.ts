@@ -6,7 +6,6 @@ import {
   adjacentReportMonth,
   buildCountComparison,
   buildManagementReport,
-  buildReportPeriods,
   managementNavigationVisibility,
   reportMonthRange,
   type ReportIssueRecord,

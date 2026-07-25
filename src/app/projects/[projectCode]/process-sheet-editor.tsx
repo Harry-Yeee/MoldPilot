@@ -157,18 +157,28 @@ export function ProcessSheetEditor({
   const [baselineMachineId, setBaselineMachineId] = useState(editableTrial?.injectionMachineId ?? "");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [overwriteAvailable, setOverwriteAvailable] = useState(false);
+  const [sourceEditableValues, setSourceEditableValues] = useState(initialEditableValues);
+  const [sourceMachineId, setSourceMachineId] = useState(
+    editableTrial?.injectionMachineId ?? ""
+  );
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const valuesRef = useRef(currentValues);
   const machineIdRef = useRef(machineId);
 
-  useEffect(() => {
+  const nextSourceMachineId = editableTrial?.injectionMachineId ?? "";
+  if (
+    sourceEditableValues !== initialEditableValues ||
+    sourceMachineId !== nextSourceMachineId
+  ) {
+    setSourceEditableValues(initialEditableValues);
+    setSourceMachineId(nextSourceMachineId);
     setCurrentValues(initialEditableValues);
     setBaselineValues(initialEditableValues);
-    setMachineId(editableTrial?.injectionMachineId ?? "");
-    setBaselineMachineId(editableTrial?.injectionMachineId ?? "");
+    setMachineId(nextSourceMachineId);
+    setBaselineMachineId(nextSourceMachineId);
     setCopyFeedback(null);
     setOverwriteAvailable(false);
-  }, [editableTrial?.id, editableTrial?.injectionMachineId, initialEditableValues]);
+  }
 
   useEffect(() => {
     valuesRef.current = currentValues;

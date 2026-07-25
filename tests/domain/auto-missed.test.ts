@@ -148,4 +148,18 @@ describe("auto-missed trial rules", () => {
       true
     );
   });
+
+  test("pilot verification accepts an overdue seeded T1 after the dashboard sweep", () => {
+    const preflightSource = readFileSync(
+      new URL("../../scripts/pilot-preflight.mjs", import.meta.url),
+      "utf8"
+    );
+
+    assert.match(
+      preflightSource,
+      /\["PLANNED", "AT_RISK", "AUTO_MISSED_REASON_REQUIRED"\]\.includes\(trial\.status\)/
+    );
+    assert.match(preflightSource, /trial\.trialCode === "T1"/);
+    assert.match(preflightSource, /trial\.sequenceNumber === 2/);
+  });
 });

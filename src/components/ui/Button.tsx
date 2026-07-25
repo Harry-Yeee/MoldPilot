@@ -38,7 +38,6 @@ export function Button({
   const classes = [base, variantClasses[variant], sizeClasses[size], className].filter(Boolean).join(" ");
 
   return (
-    // eslint-disable-next-line react/button-has-type
     <button type={type} className={classes} {...props}>
       {children}
     </button>

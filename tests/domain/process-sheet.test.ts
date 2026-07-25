@@ -63,14 +63,6 @@ describe("Digital process sheet domain helpers", () => {
     );
   });
 
-  test("seed imports Injection Machine No. from workbook No. column", () => {
-    const seedSource = readFileSync(new URL("../../prisma/seed.ts", import.meta.url), "utf8");
-
-    assert.match(seedSource, /const machineNo = sequence;/);
-    assert.doesNotMatch(seedSource, /const rawMachineNo/);
-    assert.doesNotMatch(seedSource, /`MACHINE-\$\{sequence\.padStart/);
-  });
-
   test("pilot preflight selects machine active state before filtering imports", () => {
     const preflightSource = readFileSync(new URL("../../scripts/pilot-preflight.mjs", import.meta.url), "utf8");
 
@@ -93,6 +85,22 @@ describe("Digital process sheet domain helpers", () => {
     assert.match(actionsSource, /processSheetTemplateSnapshotForCustomer\(selectedCustomer\)/);
     assert.match(actionsSource, /processSheetTemplateId: processSheetTemplate\?\.id \?\? null/);
     assert.match(actionsSource, /processSheetTemplateCode: processSheetTemplate\?\.code \?\? null/);
+  });
+
+  test("machine seed uses the reviewed JSON fixture instead of the unscanned legacy XLS", () => {
+    const seedSource = readFileSync(new URL("../../prisma/seed.ts", import.meta.url), "utf8");
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL("../../prisma/fixtures/injection-machines-2026-07-02.json", import.meta.url),
+        "utf8"
+      )
+    ) as Array<{ machineNo: string; clampingForce: number }>;
+
+    assert.match(seedSource, /const machineDefinitions = loadReviewedInjectionMachines\(\)/);
+    assert.doesNotMatch(seedSource, /const machineDefinitions = loadWorkbookInjectionMachines\(\)/);
+    assert.equal(fixture.length, 26);
+    assert.equal(fixture.every((row) => /^\d+$/.test(row.machineNo)), true);
+    assert.equal(fixture.find((row) => row.machineNo === "10")?.clampingForce, 408);
   });
 
   test("default process-sheet templates do not create editable Trial Summary parameters", () => {

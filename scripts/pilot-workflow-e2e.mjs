@@ -770,7 +770,7 @@ async function switchLanguage(page, language) {
 async function assertDashboardLanguageSwitch(page) {
   await switchLanguage(page, "zh-CN");
   await waitForText(page, "试模看板", "Chinese dashboard label");
-  await waitForText(page, "项目建档", "Chinese intake label");
+  await waitForText(page, "新建立项", "Chinese intake label");
   await switchLanguage(page, "en");
   await waitForText(page, "Trial Dashboard", "English dashboard label");
 }
@@ -789,7 +789,7 @@ async function assertMyTasksLanguageSwitchAndMobileLayout(page) {
   await switchLanguage(page, "zh-CN");
   await waitForText(page, "我的任务", "Chinese My Tasks heading");
   await page.waitForExpression(`/T\\d+ 试模/.test(document.body.innerText)`, "Chinese My Tasks trial title");
-  await waitForText(page, "日期待确认", "Chinese date-confirmation label");
+  await waitForText(page, "确认试模日期", "Chinese date-confirmation label");
 
   const layout = await page.evaluate(
     clientFunction(() => {
@@ -1208,6 +1208,53 @@ async function openTrialPanel(page, panelTitle) {
       return true;
     }, panelTitle)
   );
+}
+
+async function claimDepartmentInboxIssue(page, issueTitle, username) {
+  await page.navigate(`${BASE_URL}/me`);
+  await waitForDomText(page, issueTitle, `department inbox issue ${issueTitle}`);
+  await page.evaluate(
+    clientFunction((issueTitleArg) => {
+      const titleNode = [...document.querySelectorAll("span")].find(
+        (candidate) => candidate.textContent?.trim() === issueTitleArg
+      );
+      let container = titleNode?.parentElement;
+      while (
+        container != null &&
+        ![...container.querySelectorAll("button")].some((button) =>
+          ["I'll take this", "我来处理"].some((label) => button.textContent?.includes(label))
+        )
+      ) {
+        container = container.parentElement;
+      }
+      const claimButton = [...(container?.querySelectorAll("button") ?? [])].find((button) =>
+        ["I'll take this", "我来处理"].some((label) => button.textContent?.includes(label))
+      );
+      if (!(claimButton instanceof HTMLButtonElement) || claimButton.disabled) {
+        throw new Error(`Claim button unavailable for issue: ${issueTitleArg}`);
+      }
+      claimButton.click();
+      return true;
+    }, issueTitle)
+  );
+  await page.waitForExpression(
+    `document.querySelector('form input[name="ownerUsername"][value="${username}"]') != null`,
+    `claim form for ${issueTitle}`
+  );
+  await page.evaluate(
+    clientFunction((usernameArg) => {
+      const ownerField = document.querySelector(
+        `form input[name="ownerUsername"][value="${CSS.escape(usernameArg)}"]`
+      );
+      const form = ownerField?.closest("form");
+      if (!(form instanceof HTMLFormElement)) {
+        throw new Error("Department inbox claim form was not found.");
+      }
+      form.requestSubmit();
+      return true;
+    }, username)
+  );
+  await waitForText(page, "Trial issue updated.", `claim ${issueTitle}`);
 }
 
 async function issueActionIsDisabled(page, issueTitle, actionText) {
@@ -1677,8 +1724,11 @@ async function main() {
     await waitForText(page, "Digital Process Sheet", "Digital Process Sheet after T0 exists");
     console.log("[OK] Planning PM set T0.");
 
+    await switchUser(page, "wang");
     await assertMyTasksLanguageSwitchAndMobileLayout(page);
-    console.log("[OK] My Tasks switches languages and fits a 360px mobile viewport without overlap or horizontal overflow.");
+    console.log(
+      "[OK] Injection My Tasks switches languages and fits a 360px mobile viewport without overlap or horizontal overflow."
+    );
     await page.navigate(`${BASE_URL}${workflowProjectPath}`);
 
     await switchUser(page, "gong");
@@ -1690,7 +1740,6 @@ async function main() {
       description: "Workflow E2E technical issue.",
       dueDate: "2026-09-08",
       issueType: "MOLD_DESIGN_ISSUE",
-      ownerUsername: "jun",
       severity: "HIGH",
       source: "PM_REVIEW",
       status: "IN_PROGRESS",
@@ -1703,7 +1752,6 @@ async function main() {
       description: "Workflow E2E Assembly acknowledgement issue.",
       dueDate: "2026-09-09",
       issueType: "ASSEMBLY_FITTING_ISSUE",
-      ownerUsername: "zhong",
       severity: "MEDIUM",
       source: "PM_REVIEW",
       status: "IN_PROGRESS",
@@ -1734,6 +1782,8 @@ async function main() {
     console.log("[OK] Marketing exported, downloaded, and re-downloaded one customer-safe Process Sheet PDF.");
 
     await switchUser(page, "zhong");
+    await claimDepartmentInboxIssue(page, "Workflow E2E assembly relevant issue", "zhong");
+    await page.navigate(`${BASE_URL}${workflowProjectPath}`);
     await openTrialPanel(page, "T0");
     assert.equal(await issueActionIsDisabled(page, "Workflow E2E technical unrelated issue", "Close Issue"), true);
     await openIssueAction(page, "Workflow E2E assembly relevant issue", "Close Issue");
@@ -1743,7 +1793,7 @@ async function main() {
       fixTimeMinutes: "120"
     });
     await waitForText(page, "Trial issue closed.", "Assembly owner close");
-    console.log("[OK] Assembly can close only its owned/relevant issue.");
+    console.log("[OK] Assembly claimed its department issue and can close only its owned/relevant issue.");
 
     await switchUser(page, "admin");
     const viewerRole = await prisma.role.findUnique({ where: { code: "viewer" } });
@@ -1829,7 +1879,6 @@ async function main() {
       description: "Workflow E2E T1 QC follow-up issue.",
       dueDate: "2026-09-14",
       issueType: "QC_DIMENSION_ISSUE",
-      ownerUsername: "gong",
       severity: "MEDIUM",
       source: "QC_INSPECTION",
       status: "OPEN",

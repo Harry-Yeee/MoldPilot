@@ -1,4 +1,5 @@
 import { MessageBanner } from "@/components/ui";
+import Link from "next/link";
 import { formatMonthKey, parseMonthKey, shiftMonth } from "@/domain/mold-trial/calendar";
 import { calendarLabels, navLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
 import { createTranslator } from "@/i18n";
@@ -104,9 +105,9 @@ export default async function CalendarPage({ searchParams }: PageProps) {
         {/* Phone-only back-to-dashboard link; desktop uses the AppHeader bar above. */}
         <div className="pageHeaderActions md:hidden">
           <nav className="dashboardNavActions" aria-label={pickLabel(navLabels.dashboard, locale)}>
-            <a className="buttonLink" href="/">
+            <Link className="buttonLink" href="/">
               {pickLabel(navLabels.dashboard, locale)}
-            </a>
+            </Link>
           </nav>
         </div>
       </section>

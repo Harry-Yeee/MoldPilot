@@ -9,12 +9,25 @@ inside the factory LAN.
 - GitHub stores source and migration history only.
 - The production checkout uses a read-only GitHub deploy key.
 - Native Homebrew PostgreSQL 16 stores operational data on the Mac mini.
-- Homebrew Node.js 24 runs the built Next.js application.
+- Homebrew Node.js 24 runs the built Next.js application in production mode.
+- Preferred deployment keeps Next.js on `127.0.0.1:3000`; Caddy is the only
+  LAN-facing listener, terminates HTTPS, pins the expected host, and restricts
+  requests to the approved factory CIDR.
+- The currently accepted temporary pilot may use direct HTTP on the isolated
+  factory LAN. In that mode Next.js binds only to the stable hostname/IP in
+  `MOLDPILOT_BASE_URL`, never every interface. Credentials and cookies are not
+  encrypted, so router port forwarding and internet exposure are forbidden.
+- Local ClamAV signature scanning is mandatory. New uploaded files remain in a
+  private quarantine until validation and scanning return an explicit clean
+  result.
 - A per-user launchd agent keeps MoldPilot running after login and restarts it
   after a process failure.
-- Uploads live outside Git under `~/MoldPilotData/uploads`.
-- Database dumps and upload mirrors go to a NAS or external disk.
-- Python and Docker Desktop are not required for production.
+- Released uploads and quarantined bytes live outside Git in separate private
+  directories under `~/MoldPilotData`.
+- Versioned `age`-encrypted database, upload, and recovery-config archives go
+  to a mounted NAS or external disk.
+- Docker Desktop is not required for production. Python is needed only for the
+  separately approved Office-aware `oletools` legacy-workbook review.
 
 The launch agent is a user service. The dedicated server account must remain
 logged in, although the screen can stay locked. After a restart or power loss,
@@ -30,13 +43,16 @@ log that account in so Homebrew PostgreSQL and MoldPilot start.
    administrator who will maintain MoldPilot.
 5. Under **System Settings > Energy**, enable **Prevent automatic sleeping when
    the display is off** and **Wake for network access**.
-6. Keep internet router port forwarding disabled. Port 3000 is for the trusted
-   factory LAN only.
+6. Keep internet router port forwarding disabled. Never expose PostgreSQL port
+   5432 to the LAN or internet. In temporary HTTP mode, port 3000 may be
+   reachable only from the trusted factory LAN; preferred HTTPS mode must not
+   expose it beyond loopback.
 
 ## 2. Reserve A Stable LAN Address
 
-A stable address is required because phones and desktops will bookmark
-`http://SERVER-IP:3000`.
+A stable address is required because phones and desktops bookmark the exact
+`MOLDPILOT_BASE_URL`: temporarily `http://SERVER-IP:3000`, and preferably
+`https://SERVER-IP` after the managed certificate rollout.
 
 Prefer a router-side DHCP reservation over entering a manual IP on macOS:
 
@@ -76,7 +92,26 @@ git remote -v
 git status --short --branch
 ```
 
-## 4. Run The One-Time Bootstrap
+## 4. Install Reviewed Security Prerequisites
+
+The bootstrap will not execute the mutable Homebrew `curl | bash` installer.
+Install a reviewed official Homebrew `.pkg`, then obtain approval for the
+machine-level package and service changes in
+`security-hardening-runbook.md`. Before bootstrap, these checks must pass:
+
+```bash
+brew --version
+caddy version
+clamscan --version
+age --version
+freshclam
+bash scripts/check-malware-scanner.sh
+```
+
+Do not continue if the scanner health check fails. Caddy installation alone
+does not expose the server; the separately approved activation step does.
+
+## 5. Run The One-Time Bootstrap
 
 After the deployment scripts have been committed and pushed from the
 development Mac:
@@ -90,18 +125,24 @@ bash scripts/server-bootstrap-macos.sh --production
 The script:
 
 1. Checks Apple Command Line Tools.
-2. Installs Homebrew from the official installer when missing.
+2. Refuses to proceed if a reviewed Homebrew installation, ClamAV, or Caddy is
+   missing.
 3. Installs Homebrew `node@24` and `postgresql@16`.
-4. activates pnpm 11.5.3.
-5. Starts PostgreSQL as a login service.
+4. Activates pnpm 11.5.3.
+5. Starts PostgreSQL as a login service and verifies it is not listening beyond
+   localhost.
 6. Generates a random database password and session secret.
-7. Writes a protected `.env`.
-8. Creates persistent upload storage.
+7. Writes a mode-`0600` `.env` with
+   `MOLDPILOT_DEPLOYMENT_MODE=production`, a strong session secret,
+   `MOLDPILOT_SESSION_COOKIE_SECURE=auto`, preferred HTTPS/trusted-proxy
+   settings, and private release/quarantine directories.
+8. Verifies the local malware scanner and renders a reviewed Caddy
+   configuration without activating the privileged proxy.
 9. Applies Prisma production migrations.
 10. Bootstraps real users, roles, permissions, clients, machines, and the
     process-sheet template without demo projects.
 11. Runs typecheck, domain tests, and the production build.
-12. Installs and starts `com.moldpilot.app` through launchd.
+12. Installs and starts the loopback-only `com.moldpilot.app` launch agent.
 
 Production bootstrap is fresh-database-only. It refuses to overwrite a database
 that already contains users, projects, or activity logs.
@@ -118,23 +159,69 @@ For a database restored from a real backup before bootstrap:
 bash scripts/server-bootstrap-macos.sh --existing-data
 ```
 
-## 5. Verify Intranet Access
+### Existing Temporary HTTP Pilot
 
-On the Mac mini:
+For the already-running trusted-LAN HTTP pilot, edit the protected server
+`.env` before deploying this patch:
+
+```text
+MOLDPILOT_DEPLOYMENT_MODE=production
+MOLDPILOT_BASE_URL=http://SERVER-IP:3000
+MOLDPILOT_SESSION_COOKIE_SECURE=auto
+```
+
+Keep `.env` mode `0600`. Do not put these values in Git. The production
+configuration checker resolves `auto` to `Secure=false` for this HTTP URL and
+prints a prominent warning. An explicit `true` is rejected for HTTP. When the
+server moves to HTTPS, change only the base URL to `https://SERVER-IP`; `auto`
+then resolves to `Secure=true`.
+
+Do not launch `run-moldpilot.command`, `pnpm pilot:start`, or another local
+pilot command on this checkout. The production marker makes those paths exit
+before migrations or seed and directs the operator to the deploy script.
+
+## 6. Verify Current Access And Activate Preferred HTTPS
+
+For temporary HTTP, first validate without restarting anything:
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+set -a
+source .env
+set +a
+node scripts/check-production-config.mjs
+```
+
+Expected: `session cookie Secure=false` plus the warning that credentials and
+cookies are not encrypted. From a managed factory device, open the exact
+`http://SERVER-IP:3000/login`, complete a forced password change, and confirm
+the session reaches the dashboard.
+
+For preferred HTTPS, follow the exact commands, access impact, and rollback
+procedure in `security-hardening-runbook.md`. That approval-gated step copies
+the rendered Caddy configuration, starts the privileged HTTPS service, trusts
+the internal CA on managed clients, and optionally enables the macOS
+application firewall with Caddy allowed.
+
+On the Mac mini in HTTPS mode:
 
 ```bash
 curl -I http://127.0.0.1:3000/login
 launchctl print "gui/$(id -u)/com.moldpilot.app"
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+curl -kI "https://SERVER-IP/login"
 ```
 
 On another factory computer or phone connected to the same LAN, open:
 
 ```text
-http://SERVER-IP:3000/login
+https://SERVER-IP/login
 ```
 
-If macOS asks whether Node may accept incoming connections, allow it. Do not
-expose PostgreSQL port 5432 or MoldPilot port 3000 through the internet router.
+Expected in HTTPS mode: Next.js appears only as `127.0.0.1:3000`; Caddy owns
+the LAN-facing HTTPS listener; requests outside the configured factory CIDR
+are rejected. Verify the browser shows a trusted certificate after the
+internal CA is installed. Do not enable HSTS during the initial rollout.
 
 Application logs:
 
@@ -143,7 +230,7 @@ Application logs:
 ~/Library/Logs/MoldPilot/app-error.log
 ```
 
-## 6. Immediate Security Steps
+## 7. Immediate Security Steps
 
 1. Log in as `admin`.
 2. Change the bootstrap password immediately.
@@ -153,33 +240,82 @@ Application logs:
 6. Use the Admin UI and Prisma migrations for operational changes; do not edit
    live source or schema directly on the production checkout.
 
-## 7. Deploy Future Releases
+## 8. Deploy Future Releases
 
 Push the reviewed commit from the development Mac, then run on the server:
 
 ```bash
 cd ~/LJ_ERP/MoldPilot
-BACKUP_DIR="/Volumes/FactoryBackup/MoldPilot" bash scripts/server-deploy-macos.sh
+bash scripts/server-deploy-macos.sh
 ```
 
-The deploy command only accepts a clean checkout, pulls `main` with
-fast-forward-only, optionally backs up, stops the app before replacing `.next`,
-installs locked dependencies, deploys migrations, verifies, builds, restarts,
-and checks `/login`. It never seeds or resets production data.
+The protected `.env` must contain `BACKUP_DIR` and
+`BACKUP_AGE_RECIPIENT`. The deploy command only accepts a clean checkout, pulls
+`main` with fast-forward-only, requires a successful encrypted off-machine
+backup, validates deployment mode/base URL/cookie security before stopping the
+app, verifies scanner settings, replaces `.next`, installs locked dependencies,
+deploys migrations, verifies, builds, restarts, and checks `/login` at the
+configured mode's health URL. It never seeds or resets production data.
+
+Seed user upserts are credential-preserving as defense in depth: an existing
+user keeps `passwordHash`, `forcePasswordChange`, `passwordUpdatedAt`, and
+`lastLoginAt`. Production deployment still must not run a seed command.
 
 Use `--no-pull` only when the desired commit is already checked out. Avoid
-`--skip-tests` except during a documented emergency.
+`--skip-tests` except during a documented emergency. `--skip-backup` is an
+explicit emergency bypass and must be recorded; take a backup immediately when
+the incident is stable.
 
-## 8. Backups And Recovery
+## 9. Backups And Recovery
 
-Set `BACKUP_DIR` to a mounted NAS or external drive and use
-`scripts/com.moldpilot.backup.plist` for nightly backups. Before accepting the
-server:
+Generate an age identity on an offline recovery device. Put only its public
+recipient in the production `.env`:
 
-1. Run `BACKUP_DIR="/Volumes/..." bash scripts/backup.sh`.
-2. Confirm the compressed SQL dump is larger than 10 KB.
-3. Confirm `uploads-mirror` contains expected files.
-4. Restore the dump into a scratch database.
-5. Open at least one restored project and attachment.
+```text
+BACKUP_DIR="/Volumes/FactoryBackup/MoldPilot"
+BACKUP_AGE_RECIPIENT="age1..."
+```
+
+Render and inspect the LaunchAgent template, then obtain approval before loading
+it:
+
+```bash
+set -a
+source .env
+set +a
+bash scripts/render-backup-launchagent.sh \
+  "$BACKUP_DIR" "$BACKUP_AGE_RECIPIENT"
+plutil -lint "$HOME/Library/LaunchAgents/com.moldpilot.backup.plist"
+```
+
+Before accepting the server:
+
+1. Run `bash scripts/backup.sh`.
+2. Confirm a new `moldpilot-backup-*.tar.age` archive exists on the mounted
+   off-machine volume with mode `0600`.
+3. Restore it into an empty scratch database and separate scratch upload
+   directory with `scripts/restore-backup-to-scratch.sh`.
+4. Verify manifest hashes, database records, and at least one attachment.
+5. Record the restore date and operator.
+
+This LaunchAgent runs only while the dedicated server account is logged in. Use
+a separately reviewed LaunchDaemon or NAS-native backup scheduler if logged-out
+operation is required. Backups are versioned and never overwritten; retention
+deletion is disabled unless explicitly configured.
 
 GitHub is not a database or attachment backup.
+
+## 10. Legacy Workbook
+
+The active machine seed uses the reviewed JSON fixture and does not parse the
+legacy `.xls`. The workbook must remain untrusted until the separately approved
+quarantine operation runs both ClamAV and Office-aware `olevba` locally:
+
+```bash
+bash scripts/quarantine-legacy-workbook.sh --plan
+# After explicit approval:
+bash scripts/quarantine-legacy-workbook.sh --move
+```
+
+Do not upload this workbook to a public scanning service and do not call it
+malware-free solely because the tools find no obvious indicator.

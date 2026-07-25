@@ -38,7 +38,6 @@ import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartI
 import {
   buildCustomerSafeProcessSheetExport,
   DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
-  formatInjectionMachineLabel,
   isProcessSheetColumnEditable,
   isProcessSheetSummaryParameter,
   snapshotInjectionMachine

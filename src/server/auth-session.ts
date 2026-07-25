@@ -1,16 +1,27 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { shouldUseSecureSessionCookie } from "@/domain/security/session-cookie";
+
+export { shouldUseSecureSessionCookie } from "@/domain/security/session-cookie";
 
 export const sessionCookieName = "moldpilot_session";
 const sessionVersion = "v1";
 const maxAgeSeconds = 60 * 60 * 12;
+const localDevelopmentSecret = "moldpilot-local-pilot-session-secret";
 
-function secret(): string {
-  return process.env.MOLDPILOT_SESSION_SECRET ?? "moldpilot-local-pilot-session-secret";
+export function sessionSecret(): string {
+  const configured = process.env.MOLDPILOT_SESSION_SECRET?.trim();
+  if (configured != null && configured.length > 0) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("MOLDPILOT_SESSION_SECRET is required in production.");
+  }
+  return localDevelopmentSecret;
 }
 
 function sign(payload: string): string {
-  return createHmac("sha256", secret()).update(payload).digest("base64url");
+  return createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
 }
 
 function verifySignature(payload: string, signature: string): boolean {
@@ -27,7 +38,14 @@ export function createSessionToken(userId: string): string {
   return `${payload}.${sign(payload)}`;
 }
 
-export function parseSessionToken(token: string | null | undefined): { userId: string } | null {
+/** Claims carried by a signed, unexpired session cookie. */
+export type SessionClaims = {
+  /** Cookie issue time in milliseconds (the token stores whole seconds). */
+  issuedAtMs: number;
+  userId: string;
+};
+
+export function parseSessionToken(token: string | null | undefined): SessionClaims | null {
   if (token == null || token.length === 0) {
     return null;
   }
@@ -49,11 +67,15 @@ export function parseSessionToken(token: string | null | undefined): { userId: s
       return null;
     }
 
+    if (!Number.isFinite(parsed.issuedAt)) {
+      return null;
+    }
+
     if (parsed.issuedAt + maxAgeSeconds < Math.floor(Date.now() / 1000)) {
       return null;
     }
 
-    return { userId: parsed.userId };
+    return { issuedAtMs: parsed.issuedAt * 1000, userId: parsed.userId };
   } catch {
     return null;
   }
@@ -67,7 +89,7 @@ export async function setSessionCookie(userId: string) {
     maxAge: maxAgeSeconds,
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production"
+    secure: shouldUseSecureSessionCookie()
   });
 }
 
@@ -77,7 +99,12 @@ export async function clearSessionCookie() {
   cookieStore.delete(sessionCookieName);
 }
 
-export async function getSessionUserId(): Promise<string | null> {
+/**
+ * Reads the session cookie. The caller MUST also apply
+ * `isSessionRevoked(claims.issuedAtMs, user.passwordUpdatedAt)` once it has
+ * loaded the account row — see `getOptionalCurrentUser`.
+ */
+export async function getSessionClaims(): Promise<SessionClaims | null> {
   const cookieStore = await cookies();
-  return parseSessionToken(cookieStore.get(sessionCookieName)?.value)?.userId ?? null;
+  return parseSessionToken(cookieStore.get(sessionCookieName)?.value);
 }

@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Authenticated attachment URLs cannot be fetched by the Next image optimizer. */
+
 import { useState } from "react";
 import { Button, EmptyState, StatusBadge } from "@/components/ui";
 import { Lightbox, type LightboxImage } from "@/components/attachments/Lightbox";

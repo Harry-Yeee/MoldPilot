@@ -169,6 +169,7 @@ Date: ______ · Pressure scenarios noted: ______
    - The protection: "如实填写，永不追责。"
 2. **Harry demos (10 min):** one issue's journey on the big screen — file with photo → Friday vote → claim → fix → verified → library. Then one leader's task list on a phone. Nothing else. Resist showing every feature.
 3. **The money (5 min):** the scores-and-money poster (§5, the four pools). State the date of the first prize meeting.
+   - Every prize meeting: print the monthly snapshot, read its integrity code (校验码) aloud, CEO + both referees sign the page — file the signed page in the binder.
 4. **Questions (10 min):** the CEO answers culture questions; Harry answers system questions. Planted first question if the room is silent: have a friendly leader ask "扣不扣工资？" so the "bonus only, never a deduction" answer gets said loudly.
 5. **Close:** install day announcement — when and where everyone gets the app on their phone.
 

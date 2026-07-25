@@ -1,13 +1,18 @@
 import type { FileType as PrismaFileType, FileVisibility as PrismaFileVisibility } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { validateAttachmentUpload } from "@/domain/mold-trial/attachments";
+import { validateIssuePhotoBatch } from "@/domain/mold-trial/issue-photos";
 import {
   DUPLICATE_SUBMISSION_WINDOW_MS,
   isDuplicateAttachmentSubmission,
   type ExistingAttachmentSubmission
 } from "@/domain/mold-trial/submission-guards";
 import { prisma } from "@/lib/prisma";
-import { writeAttachmentFile } from "@/server/attachment-storage";
+import {
+  releaseQuarantinedAttachment,
+  removeStoredAttachment
+} from "@/server/attachment-storage";
+import { quarantineAndInspectBuffer } from "@/server/secure-upload-pipeline";
 
 /**
  * Server-only (not a `"use server"` action — it is never callable from the
@@ -43,6 +48,13 @@ export async function storeIssuePhotos(input: {
 }): Promise<StoreIssuePhotosResult> {
   const failures: IssuePhotoFailure[] = [];
   let storedCount = 0;
+  const batchValidation = validateIssuePhotoBatch(input.files.map((file) => file.size));
+  if (!batchValidation.ok) {
+    return {
+      storedCount,
+      failures: [{ fileName: "photos", message: batchValidation.message }]
+    };
+  }
 
   // Double-tap guard: a re-submitted edit (same issue) that re-sends the same
   // photos should not add duplicate rows. Load this uploader's very recent
@@ -108,47 +120,64 @@ export async function storeIssuePhotos(input: {
     try {
       const attachmentId = randomUUID();
       const bytes = Buffer.from(await file.arrayBuffer());
-      const { storageKey, sizeBytes } = await writeAttachmentFile({
+      const inspected = await quarantineAndInspectBuffer({
         id: attachmentId,
-        extension: validation.extension,
-        data: bytes
+        data: bytes,
+        fileType: "TRIAL_PHOTO",
+        declaredContentType: file.type,
+        fileName: file.name
+      });
+      if (!inspected.ok) {
+        failures.push({ fileName: displayName, message: inspected.message });
+        continue;
+      }
+      const { storageKey, sizeBytes } = await releaseQuarantinedAttachment({
+        quarantinePath: inspected.quarantinePath,
+        id: attachmentId,
+        extension: inspected.validation.extension
       });
 
-      await prisma.$transaction(async (tx) => {
-        const attachment = await tx.fileAttachment.create({
-          data: {
-            id: attachmentId,
-            moldTrialProjectId: input.projectId,
-            entityType: "TRIAL_ISSUE",
-            entityId: input.issueId,
-            fileName: validation.safeFileName,
-            fileType: "TRIAL_PHOTO" as PrismaFileType,
-            storageKey,
-            contentType: validation.contentType,
-            sizeBytes,
-            visibility: "INTERNAL" as PrismaFileVisibility,
-            uploadedById: input.actorId
-          }
-        });
-
-        await tx.activityLog.create({
-          data: {
-            actorUserId: input.actorId,
-            entityType: "FileAttachment",
-            entityId: attachment.id,
-            action: "uploaded_attachment",
-            afterJson: {
-              projectCode: input.projectCode,
-              fileName: attachment.fileName,
-              fileType: attachment.fileType,
-              visibility: attachment.visibility,
-              sizeBytes: attachment.sizeBytes,
-              targetEntityType: "TRIAL_ISSUE",
-              targetEntityId: input.issueId
+      try {
+        await prisma.$transaction(async (tx) => {
+          const attachment = await tx.fileAttachment.create({
+            data: {
+              id: attachmentId,
+              moldTrialProjectId: input.projectId,
+              entityType: "TRIAL_ISSUE",
+              entityId: input.issueId,
+              fileName: inspected.validation.safeFileName,
+              fileType: "TRIAL_PHOTO" as PrismaFileType,
+              storageKey,
+              contentType: inspected.validation.contentType,
+              sizeBytes,
+              visibility: "INTERNAL" as PrismaFileVisibility,
+              uploadedById: input.actorId
             }
-          }
+          });
+
+          await tx.activityLog.create({
+            data: {
+              actorUserId: input.actorId,
+              entityType: "FileAttachment",
+              entityId: attachment.id,
+              action: "uploaded_attachment",
+              afterJson: {
+                projectCode: input.projectCode,
+                fileName: attachment.fileName,
+                fileType: attachment.fileType,
+                visibility: attachment.visibility,
+                sizeBytes: attachment.sizeBytes,
+                targetEntityType: "TRIAL_ISSUE",
+                targetEntityId: input.issueId,
+                securityPipeline: "quarantine_signature_scan"
+              }
+            }
+          });
         });
-      });
+      } catch (error) {
+        await removeStoredAttachment(storageKey);
+        throw error;
+      }
 
       // Track the just-stored photo so a repeated file within the same batch is
       // also treated as a duplicate.

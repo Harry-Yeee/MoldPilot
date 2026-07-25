@@ -19,6 +19,22 @@ export type PendingPhoto = {
   sizeBytes: number;
 };
 
+export const MAX_ISSUE_PHOTO_COUNT = 3;
+export const MAX_ISSUE_PHOTO_BATCH_BYTES = 9 * 1024 * 1024;
+
+export function validateIssuePhotoBatch(
+  sizes: readonly number[]
+): { ok: true } | { ok: false; message: string } {
+  if (sizes.length > MAX_ISSUE_PHOTO_COUNT) {
+    return { ok: false, message: `Add no more than ${MAX_ISSUE_PHOTO_COUNT} photos at once.` };
+  }
+  const total = sizes.reduce((sum, size) => sum + Math.max(0, size), 0);
+  if (total > MAX_ISSUE_PHOTO_BATCH_BYTES) {
+    return { ok: false, message: "Issue photos exceed the 9 MB combined limit." };
+  }
+  return { ok: true };
+}
+
 /** Append pending photos, ignoring an empty batch (keeps identity stable). */
 export function addPendingPhotos(
   current: readonly PendingPhoto[],

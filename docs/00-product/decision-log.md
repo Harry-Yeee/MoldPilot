@@ -21,6 +21,38 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-25: Session Cookie Security Follows The Actual Deployment Scheme
+
+The current Mac mini pilot may temporarily run over plain HTTP on an isolated,
+trusted factory LAN while managed HTTPS rollout remains the preferred target.
+Production mode must not infer the cookie `Secure` flag from `NODE_ENV` alone,
+because a Secure cookie cannot be returned over an HTTP connection.
+
+Decision:
+
+- `MOLDPILOT_SESSION_COOKIE_SECURE` supports `auto`, `true`, or `false`; missing
+  or blank means `auto`.
+- `auto` follows `MOLDPILOT_BASE_URL`: HTTPS uses Secure cookies and HTTP does
+  not. Without a base URL, production fails safe to Secure cookies.
+- Production launchers require `MOLDPILOT_DEPLOYMENT_MODE=production`, a valid
+  HTTP/HTTPS base URL, and a cookie setting that matches its scheme.
+- Temporary HTTP mode must print a prominent warning, bind only to the
+  configured LAN address, and must never be internet-exposed. HTTPS behind the
+  approved Caddy proxy remains the preferred deployment.
+- Local pilot launchers refuse production deployment mode before migrations or
+  seed execution.
+- Reseeding may refresh seed-managed user profile/role data but must never
+  reset an existing user's password hash, first-login state, password-update
+  timestamp, or last-login timestamp.
+
+Reason:
+
+The production server was intentionally using HTTP while production cookies
+were always marked Secure, which broke the forced-password-change session.
+Separately, demo reseeding could overwrite real credentials. Configuration
+must describe the connection users actually have, and seed operations must be
+idempotent without becoming credential-reset operations.
+
 ### 2026-07-14: Manager-Facing Reports Replace Manager-Facing My Score
 
 Management needs a monthly operational view of mold-trial workload, workflow health, issue resolution, trial-limit pressure, and team habit trends. The planned GM/Admin KPI dashboard is therefore presented as **Reports** rather than sending non-scored manager accounts to a personal **My Score** page.

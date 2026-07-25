@@ -6,6 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { clearSessionCookie, setSessionCookie } from "@/server/auth-session";
 import { getCurrentUser } from "@/server/current-user";
 import { hashPassword, verifyPassword } from "@/server/passwords";
+import {
+  checkLoginThrottle,
+  clearLoginThrottle,
+  getLoginAttemptContext,
+  logThrottledLogin,
+  recordFailedLogin
+} from "@/server/login-throttle";
+
+const dummyPasswordHash = hashPassword("moldpilot-invalid-account-placeholder");
 
 function value(formData: FormData, key: string): string {
   const raw = formData.get(key);
@@ -53,17 +62,31 @@ export async function login(formData: FormData) {
   const username = normalizeUsername(value(formData, "username"));
   const password = value(formData, "password");
   const redirectTo = optionalRedirect(formData, "/");
+  const attemptContext = await getLoginAttemptContext(username);
+  const throttle = await checkLoginThrottle(attemptContext);
 
-  if (username.length === 0 || password.length === 0) {
-    redirectWithMessage("/login", "error", "Username and password are required.");
+  if (throttle.blocked) {
+    verifyPassword(password, dummyPasswordHash);
+    logThrottledLogin(attemptContext, throttle);
+    redirectWithMessage("/login", "error", "Invalid username or password. Please wait and try again.");
   }
 
   const user = await prisma.user.findUnique({ where: { username } });
+  const passwordMatches = verifyPassword(password, user?.passwordHash ?? dummyPasswordHash);
 
-  if (user == null || user.status !== "ACTIVE" || !verifyPassword(password, user.passwordHash)) {
-    redirectWithMessage("/login", "error", "Invalid username or password.");
+  if (
+    username.length === 0 ||
+    password.length === 0 ||
+    user == null ||
+    user.status !== "ACTIVE" ||
+    !passwordMatches
+  ) {
+    const failed = await recordFailedLogin(attemptContext);
+    const suffix = failed.blocked ? " Please wait and try again." : "";
+    redirectWithMessage("/login", "error", `Invalid username or password.${suffix}`);
   }
 
+  await clearLoginThrottle(attemptContext);
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() }
@@ -154,6 +177,10 @@ export async function changeOwnCredentials(formData: FormData) {
 
     revalidatePath("/");
     revalidatePath("/change-password");
+    // REQUIRED (deployment-checklist item 17): the write above sets
+    // passwordUpdatedAt, which revokes every session cookie older than it.
+    // Re-issuing here keeps THIS device signed in while other devices — and a
+    // stolen phone — are logged out on their next request.
     await setSessionCookie(updated.id);
     redirectWithMessage(redirectTo, "success", "Password updated.");
   } catch (error) {

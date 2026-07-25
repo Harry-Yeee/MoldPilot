@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Authenticated issue-photo URLs cannot use the Next image optimizer. */
+
 import { useState } from "react";
 import { Lightbox, type LightboxImage } from "@/components/attachments/Lightbox";
 import { sanitizeFileName } from "@/domain/mold-trial/attachments";

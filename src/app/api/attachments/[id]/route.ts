@@ -68,7 +68,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       status: 416,
       headers: {
         "Content-Range": `bytes */${attachment.sizeBytes}`,
-        "Accept-Ranges": "bytes"
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff"
       }
     });
   }
@@ -93,7 +95,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         "Content-Range": `bytes ${range.start}-${range.end}/${opened.sizeBytes}`,
         "Accept-Ranges": "bytes",
         "Content-Disposition": contentDisposition,
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff"
       }
     });
   }
@@ -102,7 +105,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     "Content-Type": attachment.contentType,
     "Content-Length": String(opened.sizeBytes),
     "Content-Disposition": contentDisposition,
-    "Cache-Control": "private, no-store"
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff"
   };
   // Advertise range support on video so clients know they may seek.
   if (isVideo) {

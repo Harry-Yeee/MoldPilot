@@ -421,7 +421,6 @@ function TrialDateConfirmationBlock({
   canConfirm,
   canProposeChange,
   canRedate,
-  dictionary,
   injectionMachines,
   locale,
   projectCode,
@@ -433,7 +432,6 @@ function TrialDateConfirmationBlock({
   canConfirm: boolean;
   canProposeChange: boolean;
   canRedate: boolean;
-  dictionary: Dictionary;
   injectionMachines: ProjectDetail["activeInjectionMachines"];
   locale: Locale;
   projectCode: string;
@@ -441,7 +439,6 @@ function TrialDateConfirmationBlock({
   trial: ConfirmationTrial;
   customerTargetDate: Date | string | null;
 }) {
-  const t = createTranslator(dictionary);
   const cLabel = (key: keyof typeof myPlateLabels): string => pickLabel(myPlateLabels[key], locale);
 
   if (trial.id == null) {
@@ -1441,7 +1438,6 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                     canProposeChange={canProposeTrialDateChange}
                     canRedate={canRedateReturnedTrial}
                     customerTargetDate={project.customerTargetDate}
-                    dictionary={dictionary}
                     injectionMachines={detail.activeInjectionMachines}
                     locale={currentUser.locale}
                     projectCode={project.projectCode}
@@ -1481,8 +1477,6 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                       state={reportState}
                       trialLabel={panel.title}
                       trialEventId={panel.trial.id}
-                      projectCode={project.projectCode}
-                      redirectTo={redirectTo}
                       canUpload={canUploadMeasurementReport}
                       locale={currentUser.locale}
                     />
@@ -1681,7 +1675,6 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 projectId={project.id}
                 entityType="MOLD_TRIAL_PROJECT"
                 entityId={project.id}
-                redirectTo={redirectTo}
                 locale={currentUser.locale}
                 canChooseVisibility={canChooseAttachmentVisibility}
               />

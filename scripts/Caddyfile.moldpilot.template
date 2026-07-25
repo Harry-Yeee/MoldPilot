@@ -1,0 +1,17 @@
+https://__MOLDPILOT_HOST__ {
+	@outside_factory not remote_ip __MOLDPILOT_TRUSTED_CIDR__ 127.0.0.1 ::1
+	respond @outside_factory "Forbidden" 403
+
+	request_body {
+		max_size 315MB
+	}
+
+	reverse_proxy 127.0.0.1:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto https
+	}
+
+	tls internal
+}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { isSessionRevoked } from "@/domain/security/session-revocation";
 import { prisma } from "@/lib/prisma";
-import { getSessionUserId, setSessionCookie } from "@/server/auth-session";
+import { getSessionClaims, setSessionCookie } from "@/server/auth-session";
 import { roleCodeLabels } from "@/server/mold-trial-codecs";
 
 export const currentUserCookieName = "moldpilot_current_user";
@@ -23,14 +24,14 @@ export async function setCurrentUsername(username: string) {
 }
 
 export async function getOptionalCurrentUser(options: { allowPasswordChangeRequired?: boolean } = {}) {
-  const userId = await getSessionUserId();
+  const session = await getSessionClaims();
 
-  if (userId == null) {
+  if (session == null) {
     return null;
   }
 
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: { id: session.userId },
     include: {
       role: true
     }
@@ -41,6 +42,14 @@ export async function getOptionalCurrentUser(options: { allowPasswordChangeRequi
   }
 
   if (user.status !== "ACTIVE") {
+    return null;
+  }
+
+  // A cookie minted before the account's current password is dead, exactly like
+  // an expired cookie: the caller redirects to /login. Changing your own
+  // password re-issues this cookie in the same action, so only OTHER devices
+  // (and the target of an admin reset) lose their session.
+  if (isSessionRevoked(session.issuedAtMs, user.passwordUpdatedAt?.getTime() ?? null)) {
     return null;
   }
 

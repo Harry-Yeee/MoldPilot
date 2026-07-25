@@ -77,8 +77,7 @@ elif [ -x /opt/homebrew/bin/brew ]; then
 elif [ -x /usr/local/bin/brew ]; then
   BREW_BIN=/usr/local/bin/brew
 else
-  note "Installing Homebrew from the official Homebrew installer"
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fail "Homebrew is required but was not found. Install a reviewed official Homebrew .pkg first; this bootstrap will not execute a mutable remote installer pipeline."
 fi
 
 if [ -n "${BREW_BIN:-}" ]; then
@@ -97,6 +96,13 @@ BREW_PREFIX="$("$BREW_BIN" --prefix)"
 note "Installing Node.js 24 and PostgreSQL 16"
 "$BREW_BIN" list --versions node@24 >/dev/null 2>&1 || "$BREW_BIN" install node@24
 "$BREW_BIN" list --versions postgresql@16 >/dev/null 2>&1 || "$BREW_BIN" install postgresql@16
+
+if ! "$BREW_BIN" list --versions clamav >/dev/null 2>&1; then
+  fail "ClamAV is not installed. Install and update it as an explicit security prerequisite before bootstrap."
+fi
+if ! "$BREW_BIN" list --versions caddy >/dev/null 2>&1; then
+  fail "Caddy is not installed. Install it only after approving the documented TLS-proxy service steps."
+fi
 
 NODE_BIN="$("$BREW_BIN" --prefix node@24)/bin"
 PG_BIN="$("$BREW_BIN" --prefix postgresql@16)/bin"
@@ -145,6 +151,11 @@ if [ ! -f .env ]; then
   [ -n "$SERVER_IP" ] || fail "A LAN IP is required. Configure Ethernet, then retry."
   [[ "$SERVER_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] ||
     fail "Enter the Mac mini's IPv4 address, for example 192.168.1.50."
+  printf 'Trusted factory subnet in CIDR form [192.168.1.0/24]: '
+  read -r TRUSTED_CIDR
+  TRUSTED_CIDR="${TRUSTED_CIDR:-192.168.1.0/24}"
+  [[ "$TRUSTED_CIDR" =~ ^[0-9.]+/[0-9]{1,2}$ ]] ||
+    fail "Enter a trusted IPv4 CIDR, for example 192.168.1.0/24."
 
   if "$PG_BIN/psql" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='moldpilot'" | grep -q 1; then
     "$PG_BIN/psql" -v ON_ERROR_STOP=1 -d postgres \
@@ -160,12 +171,19 @@ if [ ! -f .env ]; then
   fi
 
   STORAGE_DIR="$HOME/MoldPilotData/uploads"
-  mkdir -p "$STORAGE_DIR"
+  QUARANTINE_DIR="$HOME/MoldPilotData/quarantine"
+  mkdir -p "$STORAGE_DIR" "$QUARANTINE_DIR"
   cat > .env <<EOF
 DATABASE_URL="postgresql://moldpilot:$DB_PASSWORD@127.0.0.1:5432/moldpilot?schema=public"
+MOLDPILOT_DEPLOYMENT_MODE="production"
 MOLDPILOT_SESSION_SECRET="$SESSION_SECRET"
 MOLDPILOT_STORAGE_DIR="$STORAGE_DIR"
-MOLDPILOT_BASE_URL="http://$SERVER_IP:3000"
+MOLDPILOT_QUARANTINE_DIR="$QUARANTINE_DIR"
+MOLDPILOT_SCANNER_COMMAND="$BREW_PREFIX/bin/clamscan"
+MOLDPILOT_BASE_URL="https://$SERVER_IP"
+MOLDPILOT_SESSION_COOKIE_SECURE="auto"
+MOLDPILOT_TRUST_PROXY="1"
+MOLDPILOT_TRUSTED_CIDR="$TRUSTED_CIDR"
 EOF
   chmod 600 .env
 else
@@ -182,9 +200,31 @@ set +a
 [ -n "${MOLDPILOT_SESSION_SECRET:-}" ] || fail "MOLDPILOT_SESSION_SECRET is missing from .env."
 [ "$MOLDPILOT_SESSION_SECRET" != "moldpilot-local-pilot-session-secret" ] ||
   fail "Replace the local fallback session secret before deploying."
+"$NODE_BIN/node" "$PROJECT_ROOT/scripts/check-production-config.mjs"
 
 MOLDPILOT_STORAGE_DIR="${MOLDPILOT_STORAGE_DIR:-$HOME/MoldPilotData/uploads}"
-mkdir -p "$MOLDPILOT_STORAGE_DIR"
+MOLDPILOT_QUARANTINE_DIR="${MOLDPILOT_QUARANTINE_DIR:-$HOME/MoldPilotData/quarantine}"
+mkdir -p "$MOLDPILOT_STORAGE_DIR" "$MOLDPILOT_QUARANTINE_DIR"
+chmod 700 "$MOLDPILOT_STORAGE_DIR" "$MOLDPILOT_QUARANTINE_DIR"
+
+"$PROJECT_ROOT/scripts/check-malware-scanner.sh"
+
+case "$MOLDPILOT_BASE_URL" in
+  https://*)
+    [ "${MOLDPILOT_TRUST_PROXY:-}" = "1" ] ||
+      fail "MOLDPILOT_TRUST_PROXY=1 is required behind the approved TLS proxy."
+    [ -n "${MOLDPILOT_TRUSTED_CIDR:-}" ] ||
+      fail "MOLDPILOT_TRUSTED_CIDR is required behind the approved TLS proxy."
+    PROXY_CONFIG="$HOME/Library/Application Support/MoldPilot/Caddyfile"
+    bash "$PROJECT_ROOT/scripts/render-caddy-config.sh" \
+      "${MOLDPILOT_BASE_URL#https://}" \
+      "$MOLDPILOT_TRUSTED_CIDR" \
+      "$PROXY_CONFIG"
+    ;;
+  http://*)
+    note "Temporary trusted-LAN HTTP mode selected; HTTPS proxy rendering was skipped"
+    ;;
+esac
 
 LISTEN_ADDRESSES="$("$PG_BIN/psql" -d postgres -Atc "SHOW listen_addresses;")"
 case "$LISTEN_ADDRESSES" in
@@ -276,27 +316,32 @@ launchctl bootstrap "gui/$UID" "$PLIST_PATH"
 launchctl kickstart -k "gui/$UID/$SERVICE_LABEL"
 
 note "Waiting for MoldPilot"
+HEALTH_URL="http://127.0.0.1:3000/login"
+if [[ "$MOLDPILOT_BASE_URL" == http://* ]]; then
+  HEALTH_URL="${MOLDPILOT_BASE_URL%/}/login"
+fi
 for _ in $(seq 1 30); do
-  if curl --fail --silent --output /dev/null http://127.0.0.1:3000/login; then
+  if curl --fail --silent --output /dev/null "$HEALTH_URL"; then
     break
   fi
   sleep 1
 done
-curl --fail --silent --output /dev/null http://127.0.0.1:3000/login ||
+curl --fail --silent --output /dev/null "$HEALTH_URL" ||
   fail "MoldPilot did not become healthy. Check $LOG_DIR/app-error.log."
 
 cat <<EOF
 
 MoldPilot is running.
 
-Local:   http://127.0.0.1:3000
-Factory: ${MOLDPILOT_BASE_URL:-http://SERVER-IP:3000}
+Health check URL: $HEALTH_URL
+Configured browser URL: ${MOLDPILOT_BASE_URL}
 
 Next:
-1. Reserve this Mac mini's Ethernet address in the router DHCP settings.
-2. Log in as admin and change the bootstrap password immediately.
-3. Configure an external/NAS BACKUP_DIR and complete a restore drill.
-4. Keep the dedicated server user logged in; this launch agent starts at login.
+1. Complete the documented, approval-required Caddy service and client CA steps.
+2. Reserve this Mac mini's Ethernet address in the router DHCP settings.
+3. Log in as admin and change the bootstrap password immediately.
+4. Configure encrypted off-machine backups and complete a restore drill.
+5. Keep the dedicated server user logged in; this launch agent starts at login.
 
 Future deployments:
   cd "$PROJECT_ROOT"

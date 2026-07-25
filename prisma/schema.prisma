@@ -157,6 +157,21 @@ model UserPermissionOverride {
   @@map("user_permission_overrides")
 }
 
+model LoginThrottleBucket {
+  id             String             @id @default(uuid()) @db.Uuid
+  scope          LoginThrottleScope
+  keyHash        String             @map("key_hash") @db.VarChar(64)
+  failureCount   Int                @default(0) @map("failure_count")
+  firstFailureAt DateTime           @map("first_failure_at")
+  lastFailureAt  DateTime           @map("last_failure_at")
+  blockedUntil   DateTime?          @map("blocked_until")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  @@unique([scope, keyHash])
+  @@index([lastFailureAt])
+  @@map("login_throttle_buckets")
+}
+
 model MoldTrialProject {
   id                      String                 @id @default(uuid()) @db.Uuid
   projectCode             String                 @unique @map("project_code")
@@ -640,6 +655,11 @@ enum UserStatus {
 enum UserPermissionOverrideEffect {
   ALLOW
   DENY
+}
+
+enum LoginThrottleScope {
+  ACCOUNT
+  SOURCE
 }
 
 enum Locale {

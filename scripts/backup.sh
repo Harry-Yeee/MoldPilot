@@ -1,73 +1,77 @@
 #!/usr/bin/env bash
 #
-# MoldPilot nightly backup: database dump + uploaded files mirror + git bundle.
+# Encrypted, versioned MoldPilot backup.
 #
-# Usage:
-#   BACKUP_DIR=/Volumes/NAS/moldpilot-backups ./scripts/backup.sh
-#   (or set BACKUP_DIR in the environment / launchd plist)
+# Required:
+#   BACKUP_DIR=/Volumes/FactoryBackup/MoldPilot
+#   BACKUP_AGE_RECIPIENT=age1...
 #
-# BACKUP_DIR must point OFF this machine's main disk (NAS, external drive,
-# or a mounted share). The script refuses to write inside the project folder.
-#
-# Retention: database dumps older than 30 days are pruned. The uploads mirror
-# and git bundle are overwritten in place (rsync incremental / bundle refresh).
-#
-# Restore (see also README "Backups" section):
-#   PG_DATABASE_URL="${DATABASE_URL%%\?*}"
-#   gunzip -c moldpilot-db-YYYYmmdd-HHMMSS.sql.gz | psql "$PG_DATABASE_URL"
-#   rsync -a "$BACKUP_DIR/uploads-mirror/" ./storage/uploads/
-#   git clone moldpilot-repo.bundle restored-repo
+# The age recipient is public. Keep the private recovery identity offline and
+# outside the application account. BACKUP_DIR must be a mounted NAS/external
+# volume in production. Existing archives are never overwritten.
 
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-RETENTION_DAYS=30
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+STATUS_DIR="$HOME/Library/Application Support/MoldPilot/backup-status"
 
-fail() { echo "[backup FAIL] $*" >&2; exit 1; }
-note() { echo "[backup] $*"; }
+fail() {
+  printf '[backup FAIL] %s\n' "$*" >&2
+  exit 1
+}
 
-# --- Preconditions -----------------------------------------------------------
+note() {
+  printf '[backup] %s\n' "$*"
+}
 
-[ -n "${BACKUP_DIR:-}" ] || fail "BACKUP_DIR is not set. Point it at a NAS/external disk, e.g. BACKUP_DIR=/Volumes/Backup/moldpilot"
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
 
-mkdir -p "$BACKUP_DIR" || fail "cannot create BACKUP_DIR: $BACKUP_DIR"
+[ -n "${BACKUP_DIR:-}" ] ||
+  fail "BACKUP_DIR is required and must point to a mounted NAS or external disk."
+[ -n "${BACKUP_AGE_RECIPIENT:-}" ] ||
+  fail "BACKUP_AGE_RECIPIENT is required. Keep its private identity offline."
+command -v age >/dev/null 2>&1 || fail "age is not installed or not on PATH."
+
+mkdir -p "$BACKUP_DIR"
 RESOLVED_BACKUP="$(cd "$BACKUP_DIR" && pwd -P)"
+if [ "${MOLDPILOT_ALLOW_LOCAL_BACKUP:-}" != "1" ]; then
+  case "$RESOLVED_BACKUP" in
+    /Volumes/*) ;;
+    *) fail "BACKUP_DIR must resolve under /Volumes for production off-machine backup." ;;
+  esac
+  ROOT_DEVICE="$(stat -f '%d' / 2>/dev/null || stat -c '%d' /)"
+  BACKUP_DEVICE="$(stat -f '%d' "$RESOLVED_BACKUP" 2>/dev/null || stat -c '%d' "$RESOLVED_BACKUP")"
+  [ "$BACKUP_DEVICE" != "$ROOT_DEVICE" ] ||
+    fail "BACKUP_DIR is under /Volumes but is not a mounted external/NAS filesystem."
+fi
+
 case "$RESOLVED_BACKUP" in
   "$PROJECT_ROOT"|"$PROJECT_ROOT"/*)
-    fail "BACKUP_DIR resolves inside the project folder ($RESOLVED_BACKUP). A backup on the same disk next to the data it protects is not a backup."
+    fail "BACKUP_DIR resolves inside the project folder."
     ;;
 esac
 
-# Read server paths from environment or the protected application .env.
-if [ -f "$PROJECT_ROOT/.env" ]; then
-  if [ -z "${DATABASE_URL:-}" ]; then
-    DATABASE_URL="$(
-      grep -E '^DATABASE_URL=' "$PROJECT_ROOT/.env" |
-        head -1 |
-        cut -d= -f2- |
-        tr -d '"' ||
-        true
-    )"
-  fi
-  if [ -z "${MOLDPILOT_STORAGE_DIR:-}" ]; then
-    MOLDPILOT_STORAGE_DIR="$(
-      grep -E '^MOLDPILOT_STORAGE_DIR=' "$PROJECT_ROOT/.env" |
-        head -1 |
-        cut -d= -f2- |
-        tr -d '"' ||
-        true
-    )"
-  fi
-fi
-[ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL not found in environment or .env"
+[ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is missing."
 PG_DATABASE_URL="${DATABASE_URL%%\?*}"
+UPLOADS_SRC="${MOLDPILOT_STORAGE_DIR:-$PROJECT_ROOT/storage/uploads}"
 
-# --- 1. Database dump --------------------------------------------------------
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/moldpilot-backup.XXXXXX")"
+ENCRYPTED_TEMP="$STAGING_DIR/encrypted-backup.age"
+cleanup() {
+  rm -rf "$STAGING_DIR"
+}
+trap cleanup EXIT
+chmod 700 "$STAGING_DIR"
 
-DB_OUT="$RESOLVED_BACKUP/moldpilot-db-$STAMP.sql.gz"
-
+DB_OUT="$STAGING_DIR/database.dump"
 PG_DUMP_BIN="$(command -v pg_dump 2>/dev/null || true)"
 if [ -z "$PG_DUMP_BIN" ]; then
   for candidate in \
@@ -81,43 +85,78 @@ if [ -z "$PG_DUMP_BIN" ]; then
 fi
 
 if [ -n "$PG_DUMP_BIN" ]; then
-  note "pg_dump via host binary"
-  "$PG_DUMP_BIN" --no-owner --no-privileges "$PG_DATABASE_URL" | gzip > "$DB_OUT"
-elif command -v docker >/dev/null 2>&1 && docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps --status running 2>/dev/null | grep -q postgres; then
-  note "pg_dump via docker compose postgres container"
+  note "creating PostgreSQL custom-format dump"
+  "$PG_DUMP_BIN" --format=custom --no-owner --no-privileges \
+    --file="$DB_OUT" "$PG_DATABASE_URL"
+elif command -v docker >/dev/null 2>&1 &&
+  docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps --status running 2>/dev/null |
+    grep -q postgres; then
+  note "creating PostgreSQL dump through Docker"
   docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T postgres \
-    pg_dump --no-owner --no-privileges -U moldpilot moldpilot | gzip > "$DB_OUT"
+    pg_dump --format=custom --no-owner --no-privileges -U moldpilot moldpilot > "$DB_OUT"
 else
-  fail "no pg_dump on PATH and no running docker postgres service — cannot dump the database"
+  fail "No pg_dump executable or running Docker PostgreSQL service is available."
 fi
 
-# A dump that small is a failed dump wearing a .gz suffix.
-DB_BYTES=$(wc -c < "$DB_OUT" | tr -d ' ')
-[ "$DB_BYTES" -gt 10240 ] || fail "database dump suspiciously small ($DB_BYTES bytes): $DB_OUT"
-note "database dump OK: $DB_OUT ($DB_BYTES bytes)"
+DB_BYTES="$(wc -c < "$DB_OUT" | tr -d ' ')"
+[ "$DB_BYTES" -gt 10240 ] ||
+  fail "Database dump is suspiciously small ($DB_BYTES bytes)."
 
-# --- 2. Uploaded files mirror --------------------------------------------------
-
-UPLOADS_SRC="${MOLDPILOT_STORAGE_DIR:-$PROJECT_ROOT/storage/uploads}"
+mkdir -p "$STAGING_DIR/uploads" "$STAGING_DIR/recovery"
 if [ -d "$UPLOADS_SRC" ]; then
-  mkdir -p "$RESOLVED_BACKUP/uploads-mirror"
-  rsync -a --delete "$UPLOADS_SRC/" "$RESOLVED_BACKUP/uploads-mirror/"
-  note "uploads mirror OK: $(find "$RESOLVED_BACKUP/uploads-mirror" -type f | wc -l | tr -d ' ') files"
-else
-  note "uploads dir not found ($UPLOADS_SRC) — skipping mirror (fine before first upload)"
+  rsync -a --exclude '.DS_Store' "$UPLOADS_SRC/" "$STAGING_DIR/uploads/"
+fi
+if [ -f "$PROJECT_ROOT/.env" ]; then
+  install -m 600 "$PROJECT_ROOT/.env" "$STAGING_DIR/recovery/moldpilot.env"
 fi
 
-# --- 3. Git bundle -------------------------------------------------------------
+cat > "$STAGING_DIR/backup-info.txt" <<EOF
+format=moldpilot-encrypted-backup-v1
+createdAt=$STAMP
+databaseFormat=postgresql-custom
+uploadsIncluded=true
+recoveryConfigIncluded=$([ -f "$PROJECT_ROOT/.env" ] && printf true || printf false)
+EOF
 
-if [ -d "$PROJECT_ROOT/.git" ]; then
-  git -C "$PROJECT_ROOT" bundle create "$RESOLVED_BACKUP/moldpilot-repo.bundle" --all >/dev/null 2>&1 \
-    && note "git bundle OK" \
-    || note "git bundle skipped (no commits or bundle failed) — not fatal"
+(
+  cd "$STAGING_DIR"
+  find database.dump uploads recovery backup-info.txt -type f -print |
+    LC_ALL=C sort |
+    while IFS= read -r file; do
+      shasum -a 256 "$file"
+    done > manifest.sha256
+)
+
+note "encrypting backup archive"
+tar -C "$STAGING_DIR" \
+  -cf - database.dump uploads recovery backup-info.txt manifest.sha256 |
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$ENCRYPTED_TEMP"
+
+ENCRYPTED_BYTES="$(wc -c < "$ENCRYPTED_TEMP" | tr -d ' ')"
+[ "$ENCRYPTED_BYTES" -gt "$DB_BYTES" ] ||
+  fail "Encrypted archive is unexpectedly small."
+
+DESTINATION="$RESOLVED_BACKUP/moldpilot-backup-$STAMP.tar.age"
+[ ! -e "$DESTINATION" ] || fail "Refusing to overwrite existing archive: $DESTINATION"
+PARTIAL="$DESTINATION.partial.$$"
+install -m 600 "$ENCRYPTED_TEMP" "$PARTIAL"
+mv "$PARTIAL" "$DESTINATION"
+
+mkdir -p "$STATUS_DIR"
+chmod 700 "$STATUS_DIR"
+cat > "$STATUS_DIR/last-success" <<EOF
+createdAt=$STAMP
+archive=$DESTINATION
+sizeBytes=$ENCRYPTED_BYTES
+EOF
+chmod 600 "$STATUS_DIR/last-success"
+
+if [ "${BACKUP_MANAGE_RETENTION:-}" = "1" ]; then
+  RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
+  [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || fail "BACKUP_RETENTION_DAYS must be numeric."
+  find "$RESOLVED_BACKUP" -maxdepth 1 -type f \
+    -name 'moldpilot-backup-*.tar.age' -mtime +"$RETENTION_DAYS" -delete
 fi
 
-# --- 4. Retention ---------------------------------------------------------------
-
-PRUNED=$(find "$RESOLVED_BACKUP" -maxdepth 1 -name 'moldpilot-db-*.sql.gz' -mtime +"$RETENTION_DAYS" -print -delete | wc -l | tr -d ' ')
-[ "$PRUNED" = "0" ] || note "pruned $PRUNED dump(s) older than $RETENTION_DAYS days"
-
-note "backup complete → $RESOLVED_BACKUP"
+note "encrypted backup complete: $DESTINATION ($ENCRYPTED_BYTES bytes)"
+note "A backup is not accepted until a separate scratch restore succeeds."

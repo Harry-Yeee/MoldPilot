@@ -178,6 +178,10 @@ const rulesByFileType: Record<AttachmentFileType, FileTypeRule> = {
   OTHER: otherRule
 };
 
+export function attachmentSizeLimitBytes(fileType: AttachmentFileType): number {
+  return rulesByFileType[fileType].maxSizeBytes;
+}
+
 export function isImageContentType(contentType: string): boolean {
   const normalized = normalizeContentType(contentType);
   return imageTypes.some(
@@ -404,7 +408,6 @@ function resolveExtensionFirst(
 export function sanitizeFileName(fileName: string, extension?: string): string {
   const base = (fileName.split(/[\\/]/).pop() ?? "").normalize("NFC");
   // Remove C0 control chars + DEL, then characters unsafe in headers/paths.
-  // eslint-disable-next-line no-control-regex
   const cleaned = base
     .replace(/[\x00-\x1f\x7f]/g, "")
     .replace(/["\\]/g, "")

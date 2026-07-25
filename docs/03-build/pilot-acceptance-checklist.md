@@ -168,3 +168,35 @@ Use Admin and GM accounts, then repeat direct-route checks with a normal role.
 ## Non-Scope Guardrail
 
 Do not validate full ERP, purchasing, customer portal, full file-manager, full department task-board, BI report-designer, or factory-utilization behavior in this pilot run. Phase 1 acceptance is limited to the mold trial tracking loop and its approved support surfaces.
+
+## Security Readiness
+
+Before real business uploads or factory-wide access:
+
+- Confirm the effective Next.js runtime is at least `16.2.11`.
+- Confirm `.env` is untracked, mode `0600`, and production refuses a missing or
+  development fallback session secret.
+- Confirm `MOLDPILOT_DEPLOYMENT_MODE=production`, a valid browser-facing base
+  URL, and `MOLDPILOT_SESSION_COOKIE_SECURE=auto` pass the production checker.
+- Confirm preferred HTTPS keeps Next.js on loopback behind CIDR-restricted
+  Caddy. For temporary HTTP, confirm Next.js binds only the configured LAN
+  address, router forwarding is disabled, and the plaintext warning is shown.
+- Confirm HttpOnly and SameSite=Lax session-cookie behavior; Secure is true for
+  HTTPS and false for HTTP, and forced password change keeps the session.
+- Confirm local pilot launchers refuse production mode before migrations or
+  seed and that a disposable-database reseed preserves credential lifecycle
+  fields.
+- Exercise generic login failure plus temporary progressive account/source
+  backoff and recovery.
+- Run `scripts/check-malware-scanner.sh`; confirm scanner-unavailable and
+  invalid-signature test uploads do not create downloadable attachments.
+- Confirm potentially active downloads use attachment disposition and
+  `X-Content-Type-Options: nosniff`.
+- Complete one versioned encrypted backup to mounted off-machine storage and
+  one manifest-verified scratch restore.
+- Confirm the backup scheduler is loaded only after approval and note that its
+  user LaunchAgent requires the dedicated account to remain logged in.
+- Keep the old `.xls` quarantined pending local ClamAV and Office-aware review;
+  do not upload it to public scanning services or label it malware-free.
+- Follow exact impact and rollback instructions in
+  `docs/08-rollout/security-hardening-runbook.md`.

@@ -3,7 +3,6 @@ import type { DateLike, MissedTrialReasonCategory, ResponsibleArea, TrialStatus,
 export const DEFAULT_BUSINESS_TIMEZONE = "Asia/Shanghai";
 export const AUTO_MISSED_SWEEP_THROTTLE_MS = 5 * 60 * 1000;
 
-const millisecondsPerDay = 24 * 60 * 60 * 1000;
 const shanghaiNoonUtcHour = 4;
 
 export type AutoMissedResolutionMode = "MISSED" | "BLOCKED" | "PAUSED";

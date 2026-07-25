@@ -1,4 +1,5 @@
 import { StatusBadge } from "@/components/ui";
+import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { barHitPercent, isScoredRole, kpiLabels } from "@/domain/mold-trial/kpi-rules";
 import { missBufferAtBar, onTimeNeededForBar } from "@/domain/mold-trial/kpi-scoring";
@@ -50,9 +51,9 @@ export default async function ScorePage() {
       <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-6">
         <AppHeader current="score" nav={nav} currentUser={currentUser} />
         <header className="grid gap-1">
-          <a className="text-sm text-blue-700 underline" href="/">
+          <Link className="text-sm text-blue-700 underline" href="/">
             ← {pickLabel(kpiLabels.scoreboardTitle, locale)}
-          </a>
+          </Link>
           <h1 className="m-0 text-xl font-bold text-neutral-900">{pickLabel(kpiLabels.scoreboardTitle, locale)}</h1>
         </header>
         <div className="notice" role="note">
@@ -70,9 +71,9 @@ export default async function ScorePage() {
       <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-6">
         <AppHeader current="score" nav={nav} currentUser={currentUser} />
         <header className="grid gap-1">
-          <a className="text-sm text-blue-700 underline" href="/">
+          <Link className="text-sm text-blue-700 underline" href="/">
             ← {pickLabel(kpiLabels.scoreboardTitle, locale)}
-          </a>
+          </Link>
           <h1 className="m-0 text-xl font-bold text-neutral-900">{pickLabel(kpiLabels.scoreboardTitle, locale)}</h1>
         </header>
         <div className="notice" role="note">
@@ -80,9 +81,9 @@ export default async function ScorePage() {
           <span>{pickLabel(kpiLabels.notScoredRoleHint, locale)}</span>
         </div>
         {isAdmin ? (
-          <a className="buttonLink" href="/admin?tab=scores">
+          <Link className="buttonLink" href="/admin?tab=scores">
             {pickLabel(kpiLabels.backToScores, locale)} →
-          </a>
+          </Link>
         ) : null}
       </main>
     );
@@ -146,9 +147,9 @@ export default async function ScorePage() {
       <AppHeader current="score" nav={nav} currentUser={currentUser} />
       <header className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-blue-800 pb-3">
         <div className="grid gap-1">
-          <a className="text-sm text-blue-700 underline" href="/">
+          <Link className="text-sm text-blue-700 underline" href="/">
             ← {pickLabel(kpiLabels.scoreboardTitle, locale)}
-          </a>
+          </Link>
           <h1 className="m-0 text-2xl font-bold text-blue-900">{pickLabel(kpiLabels.scoreboardTitle, locale)}</h1>
           <p className="m-0 text-sm text-neutral-600">{pickLabel(kpiLabels.scoreboardSubtitle, locale)}</p>
         </div>

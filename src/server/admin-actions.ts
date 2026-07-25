@@ -19,6 +19,7 @@ import { evaluatePermission } from "@/domain/mold-trial/permission-evaluator";
 import { isPermissionCode, permissionDefinitions, type PermissionCode } from "@/domain/mold-trial/permission-policy";
 import { isNumericInjectionMachineNo, normalizeInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
 import { prisma } from "@/lib/prisma";
+import { setSessionCookie } from "@/server/auth-session";
 import { getCurrentUser } from "@/server/current-user";
 import { hashPassword } from "@/server/passwords";
 import { requirePermission } from "@/server/permissions";
@@ -663,6 +664,9 @@ export async function resetUserPassword(formData: FormData) {
       redirectWithMessage(fallback, "error", "Temporary password must be at least 6 characters.");
     }
 
+    // `passwordUpdatedAt` is what revokes the target's existing session cookies
+    // (see src/domain/security/session-revocation.ts). The admin's own cookie is
+    // never touched when resetting somebody else.
     const updated = await prisma.$transaction(async (tx) => {
       const user = await tx.user.update({
         where: { id: userId },
@@ -688,6 +692,13 @@ export async function resetUserPassword(formData: FormData) {
 
       return user;
     });
+
+    if (updated.id === actor.id) {
+      // An admin who resets their OWN password keeps working in this tab: the
+      // fresh cookie is newer than the new passwordUpdatedAt, and the forced
+      // first-login gate still sends them to /change-password.
+      await setSessionCookie(updated.id);
+    }
 
     revalidatePath("/admin");
     redirectWithMessage(fallback, "success", `Reset password for ${updated.username}.`);
@@ -765,6 +776,7 @@ export async function batchUpdateUserAccounts(
   _previousState: AdminBatchActionState = emptyBatchActionState,
   formData: FormData
 ): Promise<AdminBatchActionState> {
+  void _previousState;
   try {
     const actor = await getCurrentUser();
     await requirePermission(actor.id, "admin.manage_users");
@@ -948,6 +960,7 @@ export async function batchUpdateCustomers(
   _previousState: AdminBatchActionState = emptyBatchActionState,
   formData: FormData
 ): Promise<AdminBatchActionState> {
+  void _previousState;
   try {
     const actor = await getCurrentUser();
     await requirePermission(actor.id, "admin.manage_customers");

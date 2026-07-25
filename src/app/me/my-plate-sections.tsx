@@ -14,9 +14,10 @@ import {
   TextInput
 } from "@/components/ui";
 import { IssuePhotoCountChip, IssuePhotoGallery } from "@/components/attachments/issue-photo-gallery";
+import { DirectFileUploadForm } from "@/components/attachments/DirectFileUploadForm";
+import { MeasurementReportUploadForm } from "@/components/attachments/MeasurementReportUploadForm";
 import {
   attachmentLabels,
-  fileVisibilityLabels,
   formatMyPlateTrialTitle,
   localeFromLanguage,
   measurementReportLabels,
@@ -56,15 +57,8 @@ import {
   redateReturnedTrial,
   rejectTrialDateChange
 } from "@/server/date-confirmation-actions";
-import { uploadMeasurementReport } from "@/server/qc-report-actions";
-import { uploadAttachment } from "@/server/attachment-actions";
-
-/** QC_REPORT accept list — pdf/office/csv/slides, same as the desktop report panel. */
-const REPORT_ACCEPT = "application/pdf,.pdf,.xlsx,.xls,.docx,.csv,.pptx,.ppt";
 /** DRAWING accept list — native CAD + drawing formats + pdf (same as the Files uploader). */
 const DRAWING_ACCEPT = ".stp,.step,.igs,.iges,.dwg,.dxf,.pdf,application/pdf";
-/** Visibilities the uploader may pick for a report — customer-safe (default) or internal draft. */
-const REPORT_VISIBILITIES = ["CUSTOMER_SAFE", "INTERNAL"] as const;
 
 const TIME_PRESETS = [15, 30, 60, 120] as const;
 
@@ -949,20 +943,18 @@ function DepartmentInboxCard({
 
 /**
  * A design-change event still awaiting its first drawing. The primary action
- * opens a BottomSheet with a native file picker that posts straight to the
- * generic `uploadAttachment` action, filing a DRAWING onto the DESIGN_CHANGE_EVENT
+ * opens a BottomSheet with a native file picker that streams through the protected
+ * upload endpoint, filing a DRAWING onto the DESIGN_CHANGE_EVENT
  * (TECHNICAL visibility, the CAD default). This is upload-of-an-existing-file
  * (a STEP/PDF produced in CAD), so the phone's file picker is the right control —
  * no deep-link needed; a successful upload clears the card on reload.
  */
 function DesignRevisionCard({
   row,
-  locale,
-  redirectTo
+  locale
 }: {
   row: DesignRevisionRow;
   locale: Locale;
-  redirectTo: string;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { dictionary } = useI18n();
@@ -995,39 +987,23 @@ function DesignRevisionCard({
         onClose={() => setSheetOpen(false)}
         title={`${label("uploadDrawing", locale)} · ${row.title}`}
       >
-        <form action={uploadAttachment} className="grid gap-3" encType="multipart/form-data">
-          <input type="hidden" name="projectId" value={row.projectId} />
-          <input type="hidden" name="entityType" value="DESIGN_CHANGE_EVENT" />
-          <input type="hidden" name="entityId" value={row.designChangeEventId} />
-          <input type="hidden" name="fileType" value="DRAWING" />
-          <input type="hidden" name="visibility" value="TECHNICAL" />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-
+        <DirectFileUploadForm
+          projectId={row.projectId}
+          entityType="DESIGN_CHANGE_EVENT"
+          entityId={row.designChangeEventId}
+          fileType="DRAWING"
+          visibility="TECHNICAL"
+          inputId={`design-drawing-file-${row.designChangeEventId}`}
+          accept={DRAWING_ACCEPT}
+          fileLabel={label("drawingFile", locale)}
+          hint={pickLabel(attachmentLabels.drawingHint, locale)}
+          submitLabel={label("submit", locale)}
+          onSuccess={() => setSheetOpen(false)}
+        >
           {row.changeDate == null ? null : (
             <DetailLine term={label("changeDate", locale)}>{row.changeDate}</DetailLine>
           )}
-
-          <FormField
-            label={label("drawingFile", locale)}
-            htmlFor={`design-drawing-file-${row.designChangeEventId}`}
-            hint={pickLabel(attachmentLabels.drawingHint, locale)}
-          >
-            <input
-              id={`design-drawing-file-${row.designChangeEventId}`}
-              name="file"
-              type="file"
-              required
-              accept={DRAWING_ACCEPT}
-              className="w-full min-h-11 rounded-lg border border-neutral-400 bg-white px-2.5 py-2 text-neutral-900 font-normal file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:font-bold file:text-brand-600"
-            />
-          </FormField>
-
-          <div className="pt-1">
-            <SubmitButton variant="primary" size="lg" className="w-full">
-              {label("submit", locale)}
-            </SubmitButton>
-          </div>
-        </form>
+        </DirectFileUploadForm>
       </BottomSheet>
     </>
   );
@@ -1263,20 +1239,18 @@ function ComingUpCard({ row, locale }: { row: ComingUpRow; locale: Locale }) {
 
 /**
  * A recently completed trial missing its measurement report. The primary action
- * opens a BottomSheet with a file input + visibility + optional note that posts
- * to `uploadMeasurementReport`. A native file input is the right control here:
+ * opens a BottomSheet with a file input + visibility + optional note that streams
+ * through the protected upload endpoint. A native file input is the right control here:
  * this is upload-of-an-existing-file (a PDF/Excel produced outside the system),
  * not record creation, so the phone's file picker (Files / cloud / scan) handles
  * it well — no need to deep-link to the project page.
  */
 function QcReportToUploadCard({
   row,
-  locale,
-  redirectTo
+  locale
 }: {
   row: QcReportToUploadRow;
   locale: Locale;
-  redirectTo: string;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -1308,42 +1282,11 @@ function QcReportToUploadCard({
         onClose={() => setSheetOpen(false)}
         title={`${reportLabel("upload")} · ${row.trialCode}`}
       >
-        <form action={uploadMeasurementReport} className="grid gap-3" encType="multipart/form-data">
-          <input type="hidden" name="trialEventId" value={row.trialEventId} />
-          <input type="hidden" name="projectCode" value={row.projectCode} />
-          <input type="hidden" name="redirectTo" value={redirectTo} />
-
-          <FormField label={reportLabel("file")} htmlFor={`qc-report-file-${row.trialEventId}`} hint={reportLabel("reportHint")}>
-            <input
-              id={`qc-report-file-${row.trialEventId}`}
-              name="file"
-              type="file"
-              required
-              accept={REPORT_ACCEPT}
-              className="w-full min-h-11 rounded-lg border border-neutral-400 bg-white px-2.5 py-2 text-neutral-900 font-normal file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:font-bold file:text-brand-600"
-            />
-          </FormField>
-
-          <FormField label={reportLabel("visibility")} htmlFor={`qc-report-visibility-${row.trialEventId}`}>
-            <Select id={`qc-report-visibility-${row.trialEventId}`} name="visibility" defaultValue="CUSTOMER_SAFE" required>
-              {REPORT_VISIBILITIES.map((option) => (
-                <option key={option} value={option}>
-                  {pickLabel(fileVisibilityLabels[option], locale)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-
-          <FormField label={reportLabel("note")} htmlFor={`qc-report-note-${row.trialEventId}`}>
-            <Textarea id={`qc-report-note-${row.trialEventId}`} name="note" rows={2} />
-          </FormField>
-
-          <div className="pt-1">
-            <SubmitButton variant="primary" size="lg" className="w-full">
-              {reportLabel("submit")}
-            </SubmitButton>
-          </div>
-        </form>
+        <MeasurementReportUploadForm
+          trialEventId={row.trialEventId}
+          locale={locale}
+          onSuccess={() => setSheetOpen(false)}
+        />
       </BottomSheet>
     </>
   );
@@ -1425,7 +1368,7 @@ export function MyPlateSections({ data, todayInput, viewerUsername, redirectTo }
 
       <Section title={label("designRevisions", locale)} count={data.designRevisions.length}>
         {data.designRevisions.map((row) => (
-          <DesignRevisionCard key={row.key} row={row} locale={locale} redirectTo={redirectTo} />
+          <DesignRevisionCard key={row.key} row={row} locale={locale} />
         ))}
       </Section>
 
@@ -1458,7 +1401,7 @@ export function MyPlateSections({ data, todayInput, viewerUsername, redirectTo }
         count={data.qcReportsToUpload.length}
       >
         {data.qcReportsToUpload.map((row) => (
-          <QcReportToUploadCard key={row.key} row={row} locale={locale} redirectTo={redirectTo} />
+          <QcReportToUploadCard key={row.key} row={row} locale={locale} />
         ))}
       </Section>
     </div>

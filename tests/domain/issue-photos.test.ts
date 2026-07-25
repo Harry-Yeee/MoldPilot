@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  MAX_ISSUE_PHOTO_BATCH_BYTES,
+  MAX_ISSUE_PHOTO_COUNT,
   addPendingPhotos,
   countPhotosByIssue,
   photoCountFor,
   removePendingPhoto,
   scaledDimensions,
+  validateIssuePhotoBatch,
   type PendingPhoto
 } from "../../src/domain/mold-trial/issue-photos.ts";
 
@@ -99,5 +102,30 @@ describe("photo count aggregation", () => {
     const counts = countPhotosByIssue([]);
     assert.equal(counts.size, 0);
     assert.equal(photoCountFor(counts, "any"), 0);
+  });
+});
+
+describe("issue photo batch validation", () => {
+  test("accepts up to three photos within the combined byte limit", () => {
+    assert.deepEqual(
+      validateIssuePhotoBatch([
+        MAX_ISSUE_PHOTO_BATCH_BYTES / 3,
+        MAX_ISSUE_PHOTO_BATCH_BYTES / 3,
+        MAX_ISSUE_PHOTO_BATCH_BYTES / 3
+      ]),
+      { ok: true }
+    );
+  });
+
+  test("rejects more than three photos even when each one is small", () => {
+    const result = validateIssuePhotoBatch(
+      Array.from({ length: MAX_ISSUE_PHOTO_COUNT + 1 }, () => 1)
+    );
+    assert.equal(result.ok, false);
+  });
+
+  test("rejects a batch over the combined byte limit", () => {
+    const result = validateIssuePhotoBatch([MAX_ISSUE_PHOTO_BATCH_BYTES, 1]);
+    assert.equal(result.ok, false);
   });
 });

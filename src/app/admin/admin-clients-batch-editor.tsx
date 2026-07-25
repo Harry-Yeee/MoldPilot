@@ -71,6 +71,7 @@ export function AdminClientsBatchEditor({ clients, labels, ownerOptions, redirec
   const router = useRouter();
   const [baselineRows, setBaselineRows] = useState(clients);
   const [rows, setRows] = useState(clients);
+  const [sourceClients, setSourceClients] = useState(clients);
   const [state, formAction] = useActionState(batchUpdateCustomers, initialActionState);
   const handledSuccessVersion = useRef(0);
   const baselineById = useMemo(() => new Map(baselineRows.map((row) => [row.id, row])), [baselineRows]);
@@ -82,10 +83,11 @@ export function AdminClientsBatchEditor({ clients, labels, ownerOptions, redirec
   const activeRows = rows.filter((row) => row.active);
   const archivedRows = rows.filter((row) => !row.active);
 
-  useEffect(() => {
+  if (sourceClients !== clients) {
+    setSourceClients(clients);
     setBaselineRows(clients);
     setRows(clients);
-  }, [clients]);
+  }
 
   useEffect(() => {
     if (!state.ok || state.version === handledSuccessVersion.current) {

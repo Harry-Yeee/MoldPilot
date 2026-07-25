@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { assertLocalPilotDeploymentAllowed } from "../src/domain/security/deployment-mode.ts";
 
 const DEFAULT_DATABASE_URL = "postgresql://moldpilot:moldpilot@localhost:5432/moldpilot?schema=public";
 const args = new Set(process.argv.slice(2));
@@ -212,6 +213,8 @@ async function main() {
   } else {
     console.log("Found .env.");
   }
+
+  assertLocalPilotDeploymentAllowed(process.env, readFileSync(".env", "utf8"));
 
   ensureLocalBinary("./node_modules/.bin/prisma", dependencyInstallHint());
   ensureLocalBinary("./node_modules/.bin/next", dependencyInstallHint());

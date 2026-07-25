@@ -1,4 +1,5 @@
 import { EmptyState, MessageBanner } from "@/components/ui";
+import Link from "next/link";
 import { localeFromLanguage, myPlateLabels, navLabels, pickLabel } from "@/domain/mold-trial/labels";
 import { createTranslator, dictionaries, translateWorkflowMessage } from "@/i18n";
 import { LanguageSwitcher } from "@/i18n/language-switcher";
@@ -66,9 +67,9 @@ export default async function MyPlatePage({ searchParams }: PageProps) {
           <p className="m-0 text-sm text-neutral-600">{pickLabel(myPlateLabels.pageSubtitle, locale)}</p>
         </div>
         <div className="myTasksHeaderActions">
-          <a href="/" className="shrink-0 text-sm font-bold text-neutral-500 underline">
+          <Link href="/" className="shrink-0 text-sm font-bold text-neutral-500 underline">
             {pickLabel(navLabels.dashboard, locale)}
-          </a>
+          </Link>
           <LanguageSwitcher />
         </div>
       </header>

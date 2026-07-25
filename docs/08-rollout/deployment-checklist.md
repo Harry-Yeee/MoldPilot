@@ -3,60 +3,101 @@
 Findings from the pre-deployment sweep (static audit + gates). Work top to bottom;
 items marked ⛔ are blockers — do not put real users on the system until they're done.
 
-## ⛔ Security blockers (minutes each, catastrophic if skipped)
+## ⛔ Security blockers
 
-1. **Session secret.** `src/server/auth-session.ts` falls back to a hardcoded string
-   (`moldpilot-local-pilot-session-secret`). Anyone who has ever seen the repo can forge any
-   user's login cookie. On the server set a real value:
-   `MOLDPILOT_SESSION_SECRET="$(openssl rand -hex 32)"` in the env/launchd plist. Never commit it.
-2. **admin/admin.** The seeded admin password is `admin` with no forced change. Change it before
-   install day (Account → Change password). Also decide xie's (GM) real password.
-3. **Database password.** `.env` uses `moldpilot:moldpilot`. Fine while Postgres listens on
-   localhost only — so VERIFY it listens on localhost only (`listen_addresses`/docker port binding
-   `127.0.0.1:5432:5432`). The app is what phones talk to, never the DB.
-4. **.env must not be committed.** Confirm `.gitignore` covers `.env` before the big commit.
+1. **Secrets and cookies.** Production now refuses the development session
+   fallback. Confirm `.env` mode is `0600`, contains a strong generated
+   `MOLDPILOT_SESSION_SECRET`, sets `MOLDPILOT_DEPLOYMENT_MODE=production`, uses
+   the exact browser-facing `MOLDPILOT_BASE_URL`, and sets
+   `MOLDPILOT_SESSION_COOKIE_SECURE=auto`. `auto` must resolve Secure=true for
+   HTTPS and Secure=false for temporary HTTP. Confirm `.env` remains ignored
+   and absent from Git history.
+2. **Passwords.** Change bootstrap credentials before staff access. Seeded
+   operational users must complete the first-login password change.
+3. **Database loopback.** Native production PostgreSQL and the shared
+   development Compose listener must be loopback-only. For Compose use
+   `127.0.0.1:5432:5432`; never publish `5432:5432`. Confirm with
+   `lsof -nP -iTCP:5432 -sTCP:LISTEN`.
+4. **Network containment.** Preferred mode keeps Next.js on
+   `127.0.0.1:3000`; Caddy is the only LAN-facing listener, pins the expected
+   host, and limits access to the approved factory CIDR. During the explicitly
+   accepted temporary HTTP pilot, Next.js may bind only to the stable LAN
+   hostname/IP configured in `MOLDPILOT_BASE_URL`, never `0.0.0.0`; router port
+   forwarding must remain disabled. HTTP leaves credentials and cookies
+   unencrypted. Keep HSTS disabled during this transition.
+5. **Scanner health.** ClamAV definitions must be current and
+   `scripts/check-malware-scanner.sh` must pass. Scanner failure keeps uploads
+   quarantined; do not bypass this fail-closed behavior.
 
 ## ⛔ The commit + a tested backup
 
-5. **Private remote + clean release.** Push the reviewed release to the private GitHub repository.
+6. **Private remote + clean release.** Push the reviewed release to the private GitHub repository.
    The production Mac mini should pull with its repository-specific read-only deploy key. Never
    deploy an uncommitted or dirty production checkout.
-6. **Backups armed.** `scripts/backup.sh` is ready but `BACKUP_DIR` is not set anywhere. Point it
-   at the NAS/external disk in `com.moldpilot.backup.plist`, load the plist, run one manual backup,
-   and do one restore drill (`psql < dump` into a scratch DB + confirm uploads-mirror has bytes).
-   A backup that has never restored is a hope, not a backup.
+7. **Backups armed.** Configure a mounted off-machine `BACKUP_DIR` and public
+   `BACKUP_AGE_RECIPIENT`; keep the private age identity offline. Run one
+   encrypted backup, complete the manifest-verified scratch restore, then load
+   the reviewed LaunchAgent. It runs only while the dedicated account is logged
+   in. A backup that has never restored is a hope, not a backup. Escrow the
+   private age identity in the two sealed copies and schedule the quarterly
+   restore drill: `security-hardening-runbook.md` §7a "Backup key escrow &
+   restore drill".
 
 ## Production run mode (the server is not `pnpm dev`)
 
-7. **Build + start.** Use `scripts/server-bootstrap-macos.sh --production` for the first Mac mini
-   installation and `scripts/server-deploy-macos.sh` for updates. They build production mode and
-   run Next on `0.0.0.0:3000`; never use `pnpm dev` for workshop users.
-8. **Migrations in prod:** use `pnpm exec prisma migrate deploy` (never `migrate dev` / `reset` on
+8. **Build + start.** Use `scripts/server-bootstrap-macos.sh --production` for
+   the first Mac mini installation and `scripts/server-deploy-macos.sh` for
+   updates. They validate deployment mode, base URL, and cookie security before
+   stopping/restarting the service. HTTPS runs Next on `127.0.0.1:3000` behind
+   approved Caddy; temporary HTTP binds the exact configured LAN address.
+   Never use `pnpm dev` for workshop users.
+9. **Migrations in prod:** use `pnpm exec prisma migrate deploy` (never `migrate dev` / `reset` on
    the production DB). The step-0 history repair in `migrate-and-verify.py` applies to dev only.
-9. **Storage path.** Attachments default to `<cwd>/storage/uploads`. With launchd the cwd can
-   surprise you — set `MOLDPILOT_STORAGE_DIR` to an absolute path (backup.sh already honors it).
-10. **launchd + stable LAN address.** Bootstrap installs `com.moldpilot.app` with KeepAlive. Use
+10. **Storage paths.** Set absolute, separate
+   `MOLDPILOT_STORAGE_DIR` and `MOLDPILOT_QUARANTINE_DIR` paths outside Git
+   with mode `0700`.
+11. **launchd + stable LAN address.** Bootstrap installs `com.moldpilot.app` with KeepAlive. Use
     wired Ethernet plus a router DHCP reservation, keep NTP on, prevent automatic sleep, and keep
     the dedicated server account logged in because Homebrew services and the app are user agents.
-11. **Fresh database for go-live.** Baseline month must not contain MP-SIM-*/MP-SEED-* simulator
+12. **Fresh database for go-live.** Baseline month must not contain MP-SIM-*/MP-SEED-* simulator
     rows. Use `pnpm prisma:bootstrap` only on a fresh database; it installs production master data
     without demo projects and refuses to overwrite users/projects/activity. Never run `prisma:seed`
-    or `pilot:reset` on production.
+    or `pilot:reset` on production. Both `run-moldpilot.command` and
+    `scripts/local-pilot.mjs` must refuse production deployment mode before
+    migration or seed. Seed upserts preserve existing password and login
+    lifecycle fields as defense in depth.
 
 ## Verification (run these, in order)
 
-12. `pnpm typecheck && pnpm test` — sandbox run today: **clean, 546/546**. Re-run on the Mac (the
-    authoritative Prisma-typed check).
-13. **Scripted e2e** — two terminals from the NEW path:
+13. Run `pnpm exec prisma validate`, `pnpm lint`, `pnpm typecheck`,
+    `pnpm test`, and `pnpm build` from the exact release checkout.
+14. **Scripted e2e** — two terminals from the NEW path:
     `cd ~/Documents/LJ_ERP/MoldPilot && pnpm dev` … then `pnpm e2e:smoke`.
     Sentinel audit (today): the script is compatible with the UI overhaul — all asserted strings
     ("Trial Dashboard", "My tasks", "Trial Panel", admin headings, "Admin unavailable.") survived.
     Expect all green; any red is a real find.
-14. **Golden-path by hand (10 min, zh + en):** title-only issue → lands in the right department
+15. **Golden-path by hand (10 min, zh + en):** title-only issue → lands in the right department
     inbox with ~7-day due date → second user sees 我来处理 → claim → verify the loser message on a
     double-claim → close+verify path → /score shows the event. Phone width: pixel-check /me.
-15. **First production smoke after `pnpm start`:** login page loads from a PHONE on workshop Wi-Fi
-    via the LAN IP; add-to-home-screen works (no service worker in the app, so plain HTTP is fine).
+16. **Security smoke:** verify the effective Next.js version is at least
+    `16.2.11`; the production configuration checker passes; cookies are
+    HttpOnly and SameSite=Lax; and Secure matches the configured scheme.
+    Preferred HTTPS must be trusted from an allowed device and reject direct
+    LAN port 3000. Temporary HTTP must bind only the configured LAN address,
+    print the plaintext warning, and remain unreachable from the internet.
+    Repeated login failures receive progressive backoff; scanner-unavailable
+    uploads remain quarantined; downloads use `nosniff` and attachment
+    disposition where required.
+17. **First production smoke:** `/login`, forced password change, and `/me`
+    load from a managed phone at the exact `MOLDPILOT_BASE_URL`. Confirm the
+    session persists after password change, and verify other devices' sessions
+    are logged out after password change (second browser signed in as the same
+    user must land on `/login` on its next click). For HTTP, document the temporary
+    risk acceptance; for HTTPS, verify the trusted certificate and that direct
+    LAN access to port 3000 fails.
+
+Follow the approval and rollback details in
+`docs/08-rollout/security-hardening-runbook.md`.
 
 ## Install-day already covered elsewhere
 

@@ -79,6 +79,7 @@ export function AdminUsersBatchEditor({ labels, roles, users, redirectTo }: Prop
   const router = useRouter();
   const [baselineRows, setBaselineRows] = useState(users);
   const [rows, setRows] = useState(users);
+  const [sourceUsers, setSourceUsers] = useState(users);
   const [state, formAction] = useActionState(batchUpdateUserAccounts, initialActionState);
   const handledSuccessVersion = useRef(0);
   const baselineById = useMemo(() => new Map(baselineRows.map((row) => [row.id, row])), [baselineRows]);
@@ -90,10 +91,11 @@ export function AdminUsersBatchEditor({ labels, roles, users, redirectTo }: Prop
   const activeRows = rows.filter((row) => row.status === "ACTIVE");
   const archivedRows = rows.filter((row) => row.status === "INACTIVE");
 
-  useEffect(() => {
+  if (sourceUsers !== users) {
+    setSourceUsers(users);
     setBaselineRows(users);
     setRows(users);
-  }, [users]);
+  }
 
   useEffect(() => {
     if (!state.ok || state.version === handledSuccessVersion.current) {
