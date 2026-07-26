@@ -3,7 +3,7 @@
 This is the source-of-truth setup for running MoldPilot on a dedicated Mac mini
 inside the factory LAN.
 
-## Docker D1/D2.1 Parallel Track
+## Docker D1 Through D2.2 Parallel Track
 
 The native deployment documented below remains the accepted production and
 rollback path. Docker D1 added a separately tested standalone image and health
@@ -11,12 +11,18 @@ contract. Docker D2.1 added a private unprivileged clamd service, fail-closed
 streaming, scanner-aware readiness, and disposable proof that released and
 retained quarantined files survive application-container replacement.
 
-Neither milestone changes launchd, Homebrew PostgreSQL/local scanning, Caddy,
-live data, backups, or the parent LJ_ERP production Compose structure. They are
-**not approved for production cutover**. D2.2 still owns platform networking,
-secret delivery, persistent-volume placement, backup/restore, migration,
-deploy, and rollback design. See `docker-d1-runtime-foundation.md` and
-`docker-d2-private-scanner-storage.md`.
+D2.2 adds a separate production-shaped package under `../ops/`: native Caddy
+remains the front door, while MoldPilot, PostgreSQL, private clamd, and
+FreshClam are containerized with app-only controls plus encrypted
+backup/scratch restore. D2.2.1 replaces a failed long-running FreshClam
+root-to-non-root `setpriv` attempt with one-shot signature-volume
+initialization and directly unprivileged scanner services.
+
+These milestones do not change launchd, Homebrew PostgreSQL/local scanning,
+native Caddy, live data, or the current production service. They are **not
+approved for production cutover**. See `docker-d1-runtime-foundation.md`,
+`docker-d2-private-scanner-storage.md`, and
+`docker-d2-production-package.md`.
 
 ## Deployment Shape
 
@@ -41,7 +47,9 @@ deploy, and rollback design. See `docker-d1-runtime-foundation.md` and
   directories under `~/MoldPilotData`.
 - Versioned `age`-encrypted database, upload, and recovery-config archives go
   to a mounted NAS or external disk.
-- Docker Desktop is not required for production. Python is needed only for the
+- Docker Desktop is not required for the currently deployed native production
+  path. It becomes a prerequisite only after a separately approved D3
+  container cutover. Python is needed only for the
   separately approved Office-aware `oletools` legacy-workbook review.
 
 The launch agent is a user service. The dedicated server account must remain

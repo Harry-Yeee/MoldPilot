@@ -20,9 +20,14 @@ f4af0e7 Docker D1: add standalone container runtime foundation
 
 Independent review found and D2.1.1 corrected a connected-socket listener gap
 that could emit uncaught `ECONNRESET` between streamed writes. The correction
-has passed deterministic fault injection and the complete disposable proof,
-but the combined D2.1 change set remains uncommitted for review and not
-deployed.
+passed deterministic fault injection and the complete disposable proof. The
+combined D2.1/D2.1.1 checkpoint is:
+
+```text
+8680d63 Docker D2.1: finalize crash-safe private scanner and persistent storage proof
+```
+
+It is not deployed.
 
 ## Scanner Backends
 
@@ -213,21 +218,15 @@ Architecture-specific image sizes may vary.
 
 Before production cutover can be proposed:
 
-- complete independent review and commit the currently uncommitted D2.1 plus
-  D2.1.1 checkpoint
-- integrate MoldPilot with the reviewed parent production Compose and private
-  Caddy/app/database networks
-- define production secret delivery and app-owned volume placement
-- prove encrypted database, released-file, quarantine, signature, and recovery
-  configuration backup plus scratch restore
-- implement explicit app-scoped migration, deploy, independent restart,
-  maintenance, and rollback commands
-- prove Caddy/trusted-proxy behavior and no host publication of app, database,
-  or scanner ports
-- rehearse representative production data and rollback without modifying the
-  live system
-- verify graceful shutdown and supported architectures in the final platform
-  topology
+- complete D2.2.1 correction and the full production-shaped disposable
+  rehearsal documented in `docker-d2-production-package.md`
+- preserve native Caddy and native MoldPilot as the rollback path through D3
+- establish version control and release distribution for the parent `LJ_ERP`
+  platform package
+- rehearse representative real production backup/restore and rollback during
+  D3 without modifying live data until the approved maintenance window
+- verify the complete app acceptance/golden path against restored
+  representative data before cutover
 
 Do not describe MoldPilot as containerized in production until those items and
 the D3 rehearsal/cutover acceptance are complete.

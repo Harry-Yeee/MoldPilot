@@ -4,3 +4,9 @@ ARG CLAMAV_IMAGE=clamav/clamav:1.4.5-debian13-slim@sha256:0542880c8abebb7430be53
 FROM ${CLAMAV_IMAGE}
 
 COPY --chown=1000:1000 clamd.conf /etc/clamav/clamd.conf
+COPY signature-volume-init.sh /usr/local/bin/moldpilot-signature-volume-init
+COPY signature-seed.sh /usr/local/bin/moldpilot-signature-seed
+
+RUN chmod 0555 \
+    /usr/local/bin/moldpilot-signature-volume-init \
+    /usr/local/bin/moldpilot-signature-seed

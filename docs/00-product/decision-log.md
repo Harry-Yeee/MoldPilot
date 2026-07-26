@@ -819,6 +819,48 @@ Impact:
 - `docs/08-rollout/mac-mini-intranet-server.md` is the server runbook.
 - The dedicated macOS server user must stay logged in for the user services to run; the screen may remain locked.
 
+### 2026-07-26: Docker D2.2 Keeps Native Caddy And Uses One-Shot ClamAV Initialization
+
+Decision:
+
+- Keep native Caddy as the factory-LAN/TLS front door through D3.
+- Containerize MoldPilot, PostgreSQL 16, private clamd, and FreshClam while
+  binding MoldPilot only to a configurable `127.0.0.1` host port.
+- Never publish PostgreSQL 5432 or clamd 3310.
+- Use a separate MoldPilot database and non-superuser login in the PostgreSQL
+  cluster, plus explicitly named database, upload, quarantine, and signature
+  volumes.
+- Build MoldPilot app, migrator, and ClamAV image contexts from one clean Git
+  commit and tag app/migrator images with that commit SHA.
+- Keep real secrets in one protected mode-`0600` environment file outside Git.
+- Prepare the ClamAV signature volume with disposable one-shot jobs. The only
+  root job has no network and only `CAP_CHOWN`; the seed job is networkless and
+  runs as UID/GID 1000.
+- Run long-lived FreshClam and clamd directly as UID/GID `1000:1000` with all
+  capabilities dropped. Do not grant runtime `SETUID`, `SETGID`, `SYS_ADMIN`,
+  or broad capabilities.
+- Keep native MoldPilot as the rollback path through D3.
+
+Reason:
+
+The first D2.2 rehearsal proved that starting FreshClam as root with only
+`CAP_CHOWN` and then calling `setpriv` cannot work:
+`setresuid failed: Operation not permitted`. Adding identity-changing
+capabilities to a networked long-running updater would widen its blast radius.
+The D2.1 one-shot initialization pattern confines the brief root operation and
+lets every long-running scanner process stay unprivileged.
+
+Impact:
+
+- The production-shaped package lives under `../ops/`, separate from the
+  development Compose file.
+- Normal app startup never migrates, resets, or seeds; migrations use the
+  explicit migrator job.
+- D2.2/D2.2.1 packaging and rehearsal do not authorize production activation,
+  native Caddy reload, live data import, or cutover.
+- The parent `LJ_ERP` package still needs its own version-control strategy
+  before D3.
+
 ## Conflict Resolution Rule
 
 When docs conflict, prefer this order:

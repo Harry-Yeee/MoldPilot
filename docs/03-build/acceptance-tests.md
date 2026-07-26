@@ -1769,6 +1769,72 @@ Expected:
 - Passing AT-034 does not claim production readiness. D2.2 platform
   integration, backup/restore, deploy, migration, and rollback remain open.
 
+### AT-035: Docker D2.2.1 Production Package Rehearsal
+
+Layer: Domain + deployment inspection + disposable real-container rehearsal
+
+Preconditions:
+
+- D2.1 is preserved in commit `8680d63`.
+- Docker Desktop is running with at least 4 GiB available to its Linux VM.
+- The MoldPilot worktree is clean and identifies the exact local checkpoint to
+  rehearse.
+- No inherited Compose project, database URL, or environment is marked as
+  production.
+- Native Caddy, native MoldPilot/PostgreSQL, live data, and the parent
+  development Compose file remain untouched.
+
+Steps:
+
+1. Run `CI=true node --test tests/domain/platform-production-package.test.ts`.
+2. Render `../ops/compose.production.yml` with disposable values.
+3. Run `bash ../ops/scripts/moldpilot-production-smoke.sh`.
+4. Observe initialization, runtime identities, synthetic workflow checks,
+   backup, isolated restore, and final cleanup.
+
+Expected:
+
+- The rehearsal refuses a dirty MoldPilot worktree. App, migrator, and ClamAV
+  images build from one exact committed source export; app/migrator tags contain
+  that full commit SHA.
+- `moldpilot-clamav-volume-init` runs once with no network, a read-only root
+  filesystem, all capabilities dropped except `CHOWN`, normalizes the dedicated
+  signature volume, and exits 0.
+- `moldpilot-clamav-signature-seed` runs once as `1000:1000` with no network or
+  capabilities, copies bundled definitions only for an empty volume, verifies a
+  non-empty signature database, and exits 0.
+- Long-running FreshClam and clamd run directly as UID/GID `1000:1000`, with
+  read-only roots and all capabilities dropped. FreshClam uses only its
+  signature volume and `/tmp` as writable storage. It does not use `setpriv`,
+  `SETUID`, `SETGID`, `SYS_ADMIN`, or broad capabilities.
+- FreshClam remains healthy after stop/start against the existing signature
+  volume. clamd mounts that volume read-only and retains `SelfCheck` reload.
+- Only MoldPilot publishes a port, and only on `127.0.0.1`. PostgreSQL 5432 and
+  clamd 3310 have no host binding.
+- Explicit migrations run once; normal app startup does not migrate, seed, or
+  reset. Real login to synthetic `MP-D22-REHEARSAL-001` succeeds.
+- A runtime-generated clean PDF scans, releases, records, downloads, and keeps
+  the same SHA-256 after app replacement.
+- A runtime-fragmented EICAR fixture returns 422 and creates no released file,
+  quarantine residue, FileAttachment, or ActivityLog.
+- With clamd stopped, liveness stays 200, readiness and upload return 503, no
+  FileAttachment/ActivityLog is created, and one quarantine file is retained.
+- App-only restart and force-replacement leave PostgreSQL, clamd, and FreshClam
+  container IDs unchanged.
+- The helper container creates a non-empty encrypted backup covering database,
+  uploads, quarantine, signatures, release metadata, protected environment
+  recovery material, and rendered Caddy recovery configuration. Plaintext work
+  is removed.
+- A second uniquely named scratch stack verifies archive paths and SHA-256
+  manifest, restores into non-production volumes, starts, authenticates, shows
+  the synthetic project, and downloads the attachment with the same SHA-256.
+- Success, failure, and interruption remove only unique rehearsal/scratch
+  containers, networks, volumes, fixtures, archives, and temporary images.
+- Passing AT-035 accepts the package for independent D3 planning only. It does
+  not activate native Caddy, deploy containers, import live data, or authorize
+  cutover. The parent platform package still needs a version-control/release
+  strategy before D3.
+
 ## Exit Criteria
 
 Before Phase 1 v0.1 is accepted:

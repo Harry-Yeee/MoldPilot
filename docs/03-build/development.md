@@ -39,6 +39,101 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-26: Docker D2.2.1 FreshClam Initialization Correction
+
+Context:
+
+The first D2.2 production-shaped rehearsal failed before application startup.
+The long-running FreshClam service started as root with only `CAP_CHOWN` and
+then attempted to become UID/GID 1000 through `setpriv`. Linux rejected the
+identity transition with:
+
+```text
+setpriv: setresuid failed: Operation not permitted
+```
+
+Static Compose tests had checked the intended final identity but had not
+executed the runtime transition. Granting `SETUID`, `SETGID`, `SYS_ADMIN`, or
+broad capabilities to a networked updater was not acceptable.
+
+Tried:
+
+Reused the initialization pattern already proved by the disposable D2 smoke.
+The scanner image now contains two idempotent helpers. A root, networkless,
+read-only one-shot job with only `CAP_CHOWN` normalizes the dedicated signature
+volume and leaves it owned by `1000:1000`. A second networkless, capability-free
+job runs as `1000:1000`, seeds bundled signatures only when the volume is empty,
+and verifies that at least one non-empty signature database exists.
+
+The long-running FreshClam service now starts directly as `1000:1000`, has all
+capabilities dropped, a read-only root filesystem, and only its signature
+volume and tmpfs writable. It performs no runtime identity transition. clamd
+remains private, capability-free, and `1000:1000`, with read-only signature
+access and automatic `SelfCheck` reload.
+
+The parent production rehearsal now refuses a dirty MoldPilot worktree and
+builds the app, migrator, and derived ClamAV image from one `git archive HEAD`
+release context. It also verifies initializer exits, runtime identities,
+FreshClam stop/start on an existing volume, clean/EICAR/outage behavior,
+app-only replacement isolation, encrypted backup, scratch restore, and exact
+disposable cleanup.
+
+Result:
+
+The corrected topology passes shell syntax, Compose rendering, Prisma
+validation, 659/659 domain tests, lint, strict typecheck, production build, and
+the isolated D2 scanner/storage smoke. In that smoke, the clean PDF and retained
+quarantine file kept SHA-256
+`b649d8e6f24d417c97778e3ac867b5a99540605527549a434fb343397d13b32d`
+across app replacement. EICAR returned HTTP 422, scanner outage returned HTTP
+503 while liveness stayed 200 and readiness became 503, and readiness recovered
+after clamd restart. Cleanup removed the run-scoped containers, two private
+networks, four volumes, and three temporary images.
+
+The full production-shaped D2.2 rehearsal remains the final acceptance gate for
+this entry. D2.2 is not deployed, D3 has not started, and native production
+services and data remain untouched.
+
+Why:
+
+Privilege belongs in a short-lived, networkless initialization boundary, not in
+a long-running network client. Building every app-owned image from one clean
+commit also makes the rehearsal evidence attributable to exact source instead
+of a mixture of committed and working-tree files.
+
+Decision:
+
+Use one-shot signature ownership and seed jobs. Run FreshClam and clamd directly
+as `1000:1000` with no capabilities. Keep native Caddy and native MoldPilot as
+the production path until D3 is separately approved. The unversioned parent
+`LJ_ERP` platform package still needs an approved source-control and release
+strategy before D3.
+
+Verification:
+
+- `bash -n ../ops/scripts/*.sh`: pass
+- `bash -n ../ops/docker/backup/*.sh`: pass
+- `bash -n ../ops/docker/postgres/*.sh`: pass
+- `bash -n docker/clamav/*.sh`: pass
+- `pnpm exec prisma validate`: pass
+- `CI=true pnpm test`: 659/659 pass
+- `pnpm lint`: pass
+- `pnpm typecheck`: pass
+- `pnpm build`: pass
+- `pnpm docker:d2:smoke`: pass
+- `bash ../ops/scripts/moldpilot-production-smoke.sh`: pending clean checkpoint
+- `git diff --check`: pass before checkpoint
+
+Related Docs:
+
+- `docs/03-build/acceptance-tests.md` (AT-035)
+- `docs/08-rollout/docker-d2-production-package.md`
+- `docs/08-rollout/docker-d2-private-scanner-storage.md`
+- `../ops/README.md`
+- `../docs/platform/architecture-and-roadmap.md`
+- `../docs/platform/decision-log.md`
+- `../docs/platform/development.md`
+
 ### 2026-07-26: Docker D2.1.1 Crash-Safe Clamd Transport Lifecycle
 
 Context:
