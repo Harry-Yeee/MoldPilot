@@ -1,10 +1,15 @@
-# Docker D2.2 Production Package And D2.2.1 FreshClam Correction
+# Docker D2.2 Production Package Through D2.3 Versioned Lifecycle Proof
 
 ## Status
 
 D2.2 is a production-shaped package and disposable rehearsal. It is not a
 deployment, live-data migration, native Caddy activation, or production
 cutover.
+
+D2.3 versions the parent platform package separately from MoldPilot, binds
+protected operations and backup metadata to both commits, and adds a guarded
+disposable proof of the real app deploy/rollback lifecycle. It remains a
+rehearsal only.
 
 D2.1 is preserved in commit:
 
@@ -116,19 +121,22 @@ Production scripts do not use global Compose teardown or remove production
 volumes. Scratch/rehearsal cleanup removes only generated names that include the
 unique disposable project identifier.
 
-## Clean Source Contract
+## Clean Source And Dual Release Contract
 
-The rehearsal refuses any tracked or untracked MoldPilot working-tree change.
-It exports `HEAD` with `git archive` and builds all MoldPilot-owned contexts from
-that one export:
+The rehearsals refuse any tracked or untracked parent or MoldPilot worktree
+change. They export exact commits and build all owned contexts from those
+exports:
 
 - application production image
 - migrator image
 - derived ClamAV image
+- parent backup-helper image
 
-The app and migrator tags include the full commit SHA. The parent backup-helper
-context remains under `ops/`; the parent `LJ_ERP` directory therefore needs its
-own approved version-control/release strategy before D3.
+The app and migrator tags include the full MoldPilot commit SHA. The protected
+environment also includes `LJ_ERP_PLATFORM_RELEASE_SHA`; encrypted backup v3
+metadata carries both platform and app SHAs, and isolated restore reports both.
+The platform-only repository ignores every nested app plus real environments,
+credentials, backups, identities, dumps, rendered state, and release artifacts.
 
 An early clean-source run configured the loopback port but attached MoldPilot
 only to internal database/scanner networks. Docker retained the requested
@@ -142,6 +150,22 @@ Run only from a clean local checkpoint:
 ```bash
 bash ../ops/scripts/moldpilot-production-smoke.sh
 ```
+
+From the parent root, D2.3 additionally requires:
+
+```bash
+bash ops/scripts/platform-distribution-smoke.sh
+bash ops/scripts/moldpilot-release-lifecycle-smoke.sh
+```
+
+The first command proves the exact parent commit is distributable without app
+repositories or sensitive/runtime material. The second starts from a recorded
+previous app image, uses the actual app stop/start and deploy implementation,
+creates the mandatory encrypted pre-deploy backup, explicitly migrates, replaces
+only MoldPilot, restores a post-deploy backup in scratch, and executes the real
+image rollback. PostgreSQL, clamd, and FreshClam IDs must remain unchanged.
+Application rollback must leave migration records in place; it never reverses
+database migrations.
 
 Acceptance is defined by AT-035. The rehearsal must verify:
 

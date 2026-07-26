@@ -39,6 +39,68 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-26: Docker D2.3 Versioned Platform Lifecycle Foundation
+
+Context:
+
+MoldPilot D2.2.1 passed from app commit `e7caaa1`, but the parent `LJ_ERP`
+operations package had no Git identity. A MoldPilot release could therefore not
+prove which shared preflight, backup, restore, deploy, or Compose source governed
+it.
+
+Tried:
+
+The parent was initialized as a platform-only repository before any D2.3 files
+were staged. MoldPilot and the other independent app directories are ignored,
+not tracked or added as submodules. The protected environment now carries both
+the parent release SHA and MoldPilot release SHA. Platform preflight requires
+both clean checkouts and exact configured identities; deploy preparation checks
+an explicit app target SHA.
+
+Backup metadata now records both release identities. Scratch restore reports
+and can assert both. Parent distribution is exercised from a temporary Git
+bundle checkout, while every MoldPilot, ClamAV, and backup-helper image context
+comes from an exact committed archive.
+
+A guarded disposable lifecycle script uses independent temporary MoldPilot
+checkouts at `HEAD^` and `HEAD`, invokes the real app-control and deploy/rollback
+scripts, and verifies encrypted backup, explicit migration, app-only replacement,
+scratch restore, login, attachment persistence, unchanged PostgreSQL/clamd/
+FreshClam identities, and the non-reversal of migrations on image rollback.
+
+Result:
+
+The source implementation and package guards pass 662/662 MoldPilot domain
+tests across 132 suites. The Docker distribution, D2.2 compatibility, and D2.3
+lifecycle proofs remain gated on clean local parent/app checkpoints. No product
+workflow, Prisma schema, native service, production configuration, or live data
+was changed.
+
+Why:
+
+The app and platform are independent release units. Recording both commits makes
+an encrypted backup and deployment auditable without combining their Git
+histories.
+
+Decision:
+
+Keep D2.3 as the final infrastructure rehearsal before D3. Do not deploy, push,
+import live data, reload Caddy, or stop native services.
+
+Verification:
+
+- D2.3 package source tests: 10/10 pass
+- complete MoldPilot domain suite: 662/662 pass, 132 suites
+- shell syntax and `git diff --check`: pass before checkpoint
+- clean-commit Docker rehearsals: pending local checkpoints
+
+Related Docs:
+
+- `docs/08-rollout/docker-d2-production-package.md`
+- `../docs/platform/architecture-and-roadmap.md`
+- `../docs/platform/decision-log.md`
+- `../docs/platform/development.md`
+
 ### 2026-07-26: Docker D2.2.1 FreshClam Initialization Correction
 
 Context:

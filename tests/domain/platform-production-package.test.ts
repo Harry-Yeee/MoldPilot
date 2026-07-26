@@ -17,6 +17,10 @@ function readApp(relativePath: string): string {
   return readFileSync(path.join(appRoot, relativePath), "utf8");
 }
 
+function readPlatform(relativePath: string): string {
+  return readFileSync(path.join(platformRoot, relativePath), "utf8");
+}
+
 function serviceBlock(
   composeSource: string,
   service: string,
@@ -179,7 +183,7 @@ describe("D2.2 production platform package", () => {
     assert.match(control, /clamav.*container.*unchanged|clamav_id/i);
     assert.doesNotMatch(productionScripts, /docker\s+compose[^\n]*\sdown\b/);
 
-    assert.match(deploy, /git status --porcelain/);
+    assert.match(deploy, /require_clean_git_checkout/);
     assert.match(deploy, /git[^\n]*rev-parse/);
     assert.match(deploy, /moldpilot-backup\.sh/);
     assert.match(deploy, /moldpilot-migrate/);
@@ -260,7 +264,7 @@ describe("D2.2 production platform package", () => {
 
     for (const evidence of [
       "MP-D22-REHEARSAL-001",
-      "status --porcelain --untracked-files=all",
+      "require_clean_git_checkout",
       "RELEASE_CONTEXT/docker/clamav",
       "moldpilot-clamav-volume-init",
       "moldpilot-clamav-signature-seed",
@@ -276,5 +280,78 @@ describe("D2.2 production platform package", () => {
       assert.match(smoke, new RegExp(evidence, "i"));
     }
     assert.doesNotMatch(smoke, /launchctl|brew services|caddy reload/);
+  });
+
+  it("binds production operations to clean platform and app release identities", () => {
+    const environment = read("config/production.env.example");
+    const compose = read("compose.production.yml");
+    const preflight = read("scripts/platform-preflight.sh");
+    const helper = read("docker/backup/backup-helper.sh");
+    const backup = read("scripts/moldpilot-backup.sh");
+    const restore = read("scripts/moldpilot-restore-scratch.sh");
+
+    assert.match(environment, /LJ_ERP_PLATFORM_RELEASE_SHA=REPLACE_/);
+    assert.match(environment, /MOLDPILOT_RELEASE_SHA=REPLACE_/);
+    assert.match(compose, /LJ_ERP_PLATFORM_RELEASE_SHA:/);
+    assert.match(compose, /MOLDPILOT_RELEASE_SHA:/);
+    assert.match(preflight, /require_clean_git_checkout "LJ_ERP platform"/);
+    assert.match(preflight, /require_clean_git_checkout "MoldPilot"/);
+    assert.match(preflight, /Configured platform release SHA/);
+    assert.match(preflight, /Configured MoldPilot release SHA/);
+    assert.match(preflight, /MOLDPILOT_DEPLOY_TARGET_SHA/);
+    assert.match(helper, /format=moldpilot-container-backup-v3/);
+    assert.match(helper, /platformReleaseSha=/);
+    assert.match(helper, /moldPilotReleaseSha=/);
+    assert.match(backup, /platformReleaseSha=/);
+    assert.match(backup, /moldPilotReleaseSha=/);
+    assert.match(restore, /SCRATCH_PLATFORM_RELEASE_SHA=/);
+    assert.match(restore, /SCRATCH_MOLDPILOT_RELEASE_SHA=/);
+  });
+
+  it("packages only the parent platform repository for distribution", () => {
+    const ignore = readPlatform(".gitignore");
+    const distribution = read("scripts/platform-distribution-smoke.sh");
+
+    for (const appDirectory of [
+      "MoldPilot",
+      "SupplyDesk",
+      "Warehouse",
+      "ClientView"
+    ]) {
+      assert.match(ignore, new RegExp(`^/${appDirectory}/$`, "m"));
+    }
+    assert.match(ignore, /^\.env$/m);
+    assert.match(ignore, /\.age/);
+    assert.match(ignore, /backups/);
+    assert.match(distribution, /git[^\n]*bundle create/);
+    assert.match(distribution, /git[^\n]*archive/);
+    assert.match(distribution, /160000/);
+    assert.match(distribution, /MoldPilot SupplyDesk Warehouse ClientView/);
+    assert.match(distribution, /platform-preflight\.sh/);
+    assert.doesNotMatch(distribution, /git\s+remote|git\s+push/);
+  });
+
+  it("rehearses the guarded real deploy and image rollback without dependency replacement", () => {
+    const deploy = read("scripts/moldpilot-deploy.sh");
+    const lifecycle = read("scripts/moldpilot-release-lifecycle-smoke.sh");
+    const combined = `${deploy}\n${lifecycle}`;
+
+    assert.match(deploy, /MOLDPILOT_DEPLOY_REHEARSAL/);
+    assert.match(deploy, /moldpilot-lifecycle-\*/);
+    assert.match(deploy, /export_git_commit/);
+    assert.match(deploy, /PLATFORM_RELEASE_CONTEXT\/ops\/docker\/backup/);
+    assert.match(lifecycle, /app-control\.sh" stop moldpilot/);
+    assert.match(lifecycle, /app-control\.sh" start moldpilot/);
+    assert.match(lifecycle, /moldpilot-deploy\.sh" deploy HEAD/);
+    assert.match(lifecycle, /moldpilot-deploy\.sh" rollback/);
+    assert.match(lifecycle, /mandatory encrypted pre-deploy backup/i);
+    assert.match(lifecycle, /MIGRATIONS_AFTER_ROLLBACK/);
+    assert.match(lifecycle, /PREVIOUS_APP_IMAGE.*TARGET_APP_IMAGE.*PREVIOUS_APP_IMAGE/s);
+    assert.match(lifecycle, /POSTGRES_ID/);
+    assert.match(lifecycle, /CLAMAV_ID/);
+    assert.match(lifecycle, /FRESHCLAM_ID/);
+    assert.match(lifecycle, /DOWNLOAD_SHA_AFTER_ROLLBACK/);
+    assert.doesNotMatch(combined, /docker\s+compose[^\n]*\sdown\b/);
+    assert.doesNotMatch(combined, /launchctl|caddy\s+reload|brew services/);
   });
 });
