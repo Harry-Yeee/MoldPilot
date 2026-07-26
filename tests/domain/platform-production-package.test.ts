@@ -880,6 +880,11 @@ describe("D2.2 production platform package", () => {
     assert.match(lifecycle, /Pre-deploy backup metadata did not record/);
     assert.match(lifecycle, /atomically record the target release SHA/);
     assert.match(lifecycle, /atomically retain the displaced target release SHA/);
+    assert.doesNotMatch(
+      lifecycle,
+      /MOLDPILOT_APP_ROOT "\$TARGET_APP_ROOT" \|\|/,
+      "the lifecycle must not mask shell-fatal updater errors in an OR-list"
+    );
 
     const rollbackVerification = deploy.indexOf(
       "verify_mutating_release_context normal"
