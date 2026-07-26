@@ -79,9 +79,24 @@ Result:
 The focused production-package suite passes 19/19, including an executable
 inventory test. The complete MoldPilot suite passes 671/671 across 133 suites;
 Prisma validation, lint, strict typecheck, and production build also pass. The
-exact-commit Docker D3.1 smoke is recorded after clean parent/app checkpoints
-are created. No Prisma schema, application workflow, native service,
-production data, or Caddy state changed.
+first full-suite run exposed one existing local-scanner timing test at 1,004 ms
+against a 1,000 ms threshold; it passed in isolation and the immediate complete
+rerun passed 671/671.
+
+The exact-commit Docker D3.1 smoke passed. The synthetic source and restored
+target both reported 1 user, 1 role, 2 permissions, 1 customer, 1 machine,
+1 project, 1 trial, 1 issue, and 1 attachment. The target migration command ran
+once, login succeeded with the preserved password hash, and the attachment
+remained byte-identical with SHA-256
+`62bc93abf3cf35368458bf0c5b634c890eb0d7ad832aea2c023697813003486f`.
+The retained quarantine hash remained
+`9080c582d0d21bdf11aa0a64d93f701ac19a4ff9fe5f050d17af0993710d0e5e`.
+
+Corrupt-manifest, unsafe-path, unsupported-format, non-empty-target,
+production-like-name, and simulated-capture-failure cases were rejected.
+Cleanup removed the generated source and restore resources, images, archives,
+identities, and fixtures. No Prisma schema, application workflow, native
+service, production data, or Caddy state changed.
 
 Why:
 
@@ -102,7 +117,11 @@ Verification:
 - focused platform package tests: 19/19 pass
 - full MoldPilot tests: 671/671 pass across 133 suites
 - Prisma validate, lint, typecheck, build: pass
-- disposable D3.1 Docker smoke: pending exact-source checkpoint
+- platform distribution and disposable D3.1 Docker smokes: pass
+- restored sanitized inventory, attachment hash, and quarantine hash: exact
+  match
+- target migration invocations: 1; restored login: pass
+- all six negative paths: rejected; generated cleanup inventory: empty
 - Mac mini, native launchd/PostgreSQL/Caddy, and live data: untouched
 
 Related Docs:
