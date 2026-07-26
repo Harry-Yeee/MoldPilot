@@ -860,6 +860,9 @@ Impact:
   explicit migrator job.
 - D2.2/D2.2.1 packaging and rehearsal do not authorize production activation,
   native Caddy reload, live data import, or cutover.
+- The corrected production-shaped rehearsal passed from clean MoldPilot commit
+  `853f04e2e3e4aa53c50ff89e5e1e6d2614449730`. D2.2 is accepted as a package
+  for independent D3 planning, not as a deployment or production cutover.
 - The parent `LJ_ERP` package still needs its own version-control strategy
   before D3.
 

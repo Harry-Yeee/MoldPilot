@@ -18,6 +18,10 @@ backup/scratch restore. D2.2.1 replaces a failed long-running FreshClam
 root-to-non-root `setpriv` attempt with one-shot signature-volume
 initialization and directly unprivileged scanner services.
 
+The corrected D2.2 production-shaped rehearsal passed on 2026-07-26. This
+accepts the package for D3 planning only; it does not activate the container
+stack or alter the native production path.
+
 These milestones do not change launchd, Homebrew PostgreSQL/local scanning,
 native Caddy, live data, or the current production service. They are **not
 approved for production cutover**. See `docker-d1-runtime-foundation.md`,

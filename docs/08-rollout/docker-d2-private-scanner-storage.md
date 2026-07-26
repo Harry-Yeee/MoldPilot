@@ -214,12 +214,10 @@ On the Apple Silicon development Mac:
 Hashes identify deterministic disposable fixtures, not business files.
 Architecture-specific image sizes may vary.
 
-## Remaining D2.2 Blockers
+## Remaining D3 Blockers
 
 Before production cutover can be proposed:
 
-- complete D2.2.1 correction and the full production-shaped disposable
-  rehearsal documented in `docker-d2-production-package.md`
 - preserve native Caddy and native MoldPilot as the rollback path through D3
 - establish version control and release distribution for the parent `LJ_ERP`
   platform package

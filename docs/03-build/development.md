@@ -95,6 +95,18 @@ gateway network. A dedicated app-only edge bridge now carries only the
 loopback-published HTTP path. Database and scanner networks remain internal,
 and PostgreSQL 5432 and clamd 3310 remain unpublished.
 
+The production workflow then exposed four script-contract defects that unit
+tests had not exercised. Next server-action login returned a successful HTTP
+200 response and required browser-style multipart fields, so the helper now
+uses `--form-string`, requires the `moldpilot_session` cookie, and proves the
+authenticated dashboard. The backup helper received Prisma's
+`?schema=public` URL, which `pg_dump` rejects as an unknown libpq parameter, so
+only that helper now uses the plain PostgreSQL URL. Scratch verification moved
+psql variables from `--command` to stdin so substitution is applied. Finally,
+the attachment verification query used nonexistent `created_at`; the actual
+mapped column is `uploaded_at`. Source-level package tests now guard each
+correction.
+
 Result:
 
 The corrected topology passes shell syntax, Compose rendering, Prisma
@@ -107,9 +119,26 @@ across app replacement. EICAR returned HTTP 422, scanner outage returned HTTP
 after clamd restart. Cleanup removed the run-scoped containers, two private
 networks, four volumes, and three temporary images.
 
-The full production-shaped D2.2 rehearsal remains the final acceptance gate for
-this entry. D2.2 is not deployed, D3 has not started, and native production
-services and data remain untouched.
+The full production-shaped rehearsal passed from exact clean commit
+`853f04e2e3e4aa53c50ff89e5e1e6d2614449730`. Both initializer jobs exited 0;
+FreshClam and clamd ran as `1000:1000`; FreshClam survived stop/start on the
+same signature volume; real login, clean upload/download, fragmented EICAR
+rejection, scanner-outage 503/recovery, app-only restart/replacement, encrypted
+backup, and isolated restore all passed.
+
+The restored scratch stack contained one synthetic project and one attachment.
+The attachment retained SHA-256
+`171320f8998c508c92d99f78d87054bc793c1219e6dee56de29af0a40a94880a`
+before app replacement and after scratch restore. The encrypted archive was
+`175659064` bytes. The final app/migrator/ClamAV/backup-helper image sizes were
+`112555635`, `366678214`, `185924421`, and `155897800` bytes. Cleanup removed
+all uniquely named rehearsal and scratch containers, networks, volumes,
+fixtures, archives, and temporary images; pre-existing
+`lj-erp-postgres` remained healthy with container ID `98818de5d024`.
+
+D2.2 is accepted as a production-shaped package and disposable rehearsal only.
+It is not deployed, D3 has not started, and native production services and live
+data remain untouched.
 
 Why:
 
@@ -142,8 +171,15 @@ Verification:
   log-path mismatch found; exact disposable cleanup passed
 - second clean-source production rehearsal: FreshClam passed; missing active
   loopback binding on internal-only app networks found; exact cleanup passed
-- corrected `bash ../ops/scripts/moldpilot-production-smoke.sh`: pending new
-  clean checkpoint
+- subsequent rehearsals found and corrected server-action multipart login,
+  backup-helper libpq URL, psql stdin-variable, and attachment timestamp-column
+  probes; each failed run removed all disposable resources
+- corrected `bash ../ops/scripts/moldpilot-production-smoke.sh`: pass from
+  clean commit `853f04e2e3e4aa53c50ff89e5e1e6d2614449730`
+- scratch restore: one project, one attachment, manifest verification pass,
+  restored release SHA matched `853f04e2e3e4aa53c50ff89e5e1e6d2614449730`
+- Docker cleanup audit: no rehearsal/scratch resources or temporary images;
+  pre-existing `lj-erp-postgres` ID `98818de5d024` unchanged and healthy
 - `git diff --check`: pass before checkpoint
 
 Related Docs:

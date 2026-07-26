@@ -1835,6 +1835,16 @@ Expected:
   cutover. The parent platform package still needs a version-control/release
   strategy before D3.
 
+Verified 2026-07-26 from clean commit
+`853f04e2e3e4aa53c50ff89e5e1e6d2614449730`: all AT-035 runtime steps passed.
+The scratch restore contained one synthetic project and one attachment; the
+attachment SHA-256 before app replacement and after restore was
+`171320f8998c508c92d99f78d87054bc793c1219e6dee56de29af0a40a94880a`.
+The encrypted archive was `175659064` bytes. Success cleanup left no
+rehearsal/scratch containers, networks, volumes, fixtures, archives, or
+temporary images. This evidence accepts the D2.2 package rehearsal only; it
+does not change the production deployment state.
+
 ## Exit Criteria
 
 Before Phase 1 v0.1 is accepted:

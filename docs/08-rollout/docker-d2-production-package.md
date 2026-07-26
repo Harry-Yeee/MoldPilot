@@ -30,7 +30,9 @@ configured `/var/log/clamav/freshclam.log` on the read-only root filesystem.
 `--log=/tmp/freshclam.log`; `/tmp` is the service's existing bounded tmpfs, so
 the correction adds no writable root path or capability.
 
-The package remains unaccepted until the complete corrected rehearsal passes.
+The corrected complete rehearsal passed on 2026-07-26 from clean commit
+`853f04e2e3e4aa53c50ff89e5e1e6d2614449730`. D2.2 is accepted as a
+production-shaped package and disposable proof only. It remains undeployed.
 
 ## Accepted Transitional Topology
 
@@ -156,6 +158,38 @@ Acceptance is defined by AT-035. The rehearsal must verify:
 - restored login/project/attachment SHA-256
 - no LAN-facing app, database, or scanner port
 - exact disposable cleanup on success, failure, interruption, and termination
+
+## Verified Rehearsal Evidence
+
+The final corrected run passed:
+
+- initializer and seed jobs exited 0
+- FreshClam and clamd ran as `1000:1000`
+- FreshClam stop/start on the existing signature volume passed
+- real login, clean PDF release/download, fragmented EICAR rejection, scanner
+  outage 503/recovery, and app-only restart/replacement passed
+- PostgreSQL and scanner container IDs remained unchanged during app-only
+  operations
+- encrypted backup size: `175659064` bytes
+- scratch restore: one synthetic project and one attachment
+- restored release SHA:
+  `853f04e2e3e4aa53c50ff89e5e1e6d2614449730`
+- attachment SHA-256 before replacement and after restore:
+  `171320f8998c508c92d99f78d87054bc793c1219e6dee56de29af0a40a94880a`
+- app/migrator/ClamAV/backup-helper image sizes:
+  `112555635` / `366678214` / `185924421` / `155897800` bytes
+- cleanup audit found no uniquely named rehearsal/scratch containers,
+  networks, volumes, archives, fixtures, or temporary images
+- pre-existing native/development PostgreSQL container
+  `98818de5d024` remained healthy and untouched
+
+Failed precursor runs also cleaned their unique resources. They exposed, in
+order, the invalid runtime `setpriv` transition, FreshClam's read-only-root log
+path, an internal-only app network with no active loopback binding,
+server-action multipart login semantics, a Prisma-only database URL parameter
+passed to libpq, psql variable substitution through `--command`, and an
+incorrect attachment timestamp column. The final rehearsal includes guards for
+those corrected boundaries.
 
 ## Production Boundary
 
