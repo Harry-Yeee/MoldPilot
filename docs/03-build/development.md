@@ -39,6 +39,66 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-27: Docker D3.1.1 Native Capture Readiness Regression Coverage
+
+Context:
+
+The parent D3.1 production wrapper checked launchctl bootstrap and kickstart but
+did not prove that MoldPilot was ready before freeze or healthy after recovery.
+An encrypted archive could therefore be reported as a successful capture while
+the native application remained unavailable.
+
+Tried:
+
+The platform added a sourced lifecycle helper and kept the capture core free of
+service control. MoldPilot package tests now execute only temporary fake
+`curl`/`launchctl` commands and cover:
+
+- healthy and unhealthy pre-freeze readiness
+- validated 1-300 second recovery timeout with a 60-second default
+- successful capture plus healthy recovery
+- successful capture plus readiness timeout
+- failed capture plus healthy recovery
+- failed capture plus unhealthy recovery with both conditions reported
+- exactly one recovery attempt for EXIT, INT, and TERM
+- temporary control-directory cleanup and no real production command
+
+Result:
+
+Modified-shell syntax passes and the focused platform package suite passes
+22/22. The full MoldPilot suite passes 674/674 across 133 suites; Prisma
+validation, lint, and strict typecheck pass. Distribution and disposable D3
+verification is pending clean platform and app checkpoints. No schema, product
+workflow, Mac mini service, native PostgreSQL/Caddy, or live data changed.
+
+Why:
+
+Service-manager command success is not application health. MoldPilot's existing
+readiness endpoint already represents database, storage, and scanner health and
+must gate both sides of the maintenance freeze.
+
+Decision:
+
+Keep D3.1.1 as production-wrapper hardening only. Do not invoke the real wrapper
+until an approved operator session, and do not treat a v2 archive as successful
+unless recovered readiness passes.
+
+Verification:
+
+- modified-shell syntax: pass
+- focused platform package tests: 22/22 pass
+- full MoldPilot tests: 674/674 pass across 133 suites
+- Prisma validate, lint, and typecheck: pass
+- exact-source distribution and Docker gates: pending clean checkpoints
+- Mac mini, launchd, native PostgreSQL/Caddy, and live data: untouched
+
+Related Docs:
+
+- `../docs/platform/decision-log.md`
+- `../ops/README.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+- `docs/08-rollout/deployment-checklist.md`
+
 ### 2026-07-26: Docker D3.1 Native Transfer Regression Coverage
 
 Context:

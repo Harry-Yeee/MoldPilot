@@ -46,6 +46,10 @@ items marked ⛔ are blockers — do not put real users on the system until they
    platform's non-mutating native inventory and encrypted cutover format v2.
    Native backup v1 remains a routine recovery archive but is not an accepted
    cutover source because it omits retained quarantine and D3 source metadata.
+   The v2 production wrapper must prove native `/api/health/ready` before
+   freezing `com.moldpilot.app` and again within the bounded recovery timeout
+   after bootstrap/kickstart. Launchctl success without application readiness
+   is a failed capture and the recovered agent must remain loaded for diagnosis.
 
 ## Production run mode (the server is not `pnpm dev`)
 

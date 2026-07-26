@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -56,6 +57,101 @@ function runBash(
     encoding: "utf8",
     env: options.env ?? process.env
   });
+}
+
+interface NativeCaptureLifecycleFixture {
+  curlLog: string;
+  fakeBin: string;
+  launchctlLog: string;
+  root: string;
+}
+
+function createNativeCaptureLifecycleFixture(): NativeCaptureLifecycleFixture {
+  const root = mkdtempSync(
+    path.join(os.tmpdir(), "moldpilot-native-capture-lifecycle-")
+  );
+  const fakeBin = path.join(root, "bin");
+  const curlLog = path.join(root, "curl.log");
+  const launchctlLog = path.join(root, "launchctl.log");
+  mkdirSync(fakeBin, { recursive: true });
+
+  writeFileSync(
+    path.join(fakeBin, "curl"),
+    `#!/usr/bin/env bash
+printf 'curl\\n' >> "$MOLDPILOT_TEST_CURL_LOG"
+case "\${MOLDPILOT_TEST_CURL_MODE:-healthy}" in
+  healthy) printf '200'; exit 0 ;;
+  unhealthy) printf '503'; exit 0 ;;
+  unavailable) printf '000'; exit 7 ;;
+  *) exit 9 ;;
+esac
+`,
+    { mode: 0o755 }
+  );
+  writeFileSync(
+    path.join(fakeBin, "launchctl"),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$MOLDPILOT_TEST_LAUNCHCTL_LOG"
+case "\${MOLDPILOT_TEST_LAUNCHCTL_MODE:-healthy}:$1" in
+  bootstrap-fails:bootstrap|kickstart-fails:kickstart) exit 1 ;;
+esac
+exit 0
+`,
+    { mode: 0o755 }
+  );
+
+  return { curlLog, fakeBin, launchctlLog, root };
+}
+
+function nativeCaptureLifecycleHarness(): string {
+  return [
+    "set -u",
+    'source "$1"',
+    'export PATH="$2:$PATH"',
+    'NATIVE_CAPTURE_BASE_URL="http://127.0.0.1:39999"',
+    'NATIVE_CAPTURE_LAUNCH_DOMAIN="gui/501"',
+    'NATIVE_CAPTURE_RECOVERY_ATTEMPTED=false',
+    'NATIVE_CAPTURE_RECOVERY_REQUIRED=true',
+    'NATIVE_CAPTURE_RECOVERY_TIMEOUT_SECONDS="${MOLDPILOT_TEST_RECOVERY_TIMEOUT_SECONDS:-1}"',
+    'NATIVE_CAPTURE_SERVICE_PLIST="/tmp/com.moldpilot.app.plist"',
+    'NATIVE_CAPTURE_SERVICE_REMOVED=true',
+    'NATIVE_CAPTURE_SERVICE_TARGET="gui/501/com.moldpilot.app"',
+    'NATIVE_CAPTURE_TEMP_ROOT="$3/temp"',
+    'case "$4" in',
+    "  prefreeze)",
+    '    if ! native_capture_readiness_once "$NATIVE_CAPTURE_BASE_URL"; then',
+    "      printf 'pre-freeze readiness failed\\n' >&2",
+    "      exit 64",
+    "    fi",
+    "    printf 'capture-continued\\n'",
+    "    ;;",
+    "  recovery)",
+    '    mkdir -p "$NATIVE_CAPTURE_TEMP_ROOT"',
+    "    trap native_capture_exit_handler EXIT",
+    "    trap 'exit 130' INT",
+    "    trap 'exit 143' TERM",
+    '    case "$5" in',
+    "      SUCCESS) exit 0 ;;",
+    "      FAILURE) exit 42 ;;",
+    '      EXIT) exit "${MOLDPILOT_TEST_EXIT_STATUS:-17}" ;;',
+    '      INT) kill -INT "$$"; sleep 2; exit 99 ;;',
+    '      TERM) kill -TERM "$$"; sleep 2; exit 99 ;;',
+    "      *) exit 98 ;;",
+    "    esac",
+    "    ;;",
+    "  validate-timeout)",
+    '    native_capture_validate_recovery_timeout "$5"',
+    "    ;;",
+    "  *) exit 97 ;;",
+    "esac"
+  ].join("\n");
+}
+
+function readLogLines(file: string): string[] {
+  if (!existsSync(file)) {
+    return [];
+  }
+  return readFileSync(file, "utf8").trim().split("\n").filter(Boolean);
 }
 
 interface ReleaseFixture {
@@ -991,6 +1087,7 @@ esac
     const inventory = read("scripts/moldpilot-native-inventory.sh");
     const inventoryCore = read("docker/backup/native-inventory.sh");
     const capture = read("scripts/moldpilot-native-capture.sh");
+    const lifecycle = read("scripts/native-capture-lifecycle.sh");
     const captureCore = read("docker/backup/native-capture-core.sh");
 
     assert.match(inventory, /require_path_outside_git_checkouts/);
@@ -1005,10 +1102,20 @@ esac
 
     assert.match(capture, /FREEZE_NATIVE_MOLDPILOT_FOR_D3_CAPTURE/);
     assert.match(capture, /launchctl bootout/);
-    assert.match(capture, /trap restore_native_service EXIT/);
-    assert.match(capture, /launchctl bootstrap/);
-    assert.match(capture, /launchctl kickstart/);
+    assert.match(capture, /trap native_capture_exit_handler EXIT/);
+    assert.match(capture, /MOLDPILOT_NATIVE_RECOVERY_TIMEOUT_SECONDS:-60/);
     assert.match(capture, /\/Volumes\//);
+    assert.match(lifecycle, /launchctl bootstrap/);
+    assert.match(lifecycle, /launchctl kickstart/);
+    assert.match(lifecycle, /api\/health\/ready/);
+    assert.match(lifecycle, /NATIVE_CAPTURE_RECOVERY_ATTEMPTED/);
+    assert.match(lifecycle, /trap '' INT TERM/);
+    assert.match(lifecycle, /Launchctl recovery succeeded/);
+    const readinessGate = capture.indexOf(
+      'native_capture_readiness_once "$BASE_URL"'
+    );
+    const bootout = capture.indexOf('launchctl bootout "$SERVICE_TARGET"');
+    assert.ok(readinessGate >= 0 && readinessGate < bootout);
     assert.doesNotMatch(captureCore, /launchctl|caddy|brew services/);
     assert.match(captureCore, /format=moldpilot-native-cutover-v2/);
     assert.match(captureCore, /pg_dump[\s\S]*--format=custom/);
@@ -1017,6 +1124,200 @@ esac
     assert.match(captureCore, /recovery\/native\.env/);
     assert.match(captureCore, /age --recipient/);
     assert.match(captureCore, /trap cleanup EXIT/);
+  });
+
+  it("requires healthy native readiness before freeze and validates the recovery timeout", () => {
+    const lifecyclePath = path.join(
+      opsRoot,
+      "scripts",
+      "native-capture-lifecycle.sh"
+    );
+
+    for (const [mode, expectedStatus] of [
+      ["healthy", 0],
+      ["unhealthy", 64],
+      ["unavailable", 64]
+    ] as const) {
+      const fixture = createNativeCaptureLifecycleFixture();
+      try {
+        const result = runBash(
+          nativeCaptureLifecycleHarness(),
+          [
+            lifecyclePath,
+            fixture.fakeBin,
+            fixture.root,
+            "prefreeze",
+            "unused"
+          ],
+          {
+            env: {
+              ...process.env,
+              MOLDPILOT_TEST_CURL_LOG: fixture.curlLog,
+              MOLDPILOT_TEST_CURL_MODE: mode,
+              MOLDPILOT_TEST_LAUNCHCTL_LOG: fixture.launchctlLog
+            }
+          }
+        );
+        assert.equal(result.status, expectedStatus, result.stderr);
+        assert.deepEqual(readLogLines(fixture.launchctlLog), []);
+        if (mode === "healthy") {
+          assert.match(result.stdout, /capture-continued/);
+        } else {
+          assert.match(result.stderr, /pre-freeze readiness failed/);
+        }
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+
+    for (const [timeout, expectedStatus] of [
+      ["1", 0],
+      ["60", 0],
+      ["300", 0],
+      ["0", 1],
+      ["301", 1],
+      ["1.5", 1],
+      ["invalid", 1]
+    ] as const) {
+      const fixture = createNativeCaptureLifecycleFixture();
+      try {
+        const result = runBash(
+          nativeCaptureLifecycleHarness(),
+          [
+            lifecyclePath,
+            fixture.fakeBin,
+            fixture.root,
+            "validate-timeout",
+            timeout
+          ]
+        );
+        assert.equal(result.status, expectedStatus, `timeout=${timeout}`);
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("composes capture and post-recovery readiness outcomes without masking failures", () => {
+    const lifecyclePath = path.join(
+      opsRoot,
+      "scripts",
+      "native-capture-lifecycle.sh"
+    );
+    const cases = [
+      {
+        capture: "SUCCESS",
+        curl: "healthy",
+        expectedStatus: 0,
+        output: /recovery and application readiness succeeded/
+      },
+      {
+        capture: "SUCCESS",
+        curl: "unhealthy",
+        expectedStatus: 1,
+        output: /Launchctl recovery succeeded, but native MoldPilot did not return ready/
+      },
+      {
+        capture: "FAILURE",
+        curl: "healthy",
+        expectedStatus: 42,
+        output: /Capture operation failed with exit status 42/
+      },
+      {
+        capture: "FAILURE",
+        curl: "unhealthy",
+        expectedStatus: 42,
+        output: /capture is not considered successful/
+      }
+    ] as const;
+
+    for (const testCase of cases) {
+      const fixture = createNativeCaptureLifecycleFixture();
+      try {
+        const result = runBash(
+          nativeCaptureLifecycleHarness(),
+          [
+            lifecyclePath,
+            fixture.fakeBin,
+            fixture.root,
+            "recovery",
+            testCase.capture
+          ],
+          {
+            env: {
+              ...process.env,
+              MOLDPILOT_TEST_CURL_LOG: fixture.curlLog,
+              MOLDPILOT_TEST_CURL_MODE: testCase.curl,
+              MOLDPILOT_TEST_LAUNCHCTL_LOG: fixture.launchctlLog,
+              MOLDPILOT_TEST_RECOVERY_TIMEOUT_SECONDS: "1"
+            }
+          }
+        );
+        assert.equal(result.status, testCase.expectedStatus, result.stderr);
+        assert.match(result.stderr, testCase.output);
+        assert.deepEqual(readLogLines(fixture.launchctlLog), [
+          "bootstrap gui/501 /tmp/com.moldpilot.app.plist",
+          "kickstart -k gui/501/com.moldpilot.app"
+        ]);
+        assert.equal(existsSync(path.join(fixture.root, "temp")), false);
+
+        if (testCase.capture === "FAILURE" && testCase.curl === "unhealthy") {
+          assert.match(result.stderr, /Capture operation failed/);
+          assert.match(result.stderr, /application readiness is unavailable/);
+        }
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("recovers exactly once for EXIT, INT, and TERM paths using only fake commands", () => {
+    const lifecyclePath = path.join(
+      opsRoot,
+      "scripts",
+      "native-capture-lifecycle.sh"
+    );
+
+    for (const [scenario, expectedStatus] of [
+      ["EXIT", 17],
+      ["INT", 130],
+      ["TERM", 143]
+    ] as const) {
+      const fixture = createNativeCaptureLifecycleFixture();
+      try {
+        const result = runBash(
+          nativeCaptureLifecycleHarness(),
+          [
+            lifecyclePath,
+            fixture.fakeBin,
+            fixture.root,
+            "recovery",
+            scenario
+          ],
+          {
+            env: {
+              ...process.env,
+              MOLDPILOT_TEST_CURL_LOG: fixture.curlLog,
+              MOLDPILOT_TEST_CURL_MODE: "healthy",
+              MOLDPILOT_TEST_LAUNCHCTL_LOG: fixture.launchctlLog
+            }
+          }
+        );
+        assert.equal(result.status, expectedStatus, `${scenario}: ${result.stderr}`);
+        const calls = readLogLines(fixture.launchctlLog);
+        assert.equal(
+          calls.filter((call) => call.startsWith("bootstrap ")).length,
+          1
+        );
+        assert.equal(
+          calls.filter((call) => call.startsWith("kickstart ")).length,
+          1
+        );
+        assert.match(result.stderr, /Capture operation failed with exit status/);
+      } finally {
+        rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
   });
 
   it("accepts only v2 into generated isolated restore resources", () => {

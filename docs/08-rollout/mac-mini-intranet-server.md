@@ -352,11 +352,20 @@ that later session is:
    memory/disk/ports, and required images.
 3. During the approved capture window, run the parent production wrapper with
    the exact `FREEZE_NATIVE_MOLDPILOT_FOR_D3_CAPTURE` phrase and a mounted
-   external `/Volumes` destination.
+   external `/Volumes` destination. The wrapper must receive HTTP 2xx from
+   native `/api/health/ready` before it can remove the launch agent.
 4. The wrapper temporarily removes only `com.moldpilot.app`, verifies its
    listener stopped, leaves native PostgreSQL and Caddy running, and restores
    the app launch agent through an EXIT trap.
-5. Restore the encrypted v2 archive only through the generated
+5. After bootstrap and kickstart, the wrapper waits for
+   `/api/health/ready`. `MOLDPILOT_NATIVE_RECOVERY_TIMEOUT_SECONDS` defaults to
+   60 and accepts only 1-300 seconds. Archive creation is not reported as
+   successful unless recovered readiness also succeeds.
+6. If launchctl recovery succeeds but readiness times out, leave the agent
+   loaded and started. Check `launchctl print
+   "gui/$(id -u)/com.moldpilot.app"`, test the configured readiness URL, and
+   inspect the documented application log. Do not boot out the agent again.
+7. Restore the encrypted v2 archive only through the generated
    `moldpilot-d3-rehearsal-*` runner. Verify inventory parity, attachment and
    quarantine hashes, login, PDFs, issues, permissions, and cleanup before
    discussing cutover.
