@@ -669,6 +669,7 @@ describe("D2.2 production platform package", () => {
     writeFileSync(environmentFile, original, { mode: 0o600 });
 
     const updateScript = [
+      "set -u",
       'source "$1"',
       'atomic_update_environment_file "$2" \\',
       "  MOLDPILOT_APP_IMAGE app:new \\",
