@@ -1,5 +1,19 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -19,6 +33,139 @@ function readApp(relativePath: string): string {
 
 function readPlatform(relativePath: string): string {
   return readFileSync(path.join(platformRoot, relativePath), "utf8");
+}
+
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  }).trim();
+}
+
+function runBash(
+  script: string,
+  args: string[],
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {}
+) {
+  return spawnSync("bash", ["-c", script, "moldpilot-test", ...args], {
+    cwd: options.cwd ?? platformRoot,
+    encoding: "utf8",
+    env: options.env ?? process.env
+  });
+}
+
+interface ReleaseFixture {
+  appRoot: string;
+  appSha: string;
+  previousAppSha: string;
+  platformRoot: string;
+  platformSha: string;
+  root: string;
+}
+
+function createReleaseFixture(): ReleaseFixture {
+  const root = mkdtempSync(path.join(os.tmpdir(), "moldpilot-release-guard-"));
+  const fixturePlatformRoot = path.join(root, "platform");
+  const fixtureScripts = path.join(fixturePlatformRoot, "ops", "scripts");
+  const fixtureAppRoot = path.join(fixturePlatformRoot, "MoldPilot");
+
+  mkdirSync(fixtureScripts, { recursive: true });
+  copyFileSync(
+    path.join(opsRoot, "scripts", "lib.sh"),
+    path.join(fixtureScripts, "lib.sh")
+  );
+  copyFileSync(
+    path.join(opsRoot, "scripts", "moldpilot-backup.sh"),
+    path.join(fixtureScripts, "moldpilot-backup.sh")
+  );
+  copyFileSync(
+    path.join(opsRoot, "scripts", "app-control.sh"),
+    path.join(fixtureScripts, "app-control.sh")
+  );
+  copyFileSync(
+    path.join(opsRoot, "scripts", "moldpilot-deploy.sh"),
+    path.join(fixtureScripts, "moldpilot-deploy.sh")
+  );
+  writeFileSync(path.join(fixturePlatformRoot, ".gitignore"), "/MoldPilot/\n");
+  writeFileSync(path.join(fixturePlatformRoot, "platform.txt"), "platform\n");
+  runGit(fixturePlatformRoot, ["init", "-b", "main"]);
+  runGit(fixturePlatformRoot, ["config", "user.email", "test@example.invalid"]);
+  runGit(fixturePlatformRoot, ["config", "user.name", "MoldPilot Test"]);
+  runGit(fixturePlatformRoot, ["add", "."]);
+  runGit(fixturePlatformRoot, ["commit", "-m", "platform fixture"]);
+  const platformSha = runGit(fixturePlatformRoot, ["rev-parse", "HEAD"]);
+
+  mkdirSync(fixtureAppRoot, { recursive: true });
+  runGit(fixtureAppRoot, ["init", "-b", "main"]);
+  runGit(fixtureAppRoot, ["config", "user.email", "test@example.invalid"]);
+  runGit(fixtureAppRoot, ["config", "user.name", "MoldPilot Test"]);
+  writeFileSync(path.join(fixtureAppRoot, "app.txt"), "previous\n");
+  runGit(fixtureAppRoot, ["add", "."]);
+  runGit(fixtureAppRoot, ["commit", "-m", "previous app"]);
+  const previousAppSha = runGit(fixtureAppRoot, ["rev-parse", "HEAD"]);
+  writeFileSync(path.join(fixtureAppRoot, "app.txt"), "current\n");
+  runGit(fixtureAppRoot, ["add", "."]);
+  runGit(fixtureAppRoot, ["commit", "-m", "current app"]);
+  const appSha = runGit(fixtureAppRoot, ["rev-parse", "HEAD"]);
+
+  return {
+    appRoot: fixtureAppRoot,
+    appSha,
+    previousAppSha,
+    platformRoot: fixturePlatformRoot,
+    platformSha,
+    root
+  };
+}
+
+function releaseEnvironment(
+  fixture: ReleaseFixture,
+  currentSha: string = fixture.appSha
+): string {
+  const configRoot = path.join(fixture.root, "config");
+  const backupRoot = path.join(fixture.root, "backups");
+  mkdirSync(configRoot, { recursive: true });
+  mkdirSync(backupRoot, { recursive: true });
+  const envPath = path.join(configRoot, "moldpilot.env");
+  const caddyPath = path.join(configRoot, "Caddyfile.moldpilot");
+  const project = "moldpilot-lifecycle-test";
+  const content = [
+    `COMPOSE_PROJECT_NAME=${project}`,
+    "MOLDPILOT_ENVIRONMENT=rehearsal",
+    "MOLDPILOT_DEPLOY_REHEARSAL=1",
+    "MOLDPILOT_ALLOW_LOCAL_BACKUP=1",
+    `MOLDPILOT_ENV_FILE=${envPath}`,
+    `MOLDPILOT_APP_ROOT=${fixture.appRoot}`,
+    `MOLDPILOT_APP_IMAGE=test-app:${currentSha}`,
+    `MOLDPILOT_MIGRATOR_IMAGE=test-migrator:${currentSha}`,
+    `MOLDPILOT_PREVIOUS_APP_IMAGE=test-app:${fixture.previousAppSha}`,
+    `MOLDPILOT_PREVIOUS_MIGRATOR_IMAGE=test-migrator:${fixture.previousAppSha}`,
+    `LJ_ERP_PLATFORM_RELEASE_SHA=${fixture.platformSha}`,
+    `MOLDPILOT_RELEASE_SHA=${currentSha}`,
+    `MOLDPILOT_PREVIOUS_RELEASE_SHA=${fixture.previousAppSha}`,
+    "MOLDPILOT_CLAMAV_IMAGE=test-clamav:1",
+    "MOLDPILOT_BACKUP_HELPER_IMAGE=test-backup:1",
+    `MOLDPILOT_DB_VOLUME=${project}_db`,
+    `MOLDPILOT_UPLOADS_VOLUME=${project}_uploads`,
+    `MOLDPILOT_QUARANTINE_VOLUME=${project}_quarantine`,
+    `MOLDPILOT_SIGNATURES_VOLUME=${project}_signatures`,
+    `MOLDPILOT_BACKUP_WORK_VOLUME=${project}_backup_work`,
+    `MOLDPILOT_EDGE_NETWORK=${project}_edge`,
+    `MOLDPILOT_DATABASE_NETWORK=${project}_database`,
+    `MOLDPILOT_SCANNER_NETWORK=${project}_scanner`,
+    `MOLDPILOT_SIGNATURE_NETWORK=${project}_signature`,
+    `MOLDPILOT_BACKUP_DIR=${backupRoot}`,
+    "MOLDPILOT_BACKUP_AGE_RECIPIENT=age1test",
+    `MOLDPILOT_CADDY_CONFIG_PATH=${caddyPath}`,
+    ""
+  ].join("\n");
+  writeFileSync(envPath, content, { mode: 0o600 });
+  chmodSync(envPath, 0o600);
+  return envPath;
 }
 
 function serviceBlock(
@@ -183,7 +330,7 @@ describe("D2.2 production platform package", () => {
     assert.match(control, /clamav.*container.*unchanged|clamav_id/i);
     assert.doesNotMatch(productionScripts, /docker\s+compose[^\n]*\sdown\b/);
 
-    assert.match(deploy, /require_clean_git_checkout/);
+    assert.match(deploy, /verify_mutating_release_context/);
     assert.match(deploy, /git[^\n]*rev-parse/);
     assert.match(deploy, /moldpilot-backup\.sh/);
     assert.match(deploy, /moldpilot-migrate/);
@@ -285,6 +432,7 @@ describe("D2.2 production platform package", () => {
   it("binds production operations to clean platform and app release identities", () => {
     const environment = read("config/production.env.example");
     const compose = read("compose.production.yml");
+    const shared = read("scripts/lib.sh");
     const preflight = read("scripts/platform-preflight.sh");
     const helper = read("docker/backup/backup-helper.sh");
     const backup = read("scripts/moldpilot-backup.sh");
@@ -292,13 +440,17 @@ describe("D2.2 production platform package", () => {
 
     assert.match(environment, /LJ_ERP_PLATFORM_RELEASE_SHA=REPLACE_/);
     assert.match(environment, /MOLDPILOT_RELEASE_SHA=REPLACE_/);
+    assert.match(environment, /MOLDPILOT_PREVIOUS_RELEASE_SHA=REPLACE_/);
     assert.match(compose, /LJ_ERP_PLATFORM_RELEASE_SHA:/);
     assert.match(compose, /MOLDPILOT_RELEASE_SHA:/);
-    assert.match(preflight, /require_clean_git_checkout "LJ_ERP platform"/);
-    assert.match(preflight, /require_clean_git_checkout "MoldPilot"/);
-    assert.match(preflight, /Configured platform release SHA/);
-    assert.match(preflight, /Configured MoldPilot release SHA/);
-    assert.match(preflight, /MOLDPILOT_DEPLOY_TARGET_SHA/);
+    assert.match(compose, /MOLDPILOT_PREVIOUS_RELEASE_SHA:/);
+    assert.match(shared, /require_clean_git_checkout "LJ_ERP platform"/);
+    assert.match(shared, /require_clean_git_checkout "MoldPilot"/);
+    assert.match(shared, /Configured platform release SHA/);
+    assert.match(shared, /Configured MoldPilot release SHA/);
+    assert.match(shared, /require_image_tag_for_release/);
+    assert.match(preflight, /verify_release_identity deployment-transition/);
+    assert.match(shared, /MOLDPILOT_DEPLOY_TARGET_SHA/);
     assert.match(helper, /format=moldpilot-container-backup-v3/);
     assert.match(helper, /platformReleaseSha=/);
     assert.match(helper, /moldPilotReleaseSha=/);
@@ -353,5 +505,403 @@ describe("D2.2 production platform package", () => {
     assert.match(lifecycle, /DOWNLOAD_SHA_AFTER_ROLLBACK/);
     assert.doesNotMatch(combined, /docker\s+compose[^\n]*\sdown\b/);
     assert.doesNotMatch(combined, /launchctl|caddy\s+reload|brew services/);
+  });
+
+  it("rejects every protected path under either checkout, including symlink aliases", () => {
+    const temporaryRoot = mkdtempSync(
+      path.join(os.tmpdir(), "moldpilot-path-boundary-")
+    );
+    const alias = path.join(temporaryRoot, "checkout-alias");
+    const lib = path.join(opsRoot, "scripts", "lib.sh");
+    const script = [
+      'source "$1"',
+      'export MOLDPILOT_APP_ROOT="$2"',
+      'require_path_outside_git_checkouts "$3" "$4"'
+    ].join("\n");
+
+    try {
+      symlinkSync(platformRoot, alias, "dir");
+      const rejectedPaths = [
+        ["MOLDPILOT_PRODUCTION_ENV", path.join(platformRoot, ".env")],
+        [
+          "MOLDPILOT_ENV_FILE",
+          path.join(appRoot, "production.env")
+        ],
+        [
+          "MOLDPILOT_CADDY_CONFIG_PATH",
+          path.join(platformRoot, "docs", "Caddyfile")
+        ],
+        ["MOLDPILOT_BACKUP_DIR", path.join(appRoot, "docs")],
+        [
+          "Scratch restore archive",
+          path.join(platformRoot, "docs", "backup.tar.age")
+        ],
+        [
+          "Scratch restore identity",
+          path.join(appRoot, "docs", "identity.txt")
+        ],
+        [
+          "Symlinked future output",
+          path.join(alias, "docs", "future-output.env")
+        ]
+      ];
+
+      for (const [label, rejectedPath] of rejectedPaths) {
+        const result = runBash(script, [lib, appRoot, label, rejectedPath]);
+        assert.notEqual(
+          result.status,
+          0,
+          `${label} unexpectedly accepted ${rejectedPath}`
+        );
+        assert.match(result.stderr, /outside the LJ_ERP platform and MoldPilot/);
+      }
+
+      const allowedFuturePath = path.join(temporaryRoot, "future.env");
+      const allowed = runBash(script, [
+        lib,
+        appRoot,
+        "External future output",
+        allowedFuturePath
+      ]);
+      assert.equal(allowed.status, 0, allowed.stderr);
+      assert.equal(
+        allowed.stdout.trim(),
+        path.join(realpathSync(temporaryRoot), "future.env")
+      );
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("supports normal and deployment-transition identity modes with exact SHA tags", () => {
+    const fixture = createReleaseFixture();
+    const lib = path.join(fixture.platformRoot, "ops", "scripts", "lib.sh");
+    const script = [
+      'source "$1"',
+      'export MOLDPILOT_APP_ROOT="$2"',
+      'export LJ_ERP_PLATFORM_RELEASE_SHA="$3"',
+      'export MOLDPILOT_RELEASE_SHA="$4"',
+      'export MOLDPILOT_PREVIOUS_RELEASE_SHA="$5"',
+      'export MOLDPILOT_APP_IMAGE="fixture-app:$4"',
+      'export MOLDPILOT_MIGRATOR_IMAGE="fixture-migrator:$4"',
+      'export MOLDPILOT_PREVIOUS_APP_IMAGE="fixture-app:$5"',
+      'export MOLDPILOT_PREVIOUS_MIGRATOR_IMAGE="fixture-migrator:$5"',
+      'export MOLDPILOT_DEPLOY_TARGET_SHA="$6"',
+      'verify_release_identity "$7"'
+    ].join("\n");
+
+    try {
+      const normal = runBash(script, [
+        lib,
+        fixture.appRoot,
+        fixture.platformSha,
+        fixture.appSha,
+        fixture.previousAppSha,
+        fixture.appSha,
+        "normal"
+      ]);
+      assert.equal(normal.status, 0, normal.stderr);
+
+      const transition = runBash(script, [
+        lib,
+        fixture.appRoot,
+        fixture.platformSha,
+        fixture.previousAppSha,
+        fixture.previousAppSha,
+        fixture.appSha,
+        "deployment-transition"
+      ]);
+      assert.equal(transition.status, 0, transition.stderr);
+
+      const staleNormal = runBash(script, [
+        lib,
+        fixture.appRoot,
+        fixture.platformSha,
+        fixture.previousAppSha,
+        fixture.previousAppSha,
+        fixture.appSha,
+        "normal"
+      ]);
+      assert.notEqual(staleNormal.status, 0);
+      assert.match(staleNormal.stderr, /does not match the clean MoldPilot checkout/);
+
+      const invalidImage = runBash(
+        [
+          'source "$1"',
+          'export MOLDPILOT_APP_ROOT="$2"',
+          'export LJ_ERP_PLATFORM_RELEASE_SHA="$3"',
+          'export MOLDPILOT_RELEASE_SHA="$4"',
+          'export MOLDPILOT_PREVIOUS_RELEASE_SHA="$5"',
+          'export MOLDPILOT_APP_IMAGE="fixture-app:$4-extra"',
+          'export MOLDPILOT_MIGRATOR_IMAGE="fixture-migrator:$4"',
+          'export MOLDPILOT_PREVIOUS_APP_IMAGE="fixture-app:$5"',
+          'export MOLDPILOT_PREVIOUS_MIGRATOR_IMAGE="fixture-migrator:$5"',
+          "verify_release_identity normal"
+        ].join("\n"),
+        [
+          lib,
+          fixture.appRoot,
+          fixture.platformSha,
+          fixture.appSha,
+          fixture.previousAppSha
+        ]
+      );
+      assert.notEqual(invalidImage.status, 0);
+      assert.match(invalidImage.stderr, /exact release SHA as its image tag/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("updates all release keys atomically and preserves bytes on simulated failure", () => {
+    const temporaryRoot = mkdtempSync(
+      path.join(os.tmpdir(), "moldpilot-atomic-env-")
+    );
+    const environmentFile = path.join(temporaryRoot, "production.env");
+    const lib = path.join(opsRoot, "scripts", "lib.sh");
+    const original = [
+      "MOLDPILOT_APP_IMAGE=app:old",
+      "MOLDPILOT_MIGRATOR_IMAGE=migrator:old",
+      "MOLDPILOT_RELEASE_SHA=old",
+      "UNCHANGED=value",
+      ""
+    ].join("\n");
+    writeFileSync(environmentFile, original, { mode: 0o600 });
+
+    const updateScript = [
+      'source "$1"',
+      'atomic_update_environment_file "$2" \\',
+      "  MOLDPILOT_APP_IMAGE app:new \\",
+      "  MOLDPILOT_MIGRATOR_IMAGE migrator:new \\",
+      "  MOLDPILOT_RELEASE_SHA new \\",
+      "  MOLDPILOT_PREVIOUS_APP_IMAGE app:old \\",
+      "  MOLDPILOT_PREVIOUS_MIGRATOR_IMAGE migrator:old \\",
+      "  MOLDPILOT_PREVIOUS_RELEASE_SHA old"
+    ].join("\n");
+
+    try {
+      const updated = runBash(updateScript, [lib, environmentFile]);
+      assert.equal(updated.status, 0, updated.stderr);
+      const afterSuccess = readFileSync(environmentFile, "utf8");
+      for (const expected of [
+        "MOLDPILOT_APP_IMAGE=app:new",
+        "MOLDPILOT_MIGRATOR_IMAGE=migrator:new",
+        "MOLDPILOT_RELEASE_SHA=new",
+        "MOLDPILOT_PREVIOUS_APP_IMAGE=app:old",
+        "MOLDPILOT_PREVIOUS_MIGRATOR_IMAGE=migrator:old",
+        "MOLDPILOT_PREVIOUS_RELEASE_SHA=old",
+        "UNCHANGED=value"
+      ]) {
+        assert.match(afterSuccess, new RegExp(`^${expected}$`, "m"));
+      }
+      assert.equal(statSync(environmentFile).mode & 0o777, 0o600);
+
+      const beforeFailure = readFileSync(environmentFile);
+      const failed = runBash(updateScript, [lib, environmentFile], {
+        env: {
+          ...process.env,
+          MOLDPILOT_TEST_FAIL_ATOMIC_ENV_UPDATE: "1"
+        }
+      });
+      assert.notEqual(failed.status, 0);
+      assert.deepEqual(readFileSync(environmentFile), beforeFailure);
+      assert.deepEqual(
+        readdirSync(temporaryRoot).filter((name) =>
+          name.startsWith(".moldpilot-env-update.")
+        ),
+        []
+      );
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps status and logs available when source identity needs repair", () => {
+    const fixture = createReleaseFixture();
+    const fakeBin = path.join(fixture.root, "bin");
+    const dockerLog = path.join(fixture.root, "docker.log");
+    const fakeDocker = path.join(fakeBin, "docker");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(
+      fakeDocker,
+      '#!/bin/sh\nprintf "%s\\n" "$*" >> "$MOLDPILOT_FAKE_DOCKER_LOG"\nexit 0\n',
+      { mode: 0o755 }
+    );
+
+    try {
+      const staleEnvironment = releaseEnvironment(
+        fixture,
+        fixture.previousAppSha
+      );
+      writeFileSync(path.join(fixture.appRoot, "dirty.txt"), "dirty\n");
+      const commandEnvironment = {
+        ...process.env,
+        MOLDPILOT_FAKE_DOCKER_LOG: dockerLog,
+        MOLDPILOT_PRODUCTION_ENV: staleEnvironment,
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`
+      };
+      for (const action of ["status", "logs"]) {
+        const result = spawnSync(
+          "bash",
+          [
+            path.join(
+              fixture.platformRoot,
+              "ops",
+              "scripts",
+              "app-control.sh"
+            ),
+            action,
+            "moldpilot"
+          ],
+          { encoding: "utf8", env: commandEnvironment }
+        );
+        assert.equal(result.status, 0, result.stderr);
+      }
+      const dockerCalls = readFileSync(dockerLog, "utf8");
+      assert.match(dockerCalls, /\bps\b/);
+      assert.match(dockerCalls, /\blogs\b/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects stale backup and dirty rollback before any Docker command", () => {
+    const fixture = createReleaseFixture();
+    const fakeBin = path.join(fixture.root, "bin");
+    const dockerLog = path.join(fixture.root, "docker.log");
+    const fakeDocker = path.join(fakeBin, "docker");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(
+      fakeDocker,
+      '#!/bin/sh\nprintf "%s\\n" "$*" >> "$MOLDPILOT_FAKE_DOCKER_LOG"\nexit 0\n',
+      { mode: 0o755 }
+    );
+
+    try {
+      const staleEnvironment = releaseEnvironment(
+        fixture,
+        fixture.previousAppSha
+      );
+      const commandEnvironment = {
+        ...process.env,
+        MOLDPILOT_FAKE_DOCKER_LOG: dockerLog,
+        MOLDPILOT_PRODUCTION_ENV: staleEnvironment,
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`
+      };
+      const staleBackup = spawnSync(
+        "bash",
+        [
+          path.join(
+            fixture.platformRoot,
+            "ops",
+            "scripts",
+            "moldpilot-backup.sh"
+          )
+        ],
+        { encoding: "utf8", env: commandEnvironment }
+      );
+      assert.notEqual(staleBackup.status, 0);
+      assert.match(
+        staleBackup.stderr,
+        /does not match the clean MoldPilot checkout/
+      );
+      assert.equal(
+        readdirSync(fixture.root).includes("docker.log"),
+        false,
+        "stale backup reached Docker before release validation"
+      );
+
+      const currentEnvironment = releaseEnvironment(fixture);
+      writeFileSync(path.join(fixture.appRoot, "dirty.txt"), "dirty\n");
+      const dirtyRollback = spawnSync(
+        "bash",
+        [
+          path.join(
+            fixture.platformRoot,
+            "ops",
+            "scripts",
+            "moldpilot-deploy.sh"
+          ),
+          "rollback"
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...commandEnvironment,
+            MOLDPILOT_PRODUCTION_ENV: currentEnvironment
+          }
+        }
+      );
+      assert.notEqual(dirtyRollback.status, 0);
+      assert.match(dirtyRollback.stderr, /MoldPilot worktree must be clean/);
+      assert.equal(
+        readdirSync(fixture.root).includes("docker.log"),
+        false,
+        "dirty rollback reached backup or container replacement"
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("guards every mutating entry point and swaps release metadata in one update", () => {
+    const shared = read("scripts/lib.sh");
+    const control = read("scripts/app-control.sh");
+    const backup = read("scripts/moldpilot-backup.sh");
+    const deploy = read("scripts/moldpilot-deploy.sh");
+    const restore = read("scripts/moldpilot-restore-scratch.sh");
+    const lifecycle = read("scripts/moldpilot-release-lifecycle-smoke.sh");
+
+    assert.match(shared, /canonical_path_for_boundary/);
+    assert.match(shared, /verify_release_identity/);
+    assert.match(shared, /atomic_update_environment_file/);
+    assert.match(control, /start\|stop\|restart\)[^]*verify_mutating_release_context normal/);
+    assert.match(backup, /verify_mutating_release_context normal/);
+    assert.match(backup, /verify_mutating_release_context deployment-transition/);
+    assert.match(deploy, /verify_mutating_release_context deployment-transition/);
+    assert.match(deploy, /verify_mutating_release_context normal/);
+    assert.match(restore, /verify_mutating_release_context normal/);
+
+    for (const source of [control, backup, deploy, restore]) {
+      assert.match(source, /require_path_outside_git_checkouts/);
+    }
+    assert.match(restore, /Scratch restore encrypted archive/);
+    assert.match(restore, /Scratch restore offline age identity/);
+
+    assert.doesNotMatch(deploy, /update_env_key|##\*:/);
+    assert.equal(
+      deploy.match(/atomic_update_environment_file/g)?.length,
+      2,
+      "deploy and rollback should each perform one atomic environment update"
+    );
+    assert.match(deploy, /MOLDPILOT_PREVIOUS_RELEASE_SHA "\$CURRENT_RELEASE_SHA"/);
+    assert.match(deploy, /MOLDPILOT_PREVIOUS_RELEASE_SHA "\$OLD_RELEASE_SHA"/);
+    assert.match(lifecycle, /Pre-deploy backup metadata did not record/);
+    assert.match(lifecycle, /atomically record the target release SHA/);
+    assert.match(lifecycle, /atomically retain the displaced target release SHA/);
+
+    const rollbackVerification = deploy.indexOf(
+      "verify_mutating_release_context normal"
+    );
+    const rollbackBackup = deploy.indexOf(
+      'note "Creating an encrypted backup before application rollback."'
+    );
+    assert.ok(rollbackVerification >= 0 && rollbackVerification < rollbackBackup);
+
+    const backupVerification = backup.indexOf(
+      "verify_mutating_release_context normal"
+    );
+    const backupStop = backup.indexOf(
+      'compose stop --timeout 30 moldpilot'
+    );
+    assert.ok(backupVerification >= 0 && backupVerification < backupStop);
+
+    const restoreVerification = restore.indexOf(
+      "verify_mutating_release_context normal"
+    );
+    const restoreMutation = restore.indexOf(
+      'SCRATCH_ROOT="$(mktemp -d'
+    );
+    assert.ok(restoreVerification >= 0 && restoreVerification < restoreMutation);
   });
 });
