@@ -332,6 +332,39 @@ deletion is disabled unless explicitly configured.
 
 GitHub is not a database or attachment backup.
 
+### 9a. D3 native-to-container transfer boundary
+
+Native backup v1 remains the current routine backup path. It is recognized for
+legacy recovery but is not complete enough for container cutover because it
+does not carry retained quarantine and the full D3 source metadata contract.
+An eventual cutover must use encrypted
+`moldpilot-native-cutover-v2` from the parent platform package.
+
+D3.1 adds tooling only. Do not run the production capture command on this Mac
+mini until a separate maintenance window is approved. The safe sequence for
+that later session is:
+
+1. Run the non-mutating parent
+   `ops/scripts/moldpilot-native-inventory.sh`. Review its mode-`0600`
+   sanitized report outside Git.
+2. Confirm native app/PostgreSQL availability, aggregate record counts,
+   released/quarantine totals, missing/orphan counts, backup age, Docker
+   memory/disk/ports, and required images.
+3. During the approved capture window, run the parent production wrapper with
+   the exact `FREEZE_NATIVE_MOLDPILOT_FOR_D3_CAPTURE` phrase and a mounted
+   external `/Volumes` destination.
+4. The wrapper temporarily removes only `com.moldpilot.app`, verifies its
+   listener stopped, leaves native PostgreSQL and Caddy running, and restores
+   the app launch agent through an EXIT trap.
+5. Restore the encrypted v2 archive only through the generated
+   `moldpilot-d3-rehearsal-*` runner. Verify inventory parity, attachment and
+   quarantine hashes, login, PDFs, issues, permissions, and cleanup before
+   discussing cutover.
+
+The D3.1 automated smoke cannot call the production wrapper and does not access
+launchd, Caddy, native PostgreSQL, the Mac mini, or live data. Passing that
+synthetic smoke is not cutover approval.
+
 ## 10. Legacy Workbook
 
 The active machine seed uses the reviewed JSON fixture and does not parse the

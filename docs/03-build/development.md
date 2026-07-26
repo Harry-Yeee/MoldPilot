@@ -39,6 +39,79 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-26: Docker D3.1 Native Transfer Regression Coverage
+
+Context:
+
+The platform needed synthetic proof that native PostgreSQL, released
+attachments, and retained quarantine could be captured and restored into the
+container package before any Mac mini or real-data rehearsal. MoldPilot's
+existing native backup v1 did not include retained quarantine or source
+migration metadata and was not sufficient as a cutover unit.
+
+Tried:
+
+The parent platform added a non-mutating sanitized inventory, encrypted native
+cutover format v2, a production-only launch-agent capture wrapper, a
+service-control-free capture core, a strict restore core, and a generated
+`moldpilot-d3-rehearsal-*` restore runner. MoldPilot adds package regression
+coverage for:
+
+- mode-`0600` aggregate inventory with no database URL, password hash,
+  attachment key, or business value in the report
+- production capture confirmation, external-volume requirement, app-only
+  freeze, and EXIT-trap service restoration
+- custom PostgreSQL dump, uploads, retained quarantine, recovery config,
+  source app/migration metadata, and SHA-256 manifests in v2
+- explicit recognition but rejection of native backup v1 for D3 cutover
+- unsafe archive/checksum paths, corrupt manifests, unsupported formats,
+  non-empty targets, and production-like resource rejection
+- one target migration invocation, private FreshClam/clamd, loopback-only app,
+  inventory/hash parity, credential-silent login, and scoped cleanup
+
+A pre-Docker safety pass found that archive entry validation alone did not
+validate paths named inside checksum manifests, and that a retained cleanup
+state file was being sourced as shell. The platform now validates every
+manifest path and parses cleanup state as constrained data.
+
+Result:
+
+The focused production-package suite passes 19/19, including an executable
+inventory test. The complete MoldPilot suite passes 671/671 across 133 suites;
+Prisma validation, lint, strict typecheck, and production build also pass. The
+exact-commit Docker D3.1 smoke is recorded after clean parent/app checkpoints
+are created. No Prisma schema, application workflow, native service,
+production data, or Caddy state changed.
+
+Why:
+
+MoldPilot owns the schema, migrations, login, permissions, attachment route,
+and file layout whose preservation D3 must prove. The app test suite therefore
+pins the parent platform package without moving production control into the app
+repository.
+
+Decision:
+
+Keep native `scripts/backup.sh` v1 available for existing routine recovery, but
+do not use v1 for a future container cutover. D3.1 remains synthetic and not
+deployed. A real inventory/capture/restore rehearsal requires a separate
+approved operator session.
+
+Verification:
+
+- focused platform package tests: 19/19 pass
+- full MoldPilot tests: 671/671 pass across 133 suites
+- Prisma validate, lint, typecheck, build: pass
+- disposable D3.1 Docker smoke: pending exact-source checkpoint
+- Mac mini, native launchd/PostgreSQL/Caddy, and live data: untouched
+
+Related Docs:
+
+- `../docs/platform/architecture-and-roadmap.md`
+- `../docs/platform/decision-log.md`
+- `../ops/README.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+
 ### 2026-07-26: Docker D2.3.1 Release-Guard Regression Coverage
 
 Context:

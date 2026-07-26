@@ -911,3 +911,162 @@ describe("D2.2 production platform package", () => {
     assert.ok(restoreVerification >= 0 && restoreVerification < restoreMutation);
   });
 });
+
+describe("D3.1 native capture and isolated restore package", () => {
+  it("produces a mode-0600 aggregate inventory without business values", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "moldpilot-d3-inventory-"));
+    const fakeBin = path.join(root, "bin");
+    const uploads = path.join(root, "uploads");
+    const quarantine = path.join(root, "quarantine");
+    const output = path.join(root, "inventory.txt");
+    const expectedKey = "attachments/aa/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.pdf";
+    const knownSecret = "synthetic-secret-must-not-appear";
+    const fakePsql = path.join(fakeBin, "psql");
+
+    try {
+      mkdirSync(path.join(uploads, "attachments", "aa"), { recursive: true });
+      mkdirSync(quarantine, { recursive: true });
+      mkdirSync(fakeBin, { recursive: true });
+      writeFileSync(path.join(uploads, expectedKey), "released bytes\n");
+      writeFileSync(path.join(quarantine, "retained.upload"), "retained bytes\n");
+      writeFileSync(
+        fakePsql,
+        `#!/usr/bin/env bash
+case "$*" in
+  *"SELECT 1;"*) printf '1\\n' ;;
+  *"FROM users;"*) printf '1\\n' ;;
+  *"FROM roles;"*) printf '2\\n' ;;
+  *"FROM permissions;"*) printf '3\\n' ;;
+  *"FROM customers;"*) printf '4\\n' ;;
+  *"FROM injection_machines;"*) printf '5\\n' ;;
+  *"FROM mold_trial_projects;"*) printf '6\\n' ;;
+  *"FROM trial_events;"*) printf '7\\n' ;;
+  *"FROM trial_issues;"*) printf '8\\n' ;;
+  *"FROM file_attachments WHERE deleted_at IS NULL;"*) printf '1\\n' ;;
+  *"FROM file_attachments;"*) printf '1\\n' ;;
+  *"FROM _prisma_migrations"*) printf '21\\n' ;;
+  *"SELECT storage_key"*) printf '${expectedKey}\\n' ;;
+  *"COALESCE(password_hash"*) printf 'user-id:${knownSecret}\\n' ;;
+  *) printf 'unexpected query: %s\\n' "$*" >&2; exit 2 ;;
+esac
+`
+      );
+      chmodSync(fakePsql, 0o755);
+
+      const result = spawnSync(
+        "bash",
+        [path.join(opsRoot, "docker", "backup", "native-inventory.sh")],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            DATABASE_URL: "postgresql://user:database-secret@localhost/test",
+            MOLDPILOT_APP_ROOT: "/nonexistent",
+            MOLDPILOT_INVENTORY_OUTPUT: output,
+            MOLDPILOT_INVENTORY_SCOPE: "data",
+            MOLDPILOT_QUARANTINE_DIR: quarantine,
+            MOLDPILOT_SOURCE_APP_SHA: "a".repeat(40),
+            MOLDPILOT_STORAGE_DIR: uploads,
+            PATH: `${fakeBin}:${process.env.PATH ?? ""}`
+          }
+        }
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(statSync(output).mode & 0o777, 0o600);
+      const report = readFileSync(output, "utf8");
+      assert.match(report, /^inventoryFormat=moldpilot-native-inventory-v1$/m);
+      assert.match(report, /^users=1$/m);
+      assert.match(report, /^machines=5$/m);
+      assert.match(report, /^missingDatabaseBackedFiles=0$/m);
+      assert.match(report, /^orphanReleasedFiles=0$/m);
+      assert.doesNotMatch(report, /database-secret/);
+      assert.doesNotMatch(report, new RegExp(knownSecret));
+      assert.doesNotMatch(report, new RegExp(expectedKey));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps native inventory non-mutating and production capture explicitly guarded", () => {
+    const inventory = read("scripts/moldpilot-native-inventory.sh");
+    const inventoryCore = read("docker/backup/native-inventory.sh");
+    const capture = read("scripts/moldpilot-native-capture.sh");
+    const captureCore = read("docker/backup/native-capture-core.sh");
+
+    assert.match(inventory, /require_path_outside_git_checkouts/);
+    assert.match(inventoryCore, /chmod 0600/);
+    assert.match(inventoryCore, /missingDatabaseBackedFiles=/);
+    assert.match(inventoryCore, /orphanReleasedFiles=/);
+    assert.match(inventoryCore, /dockerMemoryBytes=/);
+    assert.doesNotMatch(
+      `${inventory}\n${inventoryCore}`,
+      /(?:launchctl|docker compose (?:stop|restart)|prisma migrate|prisma db seed|DROP TABLE)/
+    );
+
+    assert.match(capture, /FREEZE_NATIVE_MOLDPILOT_FOR_D3_CAPTURE/);
+    assert.match(capture, /launchctl bootout/);
+    assert.match(capture, /trap restore_native_service EXIT/);
+    assert.match(capture, /launchctl bootstrap/);
+    assert.match(capture, /launchctl kickstart/);
+    assert.match(capture, /\/Volumes\//);
+    assert.doesNotMatch(captureCore, /launchctl|caddy|brew services/);
+    assert.match(captureCore, /format=moldpilot-native-cutover-v2/);
+    assert.match(captureCore, /pg_dump[\s\S]*--format=custom/);
+    assert.match(captureCore, /manifest\.sha256/);
+    assert.match(captureCore, /files\/quarantine/);
+    assert.match(captureCore, /recovery\/native\.env/);
+    assert.match(captureCore, /age --recipient/);
+    assert.match(captureCore, /trap cleanup EXIT/);
+  });
+
+  it("accepts only v2 into generated isolated restore resources", () => {
+    const restoreCore = read("docker/backup/native-restore-core.sh");
+    const restore = read("scripts/moldpilot-native-restore-rehearsal.sh");
+    const smoke = read("scripts/moldpilot-d3-native-restore-smoke.sh");
+    const helperDockerfile = read("docker/backup/Dockerfile");
+
+    assert.match(restoreCore, /moldpilot-native-cutover-v2/);
+    assert.match(restoreCore, /moldpilot-encrypted-backup-v1/);
+    assert.match(restoreCore, /format v2 is required/);
+    assert.match(restoreCore, /unsafe path/);
+    assert.match(restoreCore, /sha256sum --check/);
+    assert.match(restoreCore, /target database is not empty/);
+    assert.match(restoreCore, /pg_restore/);
+    assert.match(restoreCore, /files\/quarantine/);
+
+    assert.match(restore, /moldpilot-d3-rehearsal-\*/);
+    assert.match(restore, /127\.0\.0\.1:\$HOST_PORT/);
+    assert.match(restore, /moldpilot-freshclam/);
+    assert.match(restore, /moldpilot-clamav/);
+    assert.equal(
+      restore.match(/moldpilot-migrate \\\n\s+migrate deploy/g)?.length,
+      1
+    );
+    assert.match(restore, /--keep/);
+    assert.match(restore, /--cleanup/);
+    assert.doesNotMatch(restore, /docker\s+compose[^\n]*\sdown\b/);
+    assert.doesNotMatch(restore, /launchctl|caddy\s+reload|brew services/);
+
+    for (const evidence of [
+      "simulated capture failure",
+      "corrupt-manifest",
+      "unsafe-path",
+      "unsupported-format",
+      "non-empty-target",
+      "production-name",
+      "RESTORE_INVENTORY_PARITY",
+      "RESTORE_ATTACHMENT_SHA256",
+      "RESTORE_LOGIN_VERIFIED",
+      "1000:1000"
+    ]) {
+      assert.match(smoke, new RegExp(evidence, "i"));
+    }
+    assert.doesNotMatch(
+      smoke,
+      /(?:^|\n)\s*(?:launchctl|caddy\s+reload|brew services)\b/
+    );
+    assert.match(helperDockerfile, /moldpilot-native-inventory/);
+    assert.match(helperDockerfile, /moldpilot-native-capture-core/);
+    assert.match(helperDockerfile, /moldpilot-native-restore-core/);
+  });
+});

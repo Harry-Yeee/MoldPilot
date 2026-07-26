@@ -42,6 +42,10 @@ items marked ⛔ are blockers — do not put real users on the system until they
    private age identity in the two sealed copies and schedule the quarterly
    restore drill: `security-hardening-runbook.md` §7a "Backup key escrow &
    restore drill".
+   Before any future native-to-container cutover, also require the parent
+   platform's non-mutating native inventory and encrypted cutover format v2.
+   Native backup v1 remains a routine recovery archive but is not an accepted
+   cutover source because it omits retained quarantine and D3 source metadata.
 
 ## Production run mode (the server is not `pnpm dev`)
 
