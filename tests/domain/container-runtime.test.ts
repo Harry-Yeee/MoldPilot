@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import {
   evaluateRuntimeReadiness,
   liveHealthPayload,
+  runBoundedRuntimeCheck,
   runtimeReadinessHttpStatus
 } from "../../src/domain/security/runtime-health.ts";
 import { verifyExistingWritableDirectory } from "../../src/domain/security/runtime-directory.ts";
@@ -34,7 +35,8 @@ describe("container health contracts", () => {
     const report = await evaluateRuntimeReadiness({
       database: readyCheck,
       storage: readyCheck,
-      quarantine: readyCheck
+      quarantine: readyCheck,
+      scanner: readyCheck
     });
 
     assert.deepEqual(report, {
@@ -42,7 +44,8 @@ describe("container health contracts", () => {
       components: {
         database: "ready",
         storage: "ready",
-        quarantine: "ready"
+        quarantine: "ready",
+        scanner: "ready"
       }
     });
     assert.equal(runtimeReadinessHttpStatus(report), 200);
@@ -54,14 +57,16 @@ describe("container health contracts", () => {
         throw new Error("postgresql://secret-user:secret-password@production-db/internal");
       },
       storage: readyCheck,
-      quarantine: readyCheck
+      quarantine: readyCheck,
+      scanner: readyCheck
     });
 
     assert.equal(runtimeReadinessHttpStatus(report), 503);
     assert.deepEqual(report.components, {
       database: "unavailable",
       storage: "ready",
-      quarantine: "ready"
+      quarantine: "ready",
+      scanner: "ready"
     });
     assert.doesNotMatch(JSON.stringify(report), /secret|password|postgresql|production-db/i);
   });
@@ -79,7 +84,8 @@ describe("container health contracts", () => {
       const report = await evaluateRuntimeReadiness({
         database: readyCheck,
         storage: () => verifyExistingWritableDirectory(missing),
-        quarantine: () => verifyExistingWritableDirectory(writable)
+        quarantine: () => verifyExistingWritableDirectory(writable),
+        scanner: readyCheck
       });
       assert.equal(runtimeReadinessHttpStatus(report), 503);
       assert.equal(report.components.storage, "unavailable");
@@ -90,7 +96,8 @@ describe("container health contracts", () => {
         storage: async () => {
           throw Object.assign(new Error("permission denied"), { code: "EACCES" });
         },
-        quarantine: readyCheck
+        quarantine: readyCheck,
+        scanner: readyCheck
       });
       assert.equal(runtimeReadinessHttpStatus(permissionDenied), 503);
       assert.equal(permissionDenied.components.storage, "unavailable");
@@ -98,6 +105,31 @@ describe("container health contracts", () => {
     } finally {
       rmSync(temporaryRoot, { force: true, recursive: true });
     }
+  });
+
+  it("bounds every readiness dependency and hides scanner failure details", async () => {
+    const startedAt = Date.now();
+    const report = await evaluateRuntimeReadiness(
+      {
+        database: readyCheck,
+        storage: readyCheck,
+        quarantine: readyCheck,
+        scanner: () => new Promise<void>(() => undefined)
+      },
+      { timeoutMs: 20 }
+    );
+
+    assert.equal(runtimeReadinessHttpStatus(report), 503);
+    assert.equal(report.components.scanner, "unavailable");
+    assert.equal(Date.now() - startedAt < 500, true);
+    assert.doesNotMatch(
+      JSON.stringify(report),
+      /clamav|clamd|host|port|credential|timeout/i
+    );
+    await assert.rejects(
+      () => runBoundedRuntimeCheck(() => Promise.resolve(), 0),
+      /timeout is invalid/
+    );
   });
 });
 
@@ -139,6 +171,8 @@ describe("container startup and image design", () => {
     assert.ok(dockerfile.indexOf("prisma generate") < dockerfile.indexOf("pnpm build"));
     assert.match(dockerfile, /FROM \$\{NODE_IMAGE\} AS runner/);
     assert.match(dockerfile, /USER 10001:10001/);
+    assert.match(dockerfile, /FROM runner AS smoke-runner/);
+    assert.match(dockerfile, /FROM runner AS production\s*$/);
     assert.match(dockerfile, /HOSTNAME="0\.0\.0\.0"/);
     assert.match(dockerfile, /HEALTHCHECK[\s\S]*fetch\('http:\/\/127\.0\.0\.1:3000\/api\/health\/live'/);
     assert.doesNotMatch(runnerStage, /(?:ENTRYPOINT|CMD)[^\n]*(?:migrate|seed|reset)/i);
@@ -156,16 +190,74 @@ describe("container startup and image design", () => {
     assert.match(dockerignore, /^!\.env\.example$/m);
   });
 
-  it("uses an isolated internal smoke environment and scopes destructive cleanup", () => {
-    const compose = source("docker-compose.d1-smoke.yml");
-    const smoke = source("scripts/docker-d1-smoke.sh");
+  it("keeps the D1 command as a compatibility alias to the isolated D2 runtime proof", () => {
+    const d1Smoke = source("scripts/docker-d1-smoke.sh");
+    const d2Smoke = source("scripts/docker-d2-smoke.sh");
 
-    assert.match(compose, /image: postgres:16-bookworm/);
-    assert.match(compose, /internal: true/);
-    assert.doesNotMatch(compose, /ports:/);
-    assert.match(smoke, /moldpilot-d1-smoke-\$SMOKE_SUFFIX/);
-    assert.match(smoke, /compose down --volumes --remove-orphans/);
-    assert.match(smoke, /Refusing.*production/i);
+    assert.match(d1Smoke, /docker-d2-smoke\.sh" --d1-compat/);
+    assert.match(d2Smoke, /moldpilot-d2-smoke-\$SMOKE_SUFFIX/);
+    assert.match(d2Smoke, /compose down --volumes --remove-orphans/);
+    assert.match(d2Smoke, /Refusing.*production/i);
     assert.doesNotMatch(source("scripts/run-production-macos.sh"), /docker compose down[^\n]*--volumes|docker compose down[^\n]*-v/);
+  });
+
+  it("keeps clamd private, pinned, unprivileged, and fail closed", () => {
+    const compose = source("docker-compose.d2-smoke.yml");
+    const smoke = source("scripts/docker-d2-smoke.sh");
+    const probe = source("scripts/docker-d2-probe.mjs");
+    const uploadRules = source("src/domain/security/upload-security.ts");
+    const eicarFixture = [
+      "X5O!P%@AP[4",
+      String.raw`\PZX54(P^)7CC)7}$`,
+      "EICAR-STANDARD-",
+      "ANTIVIRUS-TEST-FILE!$H+H*"
+    ].join("");
+
+    assert.match(
+      smoke,
+      /clamav\/clamav:1\.4\.5-debian13-slim@sha256:0542880c8abebb7430be5366657aec561f03693ed7be4e64a45fd2ee60b08d02/
+    );
+    assert.match(compose, /user: "clamav"/);
+    assert.match(compose, /entrypoint: \["\/init-unprivileged"\]/);
+    assert.match(compose, /clamav-volume-init:/);
+    assert.match(compose, /cap_add:\n\s+- CHOWN\n\s+security_opt:/);
+    assert.match(compose, /clamav-signature-init:/);
+    assert.match(compose, /user: "clamav"/);
+    assert.match(compose, /network_mode: none/);
+    assert.match(compose, /source: clamav-signatures/);
+    assert.match(compose, /target: \/var\/lib\/clamav/);
+    assert.match(compose, /read_only: true[\s\S]*nocopy: true/);
+    assert.match(compose, /MOLDPILOT_SCANNER_MODE: clamd/);
+    assert.match(compose, /MOLDPILOT_CLAMD_HOST: clamav/);
+    assert.match(compose, /scanner:\n\s+internal: true/);
+    assert.doesNotMatch(compose, /^\s+ports:/m);
+    assert.doesNotMatch(compose, /type: bind/);
+    assert.match(smoke, /MINIMUM_DOCKER_MEMORY_BYTES=4294967296/);
+    assert.match(smoke, /--target smoke-runner/);
+    assert.match(smoke, /docker\/clamav/);
+    assert.match(smoke, /docker\/d2-smoke\/bootstrap\.sql/);
+    assert.doesNotMatch(source("docker/d2-smoke/bootstrap.sql"), /RAW\/|MP-PILOT/i);
+    assert.doesNotMatch(probe, new RegExp(eicarFixture.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(uploadRules, /return status === "clean"/);
+  });
+
+  it("proves scanner outage recovery and persistent released/quarantined bytes", () => {
+    const smoke = source("scripts/docker-d2-smoke.sh");
+    const clamConfiguration = source("docker/clamav/clamd.conf");
+
+    assert.match(clamConfiguration, /StreamMaxLength 320M/);
+    assert.match(clamConfiguration, /MaxFileSize 320M/);
+    assert.match(clamConfiguration, /MaxScanSize 512M/);
+    assert.match(smoke, /compose stop clamav/);
+    assert.match(smoke, /compose start clamav/);
+    assert.match(smoke, /--force-recreate app/);
+    assert.match(smoke, /CLEAN_HASH_BEFORE/);
+    assert.match(smoke, /CLEAN_HASH_AFTER/);
+    assert.match(smoke, /QUARANTINE_HASH_BEFORE/);
+    assert.match(smoke, /QUARANTINE_HASH_AFTER/);
+    assert.match(
+      smoke,
+      /docker image rm "\$APP_IMAGE" "\$MIGRATOR_IMAGE" "\$CLAMAV_RUNTIME_IMAGE"/
+    );
   });
 });

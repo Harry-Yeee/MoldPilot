@@ -51,6 +51,59 @@ build from becoming an accidental production migration. D2 must add a
 container-compatible malware-scanning service and persistent-storage tests
 before platform integration can be evaluated safely.
 
+### 2026-07-26: Docker D2.1 Uses A Private ClamAV Daemon And App-Owned File Volumes
+
+MoldPilot's native deployment uses a local `clamscan` executable, but a
+container must not depend on a host executable or expose clamd's unauthenticated
+TCP protocol to the LAN.
+
+Decision:
+
+- Keep an explicit scanner backend boundary. Native Homebrew/local deployments
+  continue to use the local-command backend; the container runtime must
+  explicitly select `clamd` and must never fall back to a local command.
+- The container backend uses ClamAV's official `INSTREAM` protocol over a
+  private internal network. Port 3310 is never published to the host.
+- Pin the supported multi-architecture ClamAV image by exact digest and run its
+  supported unprivileged entrypoint. Persist virus definitions separately from
+  the disposable scanner container.
+- Keep uploads in quarantine until the scanner returns the exact clean
+  response. Connection failure, timeout, malformed response, daemon error,
+  disconnect, or scanner size rejection fails closed.
+- A connected clamd socket owns meaningful transport error/end/close handling
+  continuously from before connect through actual close. Transport failures
+  return scanner unavailable; they must not escape to a process-level exception
+  handler or be hidden by a no-op listener.
+- Container readiness includes bounded PostgreSQL, released-file storage,
+  quarantine storage, and scanner `PING` checks. Liveness remains independent.
+- Released and retained quarantined files use app-owned persistent volumes and
+  must survive replacement of the application container.
+- D2.1 remains an isolated development proof. It does not modify the parent
+  production Compose/Caddy topology, native service, live database, backups,
+  deploy/rollback process, or production data.
+
+Reason:
+
+clamd has no authentication or transport encryption on its TCP socket, so its
+network must be private and narrowly shared. Streaming from disk preserves the
+existing 300 MiB upload contract without loading whole uploads into application
+memory. Keeping the local backend preserves the accepted native deployment
+while the container path is evaluated independently.
+
+Impact:
+
+- `pnpm docker:d2:smoke` is the disposable proof for clean, infected, outage,
+  recovery, and application-container replacement behavior.
+- `pnpm docker:d1:smoke` remains a documented compatibility alias to the
+  hardened disposable runtime proof rather than preserving an intentionally
+  scanner-blind container.
+- D2.1.1 fault injection must cover resets immediately after `INSTREAM`,
+  between streamed chunks, and during `PING`, including a crash-observable
+  repeated-reset child process.
+- D2.2 still must design and prove production platform networking, Caddy,
+  database integration, backup/restore, migration, deploy, and rollback before
+  any cutover can be proposed.
+
 ### 2026-07-25: Session Cookie Security Follows The Actual Deployment Scheme
 
 The current Mac mini pilot may temporarily run over plain HTTP on an isolated,

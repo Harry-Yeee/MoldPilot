@@ -44,7 +44,8 @@ describe("production network containment", () => {
   it("requires a healthy local scanner before the production process starts", () => {
     const runner = source("scripts/run-production-macos.sh");
     const scannerCheck = source("scripts/check-malware-scanner.sh");
-    const scanner = source("src/server/malware-scanner.ts");
+    const scanner = source("src/server/local-malware-scanner.ts");
+    const backend = source("src/server/malware-scanner.ts");
     assert.match(runner, /check-malware-scanner\.sh/);
     assert.match(scannerCheck, /--no-summary/);
     assert.match(scannerCheck, /Upload release remains fail-closed/);
@@ -52,7 +53,9 @@ describe("production network containment", () => {
     assert.match(scanner, /spawn\("\/usr\/bin\/test", \["-x", pathname\]/);
     assert.match(scanner, /spawn\("\/usr\/bin\/env", \[scanner, "--no-summary", filePath\]/);
     assert.doesNotMatch(scanner, /spawn\(scanner,/);
-    assert.doesNotMatch(scanner, /node:fs/);
+    assert.match(backend, /resolveScannerMode\(\) === "local"/);
+    assert.match(backend, /scanFileWithConfiguredLocalCommand/);
+    assert.match(backend, /scanFileWithClamd/);
   });
 
   it("keeps the legacy XLS out of the active seed path and requires Office-aware quarantine analysis", () => {

@@ -3,19 +3,20 @@
 This is the source-of-truth setup for running MoldPilot on a dedicated Mac mini
 inside the factory LAN.
 
-## Docker D1 Parallel Track
+## Docker D1/D2.1 Parallel Track
 
 The native deployment documented below remains the accepted production and
-rollback path. Docker Milestone D1 adds a separately tested standalone image,
-health endpoints, and disposable PostgreSQL smoke environment, but it does not
-change launchd, Homebrew PostgreSQL, Caddy, live data, backup, or the parent
-LJ_ERP Compose structure.
+rollback path. Docker D1 added a separately tested standalone image and health
+contract. Docker D2.1 added a private unprivileged clamd service, fail-closed
+streaming, scanner-aware readiness, and disposable proof that released and
+retained quarantined files survive application-container replacement.
 
-D1 is **not approved for production cutover**. Its upload code still expects a
-host-style ClamAV executable, while the D1 container deliberately performs no
-scanner readiness check. D2 must add a container-compatible ClamAV service and
-persistent-storage test before any platform cutover design. See
-`docker-d1-runtime-foundation.md` for build and smoke instructions.
+Neither milestone changes launchd, Homebrew PostgreSQL/local scanning, Caddy,
+live data, backups, or the parent LJ_ERP production Compose structure. They are
+**not approved for production cutover**. D2.2 still owns platform networking,
+secret delivery, persistent-volume placement, backup/restore, migration,
+deploy, and rollback design. See `docker-d1-runtime-foundation.md` and
+`docker-d2-private-scanner-storage.md`.
 
 ## Deployment Shape
 

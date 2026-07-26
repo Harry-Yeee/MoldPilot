@@ -1668,11 +1668,14 @@ Preconditions:
 
 Steps:
 
-1. Run `docker build -t moldpilot:d1 .`.
-2. Inspect the final image user, environment, filesystem, health check, and
-   architecture metadata.
-3. Run `pnpm docker:d1:smoke`.
-4. Observe the one-time migration target, application health, and cleanup.
+1. Inspect the immutable D1 checkpoint
+   `f4af0e7 Docker D1: add standalone container runtime foundation`.
+2. Build and inspect the default production image user, environment,
+   filesystem, health check, and architecture metadata.
+3. Run `pnpm docker:d1:smoke`, which is retained after D2.1 as a compatibility
+   alias to the hardened disposable runtime proof.
+4. Observe the one-time migration target, application health, scanner
+   readiness, and scoped cleanup.
 
 Expected:
 
@@ -1681,22 +1684,90 @@ Expected:
   runtime and CJK PDF font, and runs as UID/GID `10001:10001`.
 - `/api/health/live` returns `200` with `{ "status": "ok" }` without querying
   PostgreSQL. `/api/health/ready` returns `200` only when PostgreSQL and both
-  persistent directories are ready; failure returns `503` with component
-  states and no path, URL, credential, SQL error, or stack trace.
+  persistent directories plus the configured scanner are ready; failure
+  returns `503` with component states and no path, URL, credential, scanner
+  output, SQL error, or stack trace.
 - Startup rejects missing production configuration or unwritable persistent
-  directories before Next starts. It does not invoke Homebrew ClamAV.
+  directories before Next starts. Container startup requires explicit private
+  clamd configuration and never invokes or falls back to Homebrew ClamAV.
 - The normal runtime entrypoint never migrates, seeds, or resets data. The
   disposable migrator applies migrations only to an internal PostgreSQL 16
   service with no published port.
 - The smoke project name is unique; `/login`, liveness, and readiness return
   `200`; Docker reports the app healthy; and the process is non-root.
-- Success and failure both remove only the disposable smoke containers,
-  network, and volumes. Production scripts never use `docker compose down -v`.
+- Success and failure both remove only uniquely named disposable smoke
+  containers, networks, volumes, and temporary images. Production scripts never
+  use `docker compose down -v`.
 - No `.env`, secret, upload, backup, RAW, generated export, browser artifact,
   or offline package cache exists in the final image.
-- D1 remains a development proof. It is not a production-cutover acceptance
-  until D2 supplies container-compatible malware scanning and persistent
-  storage validation.
+- D1 remains the immutable runtime-foundation checkpoint. The compatibility
+  smoke includes D2.1 hardening but is not a production-cutover acceptance.
+
+### AT-034: Docker D2.1 Private Scanner And Persistent Attachment Proof
+
+Layer: Domain + deployment inspection + disposable real-container smoke
+
+Preconditions:
+
+- Docker Desktop is running with at least 4 GiB available to the Linux VM.
+- The native Mac mini service, live PostgreSQL database, parent production
+  Compose/Caddy topology, and production data remain untouched.
+- The exact pinned ClamAV image supports the host architecture.
+
+Steps:
+
+1. Run `CI=true node --test tests/domain/clamd-scanner.test.ts`.
+2. Run `pnpm docker:d2:smoke`.
+3. Observe scanner startup and readiness.
+4. Observe clean PDF, EICAR, scanner-outage, recovery, and app-replacement
+   checks.
+5. Inspect the final cleanup inventory.
+
+Expected:
+
+- Every clamd socket has meaningful `error`, `end`, and `close` handling from
+  before connection through actual socket close, including before the first
+  write, between 64 KiB chunks, between the terminator and response reader, and
+  after response completion before destruction. Listeners and operation waiters
+  are removed exactly once without `MaxListeners` warnings.
+- `ECONNRESET`, `EPIPE`, refusal, write failure, premature end/close, and
+  connect/response/total timeout return scanner unavailable. Malformed or
+  oversized responses, daemon `ERROR`, and invalid or oversized input remain
+  scanner error.
+- Deterministic reset tests cover idle-socket failure, reset after `INSTREAM`,
+  reset between chunks, and PING reset. A strict child process with no
+  process-level exception handlers survives 30/30 injected resets, returns
+  `unavailable` for every scan, exits 0, and emits no uncaught exception,
+  unhandled rejection, transport error, or listener warning.
+- The disposable clamd service derives from
+  `clamav/clamav:1.4.5-debian13-slim` pinned by exact digest, runs through
+  `/init-unprivileged` as the image's `clamav` UID/GID, and shares a private
+  internal scanner network only with MoldPilot. Port 3310 is never published.
+- Virus definitions persist in a named disposable volume. Clamd accepts at
+  least the current 300 MiB MoldPilot upload limit. The preflight rejects a
+  Docker VM with less than 4 GiB available memory.
+- Readiness returns `200` only when PostgreSQL, released-file storage,
+  quarantine storage, and exact scanner `PONG` checks pass. Scanner outage
+  produces a non-sensitive `503`, liveness remains `200`, and readiness returns
+  to `200` when clamd recovers.
+- A runtime-generated valid PDF returns clean, creates one released
+  `FileAttachment` and one activity record, and downloads with identical
+  SHA-256 before and after force-replacing only the app container.
+- A runtime-assembled EICAR fixture is rejected as infected and creates no
+  released file, quarantine residue, attachment row, or activity record. The
+  EICAR signature is not stored contiguously in the repository.
+- During scanner outage, upload fails with `503`, creates no released file,
+  attachment row, or activity record, and retains the private quarantined file
+  according to the existing unavailable-scanner retention rule. That file and
+  its SHA-256 survive app-container replacement.
+- Protocol unit tests cover framing, chunking, backpressure, exact response
+  parsing, clean, infected, unavailable, malformed, timeout, oversized input
+  and response, PING, and local-command compatibility.
+- Success, failure, interruption, and termination remove only the unique
+  disposable containers, two internal networks, four named volumes, fixtures,
+  and temporary images created by the run.
+- Passing AT-034 does not claim production readiness. D2.2 platform
+  integration, backup/restore, deploy, migration, and rollback remain open.
 
 ## Exit Criteria
 

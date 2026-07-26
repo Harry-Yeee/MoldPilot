@@ -39,6 +39,195 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-26: Docker D2.1.1 Crash-Safe Clamd Transport Lifecycle
+
+Context:
+
+Independent D2.1 review found that the connected clamd socket could have no
+`error` listener between individual writes. Twelve of 30 injected resets
+escaped as uncaught `ECONNRESET`, so an ordinary Node process could terminate
+instead of returning the required scanner-unavailable result.
+
+Tried:
+
+Added a crash-observable child-process fixture before changing the client. The
+old implementation consistently exited on an unhandled socket `ECONNRESET`
+immediately after the fake daemon received `INSTREAM`.
+
+Replaced per-write transport ownership with one operation-wide
+`ClamdSocketLifecycle`. It installs `error`, `end`, and `close` listeners before
+connect and keeps them until the socket actually closes. Connect, every framed
+write, file-stream gaps, response reading, the post-response/pre-destroy window,
+and total-timeout cancellation all race against the same controlled lifecycle
+failure. Transport failures map to scanner unavailable; malformed/daemon-error/
+oversized protocol or input failures remain scanner error. Cleanup of timers,
+response listeners, file streams, operation waiters, and the socket is
+idempotent.
+
+Added deterministic tests for an idle connected-socket error, listener
+continuity after response completion, reset immediately after `INSTREAM`, reset
+after the first 64 KiB chunk, premature close, PING reset, and a strict
+child-process stress run of 30 mid-stream resets. The child installs no
+`uncaughtException` or `unhandledRejection` handler, so a process crash remains
+observable.
+
+Result:
+
+Worked. The focused clamd suite passed 16/16. The child process completed all
+30 resets with 30 controlled `unavailable` results, exit code 0, empty stderr,
+and no uncaught exception, unhandled rejection, `ECONNRESET`, `EPIPE`, or
+`MaxListeners` warning. The complete suite passed 652/652.
+
+The real disposable Docker proof also passed. Clean PDF release, fragmented
+runtime EICAR rejection, scanner-outage HTTP 503, liveness/readiness 200/503,
+readiness recovery, and released/quarantined persistence across app replacement
+were unchanged. Both persistence hashes remained
+`b649d8e6f24d417c97778e3ac867b5a99540605527549a434fb343397d13b32d`.
+The app image was 112,559,287 bytes; pinned ClamAV base/runtime images were
+185,922,220/185,921,137 bytes. The app and clamd ran as 10001:10001 and
+1000:1000.
+
+Why:
+
+A connected EventEmitter socket must always have meaningful transport-failure
+ownership. Temporary write listeners cannot cover failures while awaiting the
+next disk chunk or moving from writes to response handling. A global process
+handler or no-op socket listener would hide the defect instead of returning a
+fail-closed upload result.
+
+Decision:
+
+Use the continuous socket lifecycle for both clamd scan and PING operations.
+Keep D2.1 uncommitted and not deployed until review accepts this corrective
+evidence. Do not start D2.2 or modify parent production Compose/Caddy, native
+production services, the live database, or live data.
+
+Verification:
+
+- `pnpm exec prisma validate`: pass
+- `CI=true pnpm test`: 652/652 pass
+- `pnpm lint`: pass
+- `pnpm typecheck`: pass
+- `pnpm build`: pass
+- `bash -n scripts/docker-d2-smoke.sh`: pass
+- `pnpm docker:d2:smoke`: pass
+- reset stress child: 30/30 controlled unavailable; exit 0; no stderr
+- post-smoke disposable containers, networks, volumes, and images: empty
+- pre-existing `lj-erp-postgres`: still healthy
+
+Related Docs:
+
+- `docs/03-build/acceptance-tests.md` (AT-034)
+- `docs/08-rollout/docker-d2-private-scanner-storage.md`
+- `../docs/platform/architecture-and-roadmap.md`
+- `../docs/platform/development.md`
+
+### 2026-07-26: Docker D2.1 Private Clamd And Persistent Attachment Proof
+
+Context:
+
+The independently verified D1 container foundation was still uncommitted, and
+its upload scanner depended on a host executable. Before wider platform work,
+MoldPilot needed an isolated proof that a container could scan through private
+clamd, remain fail closed, and retain released/quarantined files when only the
+application container was replaced. Native Homebrew/launchd compatibility and
+all live infrastructure had to remain unchanged.
+
+Tried:
+
+First verified that every dirty file belonged to D1, then created the immutable
+checkpoint
+`f4af0e7 Docker D1: add standalone container runtime foundation`. D2.1 work was
+kept uncommitted for review.
+
+Extracted the existing local-command scanner and added an explicit `local` or
+`clamd` backend. The clamd client implements null-framed `INSTREAM`, four-byte
+big-endian 64 KiB chunks, socket backpressure, a zero-length terminator, bounded
+connect/health/response/total timeouts, disk streaming, a response-size cap,
+and exact response parsing. Only exact clean releases a file. Native mode still
+finds the existing Homebrew commands; container startup requires `clamd` and
+rejects fallback configuration.
+
+Added scanner PING to readiness while preserving independent liveness, hardened
+production session-secret validation, and added a disposable Compose proof with
+private database/scanner networks, app-owned upload/quarantine volumes, and a
+digest-pinned ClamAV 1.4.5 Debian 13 slim image using
+`/init-unprivileged`. A networkless capability-limited initializer prepares the
+disposable signature volume; the daemon itself runs as `clamav` with a
+read-only root and no capabilities.
+
+Several infrastructure attempts failed before the final topology worked:
+
+- the first exact-image pull received a transient registry 502 and succeeded on
+  retry
+- Docker Desktop deadlocked while copying image data into a new named ClamAV
+  volume; `nocopy` plus explicit signature initialization removed that copy-up
+  path
+- bind-mounted files/directories also stalled this Docker Desktop installation,
+  so the smoke now builds temporary derived ClamAV and probe images instead
+- an unprivileged daemon could not create its local socket in a mode-1770
+  `/tmp`; sticky mode 1777 fixed the official entrypoint without adding
+  privileges
+- the normal demo seed depended on a RAW workbook excluded from the image;
+  a narrowly scoped synthetic SQL fixture now proves authorization and uploads
+  without importing business/demo data
+- signature-volume initialization needed idempotent ownership ordering before
+  scanner restart could be proved
+
+Result:
+
+Worked. A real disposable clamd returned PONG; a runtime-generated valid PDF was
+released and recorded; runtime-assembled EICAR returned HTTP 422 with no
+released file, quarantine residue, attachment row, or activity row. With clamd
+stopped, upload returned HTTP 503, liveness remained 200, readiness became 503,
+no release/record occurred, and one quarantined file was retained. Readiness
+returned to 200 after restart.
+
+Force-replacing only the app container preserved both files. The released PDF
+and retained quarantine each had SHA-256
+`b649d8e6f24d417c97778e3ac867b5a99540605527549a434fb343397d13b32d`
+before and after replacement. The identical hashes reflect the deterministic
+PDF fixture used for both clean and outage paths. The app ran as 10001:10001;
+clamd ran as 1000:1000. The app smoke image was 112,555,490 bytes; pinned
+ClamAV base/runtime images were 185,922,220/185,921,137 bytes. Cleanup removed
+the run's containers, two internal networks, four volumes, and three temporary
+images.
+
+Why:
+
+clamd TCP has no authentication or transport encryption, so private network
+containment is part of the security boundary. Streaming from disk preserves the
+300 MiB upload contract without allocating a 300 MiB application buffer. A
+separate local backend avoids breaking the accepted native deployment while
+container work remains a parallel proof.
+
+Decision:
+
+Use private clamd for the container contract and local-command scanning for
+native deployment. Keep `pnpm docker:d1:smoke` as a compatibility alias to the
+hardened proof. Do not integrate parent production Compose/Caddy or claim
+production readiness in D2.1. D2.2 owns backup/restore, platform networking,
+secrets, migrations, deploy, independent operations, and rollback.
+
+Verification:
+
+`CI=true pnpm test` passed 646/646, including protocol framing, backpressure,
+clean/infected/error/malformed/timeout/oversized paths, local compatibility,
+bounded readiness, and source-level topology guards. The real
+`pnpm docker:d2:smoke` passed the clean/EICAR/outage/recovery/persistence proof
+on arm64 Docker Desktop with 7.8 GiB RAM. Prisma validation, lint, typecheck,
+build, both Docker smoke commands, and final whitespace/cleanup inspection are
+the required completion gates for this change set.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/03-build/acceptance-tests.md` (AT-033, AT-034)
+- `docs/08-rollout/docker-d1-runtime-foundation.md`
+- `docs/08-rollout/docker-d2-private-scanner-storage.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+- `../docs/platform/`
+
 ### 2026-07-25: Docker D1 Standalone Container Runtime Foundation
 
 Context:

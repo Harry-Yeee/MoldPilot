@@ -9,6 +9,29 @@ export type ProductionAuthenticationConfiguration = {
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
+const knownDevelopmentSessionSecrets = new Set([
+  "moldpilot-local-pilot-session-secret",
+  "moldpilot-development-session-secret",
+  "change-me",
+  "changeme",
+  "development",
+  "replace-this-session-secret"
+]);
+
+export function validateProductionSessionSecret(value: string | undefined): void {
+  const secret = value?.trim() ?? "";
+  if (secret.length < 32) {
+    throw new Error(
+      "MOLDPILOT_SESSION_SECRET must contain at least 32 characters in production."
+    );
+  }
+  if (knownDevelopmentSessionSecrets.has(secret.toLowerCase())) {
+    throw new Error(
+      "MOLDPILOT_SESSION_SECRET must not use a known development value."
+    );
+  }
+}
+
 export function parseSessionCookieSecureMode(value: string | undefined): SessionCookieSecureMode {
   const normalized = value?.trim().toLowerCase() ?? "";
   if (normalized.length === 0) {
@@ -51,6 +74,7 @@ export function validateProductionAuthenticationEnvironment(
   if (environment.MOLDPILOT_DEPLOYMENT_MODE?.trim().toLowerCase() !== "production") {
     throw new Error("MOLDPILOT_DEPLOYMENT_MODE=production is required for the production service.");
   }
+  validateProductionSessionSecret(environment.MOLDPILOT_SESSION_SECRET);
 
   const configuredBaseUrl = environment.MOLDPILOT_BASE_URL?.trim();
   if (configuredBaseUrl == null || configuredBaseUrl.length === 0) {

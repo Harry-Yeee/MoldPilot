@@ -9,7 +9,8 @@ import { assertLocalPilotDeploymentAllowed } from "../../src/domain/security/dep
 import {
   parseSessionCookieSecureMode,
   shouldUseSecureSessionCookie,
-  validateProductionAuthenticationEnvironment
+  validateProductionAuthenticationEnvironment,
+  validateProductionSessionSecret
 } from "../../src/domain/security/session-cookie.ts";
 import {
   seedManagedUserUpdate,
@@ -19,6 +20,8 @@ import {
 function source(relativePath: string): string {
   return readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 }
+
+const productionSessionSecret = "8f4e7c2a".repeat(8);
 
 describe("production session-cookie configuration", () => {
   it("defaults missing or blank cookie mode to auto", () => {
@@ -66,6 +69,7 @@ describe("production session-cookie configuration", () => {
     const http = validateProductionAuthenticationEnvironment({
       NODE_ENV: "production",
       MOLDPILOT_DEPLOYMENT_MODE: "production",
+      MOLDPILOT_SESSION_SECRET: productionSessionSecret,
       MOLDPILOT_BASE_URL: "http://moldpilot.factory.test:3000",
       MOLDPILOT_SESSION_COOKIE_SECURE: "auto"
     });
@@ -76,6 +80,7 @@ describe("production session-cookie configuration", () => {
       () =>
         validateProductionAuthenticationEnvironment({
           MOLDPILOT_DEPLOYMENT_MODE: "production",
+          MOLDPILOT_SESSION_SECRET: productionSessionSecret,
           MOLDPILOT_BASE_URL: "https://moldpilot.factory.test",
           MOLDPILOT_SESSION_COOKIE_SECURE: "false"
         }),
@@ -85,6 +90,7 @@ describe("production session-cookie configuration", () => {
       () =>
         validateProductionAuthenticationEnvironment({
           MOLDPILOT_DEPLOYMENT_MODE: "production",
+          MOLDPILOT_SESSION_SECRET: productionSessionSecret,
           MOLDPILOT_BASE_URL: "http://moldpilot.factory.test:3000",
           MOLDPILOT_SESSION_COOKIE_SECURE: "true"
         }),
@@ -97,6 +103,23 @@ describe("production session-cookie configuration", () => {
           MOLDPILOT_SESSION_COOKIE_SECURE: "auto"
         }),
       /MOLDPILOT_DEPLOYMENT_MODE=production/
+    );
+  });
+
+  it("rejects short and known development production session secrets", () => {
+    assert.throws(
+      () => validateProductionSessionSecret("short"),
+      /at least 32 characters/
+    );
+    assert.throws(
+      () =>
+        validateProductionSessionSecret(
+          "moldpilot-local-pilot-session-secret"
+        ),
+      /known development value/
+    );
+    assert.doesNotThrow(() =>
+      validateProductionSessionSecret(productionSessionSecret)
     );
   });
 });

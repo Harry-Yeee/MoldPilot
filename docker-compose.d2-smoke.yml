@@ -1,0 +1,165 @@
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: moldpilot_d2_smoke
+      POSTGRES_USER: moldpilot_d2_smoke
+      POSTGRES_PASSWORD: ${MOLDPILOT_D2_SMOKE_DB_PASSWORD:?smoke database password is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moldpilot_d2_smoke -d moldpilot_d2_smoke"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - database
+    volumes:
+      - smoke-db:/var/lib/postgresql/data
+
+  clamav-volume-init:
+    image: ${MOLDPILOT_D2_CLAMAV_RUNTIME_IMAGE:?temporary ClamAV runtime image is required}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        chown 0:0 /signatures
+        chmod 0700 /signatures
+        chown 1000:1000 /signatures
+    network_mode: none
+    read_only: true
+    volumes:
+      - type: volume
+        source: clamav-signatures
+        target: /signatures
+        volume:
+          nocopy: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+
+  clamav-signature-init:
+    image: ${MOLDPILOT_D2_CLAMAV_RUNTIME_IMAGE:?temporary ClamAV runtime image is required}
+    user: "clamav"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if ! find /signatures -maxdepth 1 -type f \( -name '*.cvd' -o -name '*.cld' \) -size +0c | grep -q .; then
+          copied=0
+          for source in /var/lib/clamav/*.cvd /var/lib/clamav/*.cld; do
+            if [ -s "$$source" ]; then
+              cp "$$source" /signatures/
+              copied=1
+            fi
+          done
+          [ "$$copied" -eq 1 ]
+        fi
+        find /signatures -maxdepth 1 -type f \( -name '*.cvd' -o -name '*.cld' \) -size +0c | grep -q .
+    network_mode: none
+    read_only: true
+    volumes:
+      - type: volume
+        source: clamav-signatures
+        target: /signatures
+        volume:
+          nocopy: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      clamav-volume-init:
+        condition: service_completed_successfully
+
+  clamav:
+    image: ${MOLDPILOT_D2_CLAMAV_RUNTIME_IMAGE:?temporary ClamAV runtime image is required}
+    user: "clamav"
+    entrypoint: ["/init-unprivileged"]
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "true"
+      CLAMD_STARTUP_TIMEOUT: "300"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=768m,mode=1777
+    volumes:
+      - type: volume
+        source: clamav-signatures
+        target: /var/lib/clamav
+        read_only: true
+        volume:
+          nocopy: true
+    depends_on:
+      clamav-signature-init:
+        condition: service_completed_successfully
+    networks:
+      - scanner
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 5s
+      timeout: 4s
+      start_period: 30s
+      retries: 90
+
+  migrator:
+    image: ${MOLDPILOT_D2_MIGRATOR_IMAGE:?smoke migrator image is required}
+    environment:
+      DATABASE_URL: ${MOLDPILOT_D2_SMOKE_DATABASE_URL:?smoke database URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+
+  app:
+    image: ${MOLDPILOT_D2_APP_IMAGE:?smoke app image is required}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      MOLDPILOT_DEPLOYMENT_MODE: production
+      MOLDPILOT_SESSION_SECRET: ${MOLDPILOT_D2_SMOKE_SESSION_SECRET:?smoke session secret is required}
+      MOLDPILOT_BASE_URL: http://app:3000
+      MOLDPILOT_SESSION_COOKIE_SECURE: auto
+      DATABASE_URL: ${MOLDPILOT_D2_SMOKE_DATABASE_URL:?smoke database URL is required}
+      MOLDPILOT_STORAGE_DIR: /data/uploads
+      MOLDPILOT_QUARANTINE_DIR: /data/quarantine
+      MOLDPILOT_SCANNER_MODE: clamd
+      MOLDPILOT_CLAMD_HOST: clamav
+      MOLDPILOT_CLAMD_PORT: "3310"
+      MOLDPILOT_CLAMD_CONNECT_TIMEOUT_MS: "3000"
+      MOLDPILOT_CLAMD_HEALTH_TIMEOUT_MS: "5000"
+      MOLDPILOT_CLAMD_RESPONSE_TIMEOUT_MS: "10000"
+      MOLDPILOT_CLAMD_SCAN_TIMEOUT_MS: "600000"
+      MOLDPILOT_CLAMD_MAX_STREAM_BYTES: "335544320"
+      MOLDPILOT_READINESS_TIMEOUT_MS: "7000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    networks:
+      - database
+      - scanner
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    volumes:
+      - smoke-uploads:/data/uploads
+      - smoke-quarantine:/data/quarantine
+
+networks:
+  database:
+    internal: true
+  scanner:
+    internal: true
+
+volumes:
+  smoke-db:
+  smoke-uploads:
+  smoke-quarantine:
+  clamav-signatures:

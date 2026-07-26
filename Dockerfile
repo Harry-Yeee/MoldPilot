@@ -56,6 +56,7 @@ COPY --from=builder --chown=10001:10001 /app/scripts/container-entrypoint.sh ./s
 COPY --from=builder --chown=10001:10001 /app/scripts/check-container-runtime.mjs ./scripts/check-container-runtime.mjs
 COPY --from=builder --chown=10001:10001 /app/src/domain/security/session-cookie.ts ./src/domain/security/session-cookie.ts
 COPY --from=builder --chown=10001:10001 /app/src/domain/security/runtime-directory.ts ./src/domain/security/runtime-directory.ts
+COPY --from=builder --chown=10001:10001 /app/src/domain/security/scanner-config.ts ./src/domain/security/scanner-config.ts
 
 RUN chmod 0555 /app/scripts/container-entrypoint.sh \
     /app/scripts/check-container-runtime.mjs
@@ -66,3 +67,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health/live',{cache:'no-store'}).then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 ENTRYPOINT ["/app/scripts/container-entrypoint.sh"]
 CMD ["node", "server.js"]
+
+# The D2 smoke probe is isolated from the default production image. The smoke
+# command selects this target explicitly; normal builds finish at `production`.
+FROM runner AS smoke-runner
+USER 0:0
+COPY --chown=10001:10001 scripts/docker-d2-probe.mjs /opt/moldpilot-smoke/probe.mjs
+RUN chmod 0555 /opt/moldpilot-smoke/probe.mjs
+USER 10001:10001
+
+FROM runner AS production

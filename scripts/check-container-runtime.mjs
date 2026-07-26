@@ -3,6 +3,7 @@
 import path from "node:path";
 import process from "node:process";
 import { verifyExistingWritableDirectory } from "../src/domain/security/runtime-directory.ts";
+import { validateContainerScannerEnvironment } from "../src/domain/security/scanner-config.ts";
 import { validateProductionAuthenticationEnvironment } from "../src/domain/security/session-cookie.ts";
 
 const requiredVariables = [
@@ -12,7 +13,16 @@ const requiredVariables = [
   "MOLDPILOT_SESSION_COOKIE_SECURE",
   "DATABASE_URL",
   "MOLDPILOT_STORAGE_DIR",
-  "MOLDPILOT_QUARANTINE_DIR"
+  "MOLDPILOT_QUARANTINE_DIR",
+  "MOLDPILOT_SCANNER_MODE",
+  "MOLDPILOT_CLAMD_HOST",
+  "MOLDPILOT_CLAMD_PORT",
+  "MOLDPILOT_CLAMD_CONNECT_TIMEOUT_MS",
+  "MOLDPILOT_CLAMD_HEALTH_TIMEOUT_MS",
+  "MOLDPILOT_CLAMD_RESPONSE_TIMEOUT_MS",
+  "MOLDPILOT_CLAMD_SCAN_TIMEOUT_MS",
+  "MOLDPILOT_CLAMD_MAX_STREAM_BYTES",
+  "MOLDPILOT_READINESS_TIMEOUT_MS"
 ];
 
 function requiredValue(name) {
@@ -56,6 +66,7 @@ try {
   }
 
   const authentication = validateProductionAuthenticationEnvironment(process.env);
+  validateContainerScannerEnvironment(process.env);
   validateDatabaseUrl(requiredValue("DATABASE_URL"));
 
   const storageDirectory = requiredValue("MOLDPILOT_STORAGE_DIR");
@@ -70,7 +81,9 @@ try {
   if (authentication.warning != null) {
     console.warn(`[MoldPilot container WARNING] ${authentication.warning}`);
   }
-  console.log("[MoldPilot container] Production configuration and persistent directories are ready.");
+  console.log(
+    "[MoldPilot container] Production configuration, private clamd backend, and persistent directories are ready."
+  );
 } catch (error) {
   console.error(
     `[MoldPilot container ERROR] ${error instanceof Error ? error.message : "Runtime validation failed."}`
