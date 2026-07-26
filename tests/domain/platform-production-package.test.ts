@@ -108,6 +108,11 @@ describe("D2.2 production platform package", () => {
 
     assert.match(freshclam, /user: "1000:1000"/);
     assert.match(freshclam, /exec freshclam/);
+    assert.match(freshclam, /--log=\/tmp\/freshclam\.log/);
+    assert.match(
+      freshclam,
+      /tmpfs:\s*\n\s+- \/tmp:[^\n]*size=64m[^\n]*mode=1777/
+    );
     assert.match(freshclam, /condition: service_completed_successfully/);
     assert.match(freshclam, /cap_drop:\s*\n\s+- ALL/);
     assert.match(freshclam, /read_only: true/);

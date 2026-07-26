@@ -78,6 +78,15 @@ FreshClam stop/start on an existing volume, clean/EICAR/outage behavior,
 app-only replacement isolation, encrypted backup, scratch restore, and exact
 disposable cleanup.
 
+The first clean-source rerun passed both initializer jobs and reached the
+directly unprivileged FreshClam process. It then exposed a second runtime-only
+configuration mismatch: the bundled FreshClam configuration attempted to open
+`/var/log/clamav/freshclam.log` on the read-only root filesystem. The CLI
+`--stdout` flag changes console output but does not suppress that configured
+file. The service now explicitly overrides the log path with
+`--log=/tmp/freshclam.log`, keeping the log in its existing bounded tmpfs
+without adding a writable root path or capability.
+
 Result:
 
 The corrected topology passes shell syntax, Compose rendering, Prisma
@@ -121,7 +130,10 @@ Verification:
 - `pnpm typecheck`: pass
 - `pnpm build`: pass
 - `pnpm docker:d2:smoke`: pass
-- `bash ../ops/scripts/moldpilot-production-smoke.sh`: pending clean checkpoint
+- first clean-source production rehearsal: initializer jobs passed; FreshClam
+  log-path mismatch found; exact disposable cleanup passed
+- corrected `bash ../ops/scripts/moldpilot-production-smoke.sh`: pending new
+  clean checkpoint
 - `git diff --check`: pass before checkpoint
 
 Related Docs:

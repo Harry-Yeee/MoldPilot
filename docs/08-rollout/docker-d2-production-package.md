@@ -22,6 +22,14 @@ setpriv: setresuid failed: Operation not permitted
 
 That result is expected under the configured capability boundary. D2.2.1 must
 not fix it by granting `SETUID`, `SETGID`, `SYS_ADMIN`, or broad capabilities.
+
+The first clean-source rerun proved both one-shot jobs exited successfully and
+then exposed a second configuration mismatch: FreshClam still tried to open its
+configured `/var/log/clamav/freshclam.log` on the read-only root filesystem.
+`--stdout` does not disable that file. The runtime now explicitly uses
+`--log=/tmp/freshclam.log`; `/tmp` is the service's existing bounded tmpfs, so
+the correction adds no writable root path or capability.
+
 The package remains unaccepted until the complete corrected rehearsal passes.
 
 ## Accepted Transitional Topology
@@ -69,7 +77,9 @@ The scanner image contains two short-lived helpers:
 
 Long-running FreshClam starts directly as `1000:1000`. It has a read-only root,
 all capabilities dropped, a writable `/tmp`, and the signature volume. It does
-not call `setpriv` or perform any identity transition.
+not call `setpriv` or perform any identity transition. Its configured log is
+explicitly redirected to `/tmp/freshclam.log` so the bundled
+`/var/log/clamav` path is never required.
 
 Long-running clamd remains `1000:1000`, capability-free, private, and mounts the
 signature volume read-only. `SelfCheck 600` preserves automatic definition
