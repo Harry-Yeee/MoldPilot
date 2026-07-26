@@ -193,10 +193,21 @@ describe("D2.2 production platform package", () => {
     const compose = read("compose.production.yml");
     const helperDockerfile = read("docker/backup/Dockerfile");
     const helper = read("docker/backup/backup-helper.sh");
+    const shared = read("scripts/lib.sh");
     const backup = read("scripts/moldpilot-backup.sh");
     const restore = read("scripts/moldpilot-restore-scratch.sh");
+    const backupHelper = serviceBlock(
+      compose,
+      "moldpilot-backup-helper",
+      "networks"
+    );
 
     assert.match(compose, /moldpilot-backup-helper:/);
+    assert.match(
+      backupHelper,
+      /DATABASE_URL: postgresql:[^\n]+\/\$\{MOLDPILOT_DB_NAME\}\n/
+    );
+    assert.doesNotMatch(backupHelper, /DATABASE_URL:[^\n]+\?schema=/);
     assert.match(helperDockerfile, /apt-get install[^]*\bage\b/);
     assert.match(helper, /pg_dump/);
     assert.match(helper, /age --recipient/);
@@ -207,6 +218,12 @@ describe("D2.2 production platform package", () => {
     assert.match(restore, /SCRATCH|scratch/);
     assert.match(restore, /production volume|PRODUCTION_VOLUME/i);
     assert.match(restore, /moldpilot-backup-helper/);
+    assert.match(restore, /ORDER BY uploaded_at/);
+    assert.doesNotMatch(restore, /ORDER BY created_at/);
+    assert.match(restore, /--set expected_project=/);
+    assert.match(shared, /--form-string "username=\$username"/);
+    assert.match(shared, /--form-string "password=\$password"/);
+    assert.match(shared, /moldpilot_session/);
     assert.doesNotMatch(backup, /\b(age|pg_dump|node|python3?)\s/);
   });
 
