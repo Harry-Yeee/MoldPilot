@@ -67,9 +67,19 @@ Result:
 
 Modified-shell syntax passes and the focused platform package suite passes
 22/22. The full MoldPilot suite passes 674/674 across 133 suites; Prisma
-validation, lint, and strict typecheck pass. Distribution and disposable D3
-verification is pending clean platform and app checkpoints. No schema, product
-workflow, Mac mini service, native PostgreSQL/Caddy, or live data changed.
+validation, lint, and strict typecheck pass.
+
+The exact-source platform distribution and disposable D3 smoke both pass. The
+existing synthetic source/restore parity remains 1 user, 1 role, 2 permissions,
+1 customer, 1 machine, 1 project, 1 trial, 1 issue, and 1 attachment. The
+target migration command ran once, restored login passed, and the released
+attachment and retained quarantine hashes remained
+`62bc93abf3cf35368458bf0c5b634c890eb0d7ad832aea2c023697813003486f`
+and
+`9080c582d0d21bdf11aa0a64d93f701ac19a4ff9fe5f050d17af0993710d0e5e`.
+All six negative cases were rejected and generated resources were removed. No
+schema, product workflow, Mac mini service, native PostgreSQL/Caddy, or live
+data changed.
 
 Why:
 
@@ -89,7 +99,9 @@ Verification:
 - focused platform package tests: 22/22 pass
 - full MoldPilot tests: 674/674 pass across 133 suites
 - Prisma validate, lint, and typecheck: pass
-- exact-source distribution and Docker gates: pending clean checkpoints
+- exact-source platform distribution and D3 Docker gates: pass
+- restored inventory, login, migration count, and file hashes: unchanged/pass
+- negative guards and generated-resource cleanup: pass
 - Mac mini, launchd, native PostgreSQL/Caddy, and live data: untouched
 
 Related Docs:
