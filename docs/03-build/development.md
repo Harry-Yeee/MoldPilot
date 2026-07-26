@@ -39,6 +39,86 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-26: Docker D2.3.1 Release-Guard Regression Coverage
+
+Context:
+
+The shared D2.3 platform lifecycle worked from a distributable checkout, but
+protected paths were not bounded against the complete platform and MoldPilot
+Git trees. Current/previous app identities and release environment updates also
+needed a single fail-before-mutation contract.
+
+Tried:
+
+The parent platform added canonical path rejection for existing paths,
+symlinked aliases, and future outputs; normal and deployment-transition release
+verification; explicit current/previous full Git SHAs with exact-SHA image
+tags; running-image verification; and one atomic six-key environment
+transition. MoldPilot's production-package tests now exercise those helpers
+with disposable Git repositories and fake Docker commands.
+
+Coverage proves:
+
+- environment, Caddy, backup, scratch archive, and offline identity paths are
+  rejected anywhere beneath either checkout
+- symlink aliases cannot bypass the boundary
+- stale backup and dirty rollback fail before Docker, backup, or replacement
+- status and logs remain available for diagnosis
+- normal and deployment-transition identity rules remain distinct
+- app/migrator tags correspond to explicit current/previous SHAs
+- a successful atomic update changes every release key together
+- a simulated update failure leaves the environment byte-for-byte unchanged
+
+The first real lifecycle run exposed a macOS Bash 3.2 behavior that the Node
+test had missed. Under `set -u`, expanding the empty update array before its
+first element produced `updates[@]: unbound variable`. The helper now guards
+the first expansion and the regression executes with nounset enabled. The
+lifecycle updater was also removed from an OR-list so a future shell-fatal
+error cannot appear successful to its EXIT cleanup.
+
+Result:
+
+The focused platform package suite passes 16/16 and the complete MoldPilot
+suite passes 668/668 across 132 suites. The corrected disposable lifecycle
+started app `3b1fc87b014e84278857b1e9a35da06f8b805abf`, deployed
+`85507c366dfebfeedb1524313ad7d8ac4c8605fe`, and rolled back to the first
+image. PostgreSQL, clamd, and FreshClam IDs did not change. Login, attachments,
+dual-SHA encrypted backup/scratch restore, and all 21 migration records
+survived. Attachment SHA-256 remained
+`a1cd25fb2d3a1ccfa539414f0b75ce41932a56c0c119820c9413d1f113d5bf1f`.
+Disposable containers, images, volumes, networks, archives, bundles, and
+fixtures were removed.
+
+No Prisma schema, product workflow, native service, production environment, or
+live data changed.
+
+Why:
+
+The app release must be provably tied to its clean source, explicit SHA, exact
+image tag, and running container before an operational script mutates state.
+During deploy only, the new source target and old running backup identity must
+coexist without ambiguity.
+
+Decision:
+
+Keep D2.3.1 as the final local corrective rehearsal before D3. Do not deploy,
+push, reload Caddy, use launchctl, stop native services, or modify live data.
+
+Verification:
+
+- D2.3.1 package tests: 16/16
+- complete domain suite: 668/668, 132 suites
+- Prisma validation, lint, typecheck, and build: pass
+- distribution, production-shaped, and deploy/rollback rehearsals: pass
+- exact disposable cleanup: pass
+
+Related Docs:
+
+- `../../../docs/platform/decision-log.md`
+- `../../../docs/platform/architecture-and-roadmap.md`
+- `../../../docs/platform/development.md`
+- `../../../ops/README.md`
+
 ### 2026-07-26: Docker D2.3 Versioned Platform Lifecycle Foundation
 
 Context:
