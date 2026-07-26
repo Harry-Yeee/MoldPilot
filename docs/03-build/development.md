@@ -70,11 +70,23 @@ FreshClam identities, and the non-reversal of migrations on image rollback.
 
 Result:
 
-The source implementation and package guards pass 662/662 MoldPilot domain
-tests across 132 suites. The Docker distribution, D2.2 compatibility, and D2.3
-lifecycle proofs remain gated on clean local parent/app checkpoints. No product
-workflow, Prisma schema, native service, production configuration, or live data
-was changed.
+The source implementation and package guards passed 662/662 MoldPilot domain
+tests across 132 suites. Prisma validation, lint, strict typecheck, production
+build, parent distribution, D2.2 compatibility, and D2.3 lifecycle proofs all
+passed from clean local checkpoints.
+
+The lifecycle started from app `e7caaa1`, deployed app `e1c7f6d`, and restored
+`e7caaa1`. Login and the released attachment survived both transitions;
+attachment SHA-256 remained
+`a1cd25fb2d3a1ccfa539414f0b75ce41932a56c0c119820c9413d1f113d5bf1f`.
+PostgreSQL, clamd, and FreshClam container IDs did not change. The mandatory
+pre-deploy backup, post-deploy scratch restore, and pre-rollback backup passed
+with both platform and app release identities. All 21 migration records remained
+after application rollback, as required. Generated containers, volumes,
+networks, images, archives, bundles, and fixtures were removed.
+
+No product workflow, Prisma schema, native service, production configuration,
+or live data was changed.
 
 Why:
 
@@ -92,7 +104,11 @@ Verification:
 - D2.3 package source tests: 10/10 pass
 - complete MoldPilot domain suite: 662/662 pass, 132 suites
 - shell syntax and `git diff --check`: pass before checkpoint
-- clean-commit Docker rehearsals: pending local checkpoints
+- platform distribution rehearsal: pass
+- D2.2 production-shaped compatibility rehearsal: pass
+- D2.3 actual deploy/rollback lifecycle rehearsal: pass
+- dependency IDs, login, attachment hash, dual-SHA restore, migration retention,
+  and exact cleanup: pass
 
 Related Docs:
 

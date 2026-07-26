@@ -215,6 +215,31 @@ passed to libpq, psql variable substitution through `--command`, and an
 incorrect attachment timestamp column. The final rehearsal includes guards for
 those corrected boundaries.
 
+## D2.3 Versioned Lifecycle Evidence
+
+The clean platform distribution and lifecycle rehearsals passed on 2026-07-26:
+
+- platform implementation commit:
+  `e247362c09faa351b7e7caa0e3ffc0b3fd48f92a`
+- MoldPilot previous/target commits:
+  `e7caaa1f375e2e4ad4dff5244bde57ce61aba701` /
+  `e1c7f6d75de4f0a5c0fc632fc66b4dfc265f0285`
+- platform archive: 26 tracked ordinary files, 235,520 bytes, no app repo,
+  gitlink, secret, backup, identity, real environment, or Git metadata
+- actual app-control stop/start: pass with dependencies unchanged
+- actual deploy: encrypted pre-deploy backup, explicit migrate deploy, and only
+  MoldPilot replacement passed
+- scratch restore: one synthetic project, one attachment, and both exact
+  platform/app release identities passed
+- actual image rollback restored the previous image; all 21 migrations remained
+- attachment SHA-256 before deploy, after deploy, and after rollback:
+  `a1cd25fb2d3a1ccfa539414f0b75ce41932a56c0c119820c9413d1f113d5bf1f`
+- all lifecycle/scratch containers, volumes, networks, images, archives,
+  bundles, and fixtures were removed
+
+This accepts only D2.3 infrastructure rehearsal evidence. It does not deploy or
+authorize D3.
+
 ## Production Boundary
 
 D2.2.1 completion accepts only the package and rehearsal evidence for
