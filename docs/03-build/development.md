@@ -87,6 +87,14 @@ file. The service now explicitly overrides the log path with
 `--log=/tmp/freshclam.log`, keeping the log in its existing bounded tmpfs
 without adding a writable root path or capability.
 
+The next clean-source rerun reached a healthy application container but found
+that Docker activated no host binding. Compose had configured
+`127.0.0.1:3100 -> 3000`; however, the app was attached only to the
+`internal: true` database and scanner networks, so the Docker host route had no
+gateway network. A dedicated app-only edge bridge now carries only the
+loopback-published HTTP path. Database and scanner networks remain internal,
+and PostgreSQL 5432 and clamd 3310 remain unpublished.
+
 Result:
 
 The corrected topology passes shell syntax, Compose rendering, Prisma
@@ -132,6 +140,8 @@ Verification:
 - `pnpm docker:d2:smoke`: pass
 - first clean-source production rehearsal: initializer jobs passed; FreshClam
   log-path mismatch found; exact disposable cleanup passed
+- second clean-source production rehearsal: FreshClam passed; missing active
+  loopback binding on internal-only app networks found; exact cleanup passed
 - corrected `bash ../ops/scripts/moldpilot-production-smoke.sh`: pending new
   clean checkpoint
 - `git diff --check`: pass before checkpoint

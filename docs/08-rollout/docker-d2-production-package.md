@@ -52,6 +52,9 @@ FreshClam + clamd ---> named signature volume
 - Native Caddy remains the LAN/TLS front door through D3.
 - MoldPilot is the only container with a host-published port, and it binds only
   to `127.0.0.1`.
+- A dedicated app-only edge bridge supplies the Docker gateway for that
+  loopback publication. The database and scanner networks remain
+  `internal: true`.
 - PostgreSQL and clamd publish no host ports.
 - PostgreSQL uses a separate MoldPilot database and non-superuser login.
 - Database, uploads, quarantine, signatures, and backup work use explicit named
@@ -124,6 +127,11 @@ that one export:
 The app and migrator tags include the full commit SHA. The parent backup-helper
 context remains under `ops/`; the parent `LJ_ERP` directory therefore needs its
 own approved version-control/release strategy before D3.
+
+An early clean-source run configured the loopback port but attached MoldPilot
+only to internal database/scanner networks. Docker retained the requested
+binding in `HostConfig` but activated no host route. The dedicated edge bridge
+corrects that topology without exposing or relaxing the private dependencies.
 
 ## Required Rehearsal
 

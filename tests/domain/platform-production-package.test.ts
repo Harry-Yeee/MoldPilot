@@ -58,6 +58,7 @@ describe("D2.2 production platform package", () => {
     assert.doesNotMatch(freshclam, /\n\s+ports:/);
     assert.match(clamav, /aliases:\s*\n\s+- clamav/);
     assert.match(app, /127\.0\.0\.1:\$\{MOLDPILOT_HOST_PORT[^}]*\}:3000/);
+    assert.match(app, /networks:\s*\n\s+- edge\s*\n\s+- database\s*\n\s+- scanner/);
     assert.match(app, /restart: unless-stopped/);
     assert.match(app, /init: true/);
     assert.match(app, /stop_grace_period:/);
@@ -150,6 +151,7 @@ describe("D2.2 production platform package", () => {
       "MOLDPILOT_UPLOADS_VOLUME",
       "MOLDPILOT_QUARANTINE_VOLUME",
       "MOLDPILOT_SIGNATURES_VOLUME",
+      "MOLDPILOT_EDGE_NETWORK",
       "MOLDPILOT_DATABASE_NETWORK",
       "MOLDPILOT_SCANNER_NETWORK"
     ]) {

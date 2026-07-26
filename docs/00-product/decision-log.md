@@ -826,6 +826,8 @@ Decision:
 - Keep native Caddy as the factory-LAN/TLS front door through D3.
 - Containerize MoldPilot, PostgreSQL 16, private clamd, and FreshClam while
   binding MoldPilot only to a configurable `127.0.0.1` host port.
+- Give MoldPilot an app-only edge bridge for that loopback route; keep database
+  and scanner traffic on separate internal networks.
 - Never publish PostgreSQL 5432 or clamd 3310.
 - Use a separate MoldPilot database and non-superuser login in the PostgreSQL
   cluster, plus explicitly named database, upload, quarantine, and signature
