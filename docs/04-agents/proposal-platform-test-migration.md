@@ -42,6 +42,32 @@ the other lane. The app team then cannot distinguish "my change broke something"
 from "ops/ is mid-edit", which is precisely when a release gate needs to be
 trustworthy.
 
+## Update, same day: the predicted failure happened in production
+
+The first Mac mini deployment hit exactly consequence 1. `server-first-deploy-macos.sh`
+ran the release gate against a platform checkout that predates `7ade001` (D3.1.1),
+and the app suite failed on `ENOENT` for
+`ops/scripts/native-capture-lifecycle.sh` and
+`ops/docker/backup/native-restore-core.sh`, with `native_capture_exit_handler:
+command not found` noise on top. The app checkout was clean and correct. The
+deployment was blocked by the *other* repository's version, reported as 22 broken
+app tests, after Homebrew installs and a ClamAV definition update had already run.
+
+That is the failure mode this proposal describes, priced: not "a red suite during
+platform work" but a blocked first production deploy and an operator with no way to
+tell, from the output, which repository was wrong.
+
+The app lane has since added `scripts/platform-required-files.txt` and
+`scripts/platform-preflight-check.sh` so both deploy scripts diagnose skew in one
+line before doing any work, and a root `before` hook so the test file fails once
+with the same message. That is a splint, not a fix: it makes the cross-repo
+dependency loud and cheap to diagnose, and it adds a second app-side artifact that
+now has to track `ops/` (the manifest — kept honest by
+`tests/domain/platform-required-files.test.ts`, which fails when the test and the
+manifest diverge). The app repo is now carrying *more* platform knowledge, not
+less. Moving the test deletes the manifest, the preflight, and the whole class of
+failure with it.
+
 ## Why the platform repo is the right home
 
 The assertions are about platform artifacts: `ops/compose.production.yml`,

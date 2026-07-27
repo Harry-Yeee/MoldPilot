@@ -57,6 +57,12 @@ Examples:
       --age-identity "$HOME/.config/age/moldpilot-transfer.key" \
       --install-prerequisites --activate-https
 
+Before any other work this preflights the parent LJ_ERP platform checkout: the
+release test gate reads files from it, so a platform checkout that is behind this
+app release is reported by name here instead of as ENOENT inside the gate. On
+skew, git pull the parent repository and re-run. PLATFORM_PREFLIGHT_ONLY=1 runs
+only that check.
+
 The script never installs Homebrew, resets an existing database, changes router
 settings, or installs the internal CA on client devices. --activate-https uses
 sudo to install and restart the reviewed Caddy configuration.
@@ -108,6 +114,21 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+# Platform preflight runs before every other gate, including the host checks.
+# This release reads files from the parent LJ_ERP platform checkout, and a
+# platform checkout that is behind the app checkout otherwise fails much later,
+# deep inside the release test gate, as unreadable ENOENT and regex noise.
+PLATFORM_PREFLIGHT="$PROJECT_ROOT/scripts/platform-preflight-check.sh"
+[ -f "$PLATFORM_PREFLIGHT" ] ||
+  fail "Platform preflight is missing: $PLATFORM_PREFLIGHT"
+note "Verifying the LJ_ERP platform checkout"
+bash "$PLATFORM_PREFLIGHT" "$PROJECT_ROOT" "MoldPilot first deploy"
+
+if [ "${MOLDPILOT_PLATFORM_PREFLIGHT_ONLY:-${PLATFORM_PREFLIGHT_ONLY:-0}}" = "1" ]; then
+  note "PLATFORM_PREFLIGHT_ONLY=1 is set. Stopping before any deployment work."
+  exit 0
+fi
 
 [ "$(uname -s)" = "Darwin" ] || fail "This deployment supports macOS only."
 [ "$EUID" -ne 0 ] || fail "Run as the dedicated server user, not with sudo."

@@ -1,0 +1,40 @@
+# Files in the LJ_ERP platform checkout that this MoldPilot release reads.
+#
+# Generated from the read() and readPlatform() targets in
+# tests/domain/platform-production-package.test.ts. Every path is relative to the
+# platform root, which both the deploy preflight and that test resolve as the
+# parent directory of this app checkout. Blank lines and # comments are ignored.
+#
+# This app release pins platform >= D3.1.1 (7ade001). When an entry below is
+# missing, the platform checkout is behind the app checkout: run
+# `git -C <platform-root> pull` and deploy again.
+#
+# Keep this file in step with the test: tests/domain/platform-required-files.test.ts
+# fails when a read() target is not listed here, or an entry is listed but unread.
+
+ops/caddy/Caddyfile.moldpilot.template
+ops/compose.production.yml
+ops/config/production.env.example
+ops/docker/backup/Dockerfile
+ops/docker/backup/backup-helper.sh
+ops/docker/backup/native-capture-core.sh
+ops/docker/backup/native-inventory.sh
+ops/docker/backup/native-restore-core.sh
+ops/docker/postgres/init-moldpilot.sh
+ops/scripts/app-control.sh
+ops/scripts/lib.sh
+ops/scripts/moldpilot-backup.sh
+ops/scripts/moldpilot-d3-native-restore-smoke.sh
+ops/scripts/moldpilot-deploy.sh
+ops/scripts/moldpilot-native-capture.sh
+ops/scripts/moldpilot-native-inventory.sh
+ops/scripts/moldpilot-native-restore-rehearsal.sh
+ops/scripts/moldpilot-production-smoke.sh
+ops/scripts/moldpilot-release-lifecycle-smoke.sh
+ops/scripts/moldpilot-restore-scratch.sh
+ops/scripts/native-capture-lifecycle.sh
+ops/scripts/platform-distribution-smoke.sh
+ops/scripts/platform-preflight.sh
+
+# Read from the platform root itself rather than from ops/.
+.gitignore

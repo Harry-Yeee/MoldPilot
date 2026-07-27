@@ -16,8 +16,12 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import {
+  missingPlatformRequiredFiles,
+  platformSkewMessage
+} from "../fixtures/platform-required-files.ts";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(testDirectory, "../..");
@@ -275,6 +279,20 @@ function serviceBlock(
   assert.notEqual(end, -1, `${nextService} service boundary is missing`);
   return composeSource.slice(start, end);
 }
+
+// Every assertion below reads the sibling LJ_ERP platform checkout. When that
+// checkout is behind this app release, each one dies on its own ENOENT and the
+// run reports a wall of unrelated-looking failures. This hook makes the file
+// fail once, on the real cause, before any assertion runs. It replaces noise
+// only: nothing below is skipped when the checkout is complete.
+before(() => {
+  const missing = missingPlatformRequiredFiles(platformRoot);
+  if (missing.length > 0) {
+    throw new Error(
+      `${platformSkewMessage(missing, platformRoot)}\nMissing: ${missing.join(", ")}`
+    );
+  }
+});
 
 describe("D2.2 production platform package", () => {
   it("keeps only MoldPilot loopback-published and keeps database and scanner private", () => {

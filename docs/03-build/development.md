@@ -39,6 +39,117 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-27: First Mac Mini Deploy Blocked By Platform Skew — Preflight Added
+
+Context:
+
+The first real Mac mini deployment ran
+
+```bash
+bash scripts/server-first-deploy-macos.sh \
+  --base-url https://192.168.0.11 --trusted-cidr 192.168.0.0/24 \
+  --install-prerequisites --activate-https
+```
+
+and died deep inside the release test gate. `platform-production-package.test.ts`
+reported `ENOENT` on `/Users/server/LJ_ERP/ops/scripts/native-capture-lifecycle.sh`
+and `/Users/server/LJ_ERP/ops/docker/backup/native-restore-core.sh`, plus regex
+noise such as `native_capture_exit_handler: command not found`. Homebrew
+prerequisites and ClamAV definitions had already been installed by then, and none
+of the output named a repository, a cause, or a fix.
+
+The root cause is cross-repo version skew, verified: the mini's **LJ_ERP platform**
+checkout predates platform commit `7ade001` (D3.1.1), which added both files. The
+app checkout was current and its tests pin those files. The app was not broken.
+The deploy script simply had no opinion about the platform checkout — it ran the
+app gate and let the gate discover a missing sibling repository as file-not-found,
+22 tests deep, after minutes of setup work.
+
+Tried:
+
+Added `scripts/platform-required-files.txt`: one platform-root-relative path per
+line, generated from every `read()` and `readPlatform()` target in
+`platform-production-package.test.ts` (24 entries — 23 under `ops/`, plus the
+platform `.gitignore`). Plain text so bash and TypeScript can both consume it
+without either parsing the other.
+
+Added `scripts/platform-preflight-check.sh`, shared by
+`server-first-deploy-macos.sh` and `server-deploy-macos.sh`. Both call it as the
+first gate after option parsing, before the host checks, Homebrew, the lock, the
+service, the build, and the tests. It resolves the platform root exactly as the
+test does — `path.resolve(appRoot, "..")`, with no environment override in either
+place, because an override would let a deploy bless a checkout the gate never
+looks at — then verifies the parent is a git checkout, that `ops/` exists, and
+that every manifest entry is present. On skew it exits nonzero with the file
+count, the first missing path, and the literal fix. `PLATFORM_PREFLIGHT_ONLY=1`
+runs only that step.
+
+The test file keeps every assertion it had. It gained one root `before` hook that
+checks the same manifest and throws the same message. Node runs that hook once, so
+one failure replaces the cascade. Added `platform-required-files.test.ts` to keep
+the manifest honest: it greps the package test's read targets and fails if any is
+unlisted or any entry is unread, checks entries are relative and unique, asserts
+both deploy scripts still preflight before their first real work, and asserts every
+entry resolves in the dev platform checkout — that last one skips, loudly, where
+the parent directory has no `ops/`, because a sibling layout says nothing about
+whether the manifest is stale.
+
+Result:
+
+Skew now fails in about a second, before Homebrew touches anything:
+
+```text
+[MoldPilot first deploy ERROR] Platform checkout at /Users/server/LJ_ERP is
+missing 2 file(s) required by this app release (first:
+ops/docker/backup/native-restore-core.sh). It is likely behind. Fix:
+git -C "/Users/server/LJ_ERP" pull, then re-run. App release pins platform
+>= D3.1.1 (7ade001).
+```
+
+In a sibling layout the test file reports `pass 0, fail 0, cancelled 22` with that
+one message instead of 22 `ENOENT` and regex failures. In the real nested layout it
+is 22/22 green, unchanged.
+
+Why:
+
+The app release gate reads a repository the app cannot version, pin, or bisect.
+That is a known and documented weakness
+(`docs/04-agents/proposal-platform-test-migration.md`), and today it produced the
+exact failure that proposal predicted. Until the test moves, the deployment path
+must state the cross-repo dependency out loud and check it first — a release gate
+that fails on a precondition it never announced costs more than it protects.
+
+Decision:
+
+The manifest is the contract between the two repositories, and it is generated
+from the test rather than maintained by hand — `platform-required-files.test.ts`
+fails the moment they diverge. Never add an environment override for the platform
+root in the preflight; the deploy must verify the same directory the gate reads.
+When the platform test migrates to LJ_ERP, the manifest and the preflight go with
+it or retire with it.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- full suite in the real nested layout (`LJ_ERP/MoldPilot`): 795 tests, 795 pass,
+  0 fail, including 22/22 in `platform-production-package.test.ts` and 4/4 in the
+  new `platform-required-files.test.ts`
+- full suite in a sibling layout: 772 pass, 0 fail, 22 cancelled by the guard, 1
+  skipped (the manifest-freshness test, with its reason printed); every other file
+  unchanged and green
+- `scripts/platform-preflight-check.sh` exercised against a temporary fake platform
+  checkout whose path contains a space: complete manifest → exit 0 from both deploy
+  scripts; the two D3.1.1 files removed → exit 1 with the message above from both;
+  `ops/` removed and `.git` removed → their own distinct messages
+- `bash -n` clean on all three scripts; no dependency, schema, `ops/**`, or
+  `backup.sh` change
+
+Related Docs:
+
+- `docs/04-agents/proposal-platform-test-migration.md`
+- `docs/08-rollout/deployment-checklist.md` (item 8)
+- `scripts/platform-required-files.txt`
+
 ### 2026-07-27: One-Command Native Mac Mini First Deployment
 
 Context:
