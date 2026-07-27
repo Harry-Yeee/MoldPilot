@@ -20,6 +20,7 @@
     "e2e:smoke": "node scripts/e2e-smoke.mjs",
     "offline:cache": "bash scripts/create-offline-cache.sh",
     "offline:install": "bash scripts/install-offline-deps.sh",
+    "server:first-deploy": "bash scripts/server-first-deploy-macos.sh",
     "server:bootstrap": "bash scripts/server-bootstrap-macos.sh",
     "server:deploy": "bash scripts/server-deploy-macos.sh",
     "docker:d1:smoke": "bash scripts/docker-d1-smoke.sh",

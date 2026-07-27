@@ -39,6 +39,67 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-27: One-Command Native Mac Mini First Deployment
+
+Context:
+
+The reserved Mac mini address changed from `192.168.0.178` to
+`192.168.0.11` before launch. The application already treated the origin as
+environment configuration, but the accepted clean-database transfer still
+required a manual two-pass bootstrap and restore.
+
+Tried:
+
+Added `scripts/server-first-deploy-macos.sh` as the operator entry point and
+extended `scripts/server-bootstrap-macos.sh` with protected inputs for base
+URL, trusted CIDR, encrypted bootstrap archive, age identity, expected
+plaintext SHA-256, and production-bootstrap verification. Added
+`scripts/update-production-origin.mjs` to atomically replace only
+origin-related `.env` keys when a protected environment already exists.
+
+Result:
+
+The wrapper can install missing Caddy/ClamAV/age Homebrew packages after
+explicit opt-in, refresh ClamAV definitions, restore the accepted dump only
+into an empty public schema, run migrations and the exact production verifier,
+build, install/restart the launch agent, and optionally activate Caddy.
+Rerunning without restore arguments updates an existing server origin and
+preserves its database.
+
+The first full typecheck attempt found duplicate ignored Next-generated files
+such as `.next/types/routes.d 2.ts`. Removing only the disposable `.next`
+output and regenerating it resolved the conflict; no application source change
+was required.
+
+Why:
+
+Server addressing is deployment state and should never require changing
+development code. Hash verification, empty-schema enforcement, and
+`--existing-data` prevent convenience from becoming an accidental database
+overwrite or second seed.
+
+Decision:
+
+Use `server:first-deploy` for first native deployment or explicit origin
+repair. Keep `server:deploy` for ordinary later releases. Homebrew itself,
+router reservation, client CA trust, Admin password replacement, and accepted
+off-machine backup/restore remain operator gates.
+
+Verification:
+
+- macOS system Bash 3.2 syntax: passed
+- Origin-update and deployment contract tests: 20/20 passed
+- Full domain suite: 791/791 passed
+- Prisma validate, ESLint, typecheck, and production build: passed
+- `shellcheck`: not available on the development Mac
+- Live Mac mini execution: pending operator deployment
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+- `docs/08-rollout/security-hardening-runbook.md`
+
 ### 2026-07-27: Retired `bill` Fallback Removed — Planning PM Is Resolved By Role
 
 Context:

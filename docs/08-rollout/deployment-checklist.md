@@ -61,12 +61,14 @@ a launch week.
 
 ## Production run mode (the server is not `pnpm dev`)
 
-8. **Build + start.** Use `scripts/server-bootstrap-macos.sh --production` for
-   the first Mac mini installation and `scripts/server-deploy-macos.sh` for
-   updates. They validate deployment mode, base URL, and cookie security before
-   stopping/restarting the service. HTTPS runs Next on `127.0.0.1:3000` behind
-   approved Caddy; temporary HTTP binds the exact configured LAN address.
-   Never use `pnpm dev` for workshop users.
+8. **Build + start.** Prefer `scripts/server-first-deploy-macos.sh` for the
+   first Mac mini installation; it delegates to the lower-level guarded
+   bootstrap and accepts the origin/CIDR plus an optional hash-verified
+   encrypted clean-database restore. Use `scripts/server-deploy-macos.sh` for
+   later releases. They validate deployment mode, base URL, and cookie security
+   before stopping/restarting the service. HTTPS runs Next on
+   `127.0.0.1:3000` behind approved Caddy; temporary HTTP binds the exact
+   configured LAN address. Never use `pnpm dev` for workshop users.
 9. **Migrations in prod:** use `pnpm exec prisma migrate deploy` (never `migrate dev` / `reset` on
    the production DB). The step-0 history repair in `migrate-and-verify.py` applies to dev only.
 10. **Storage paths.** Set absolute, separate

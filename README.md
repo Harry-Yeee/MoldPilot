@@ -302,15 +302,26 @@ launchd application service. Preferred HTTPS keeps Next.js on
 binds only to the stable address in `MOLDPILOT_BASE_URL`, warns that credentials
 are unencrypted, and must never be internet-exposed.
 
-The bootstrap intentionally does not install Homebrew through `curl | bash` and
-does not activate privileged proxy, certificate, firewall, backup-scheduler, or
-legacy-workbook operations. Complete the reviewed prerequisites and
-approval-gated steps in `docs/08-rollout/mac-mini-intranet-server.md`, then run:
+The bootstrap intentionally does not install Homebrew through `curl | bash`.
+After installing a reviewed official Homebrew package, the direct deployment
+wrapper can install missing application packages, configure the protected
+origin, restore the verified initial database, build, start the launch agent,
+and optionally activate Caddy:
 
 ```bash
 cd ~/LJ_ERP/MoldPilot
-bash scripts/server-bootstrap-macos.sh --production
+bash scripts/server-first-deploy-macos.sh \
+  --base-url https://192.168.0.11 \
+  --trusted-cidr 192.168.0.0/24 \
+  --install-prerequisites \
+  --activate-https
 ```
+
+Add the documented restore archive, SHA-256, and age-identity arguments when
+transferring the accepted clean production database. Router configuration,
+client certificate trust, firewall, backup scheduling, and legacy-workbook
+operations remain explicit approval-gated steps. See
+`docs/08-rollout/mac-mini-intranet-server.md`.
 
 Deploy later releases with:
 

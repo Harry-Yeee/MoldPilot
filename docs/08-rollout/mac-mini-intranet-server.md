@@ -81,6 +81,9 @@ A stable address is required because phones and desktops bookmark the exact
 `MOLDPILOT_BASE_URL`: temporarily `http://SERVER-IP:3000`, and preferably
 `https://SERVER-IP` after the managed certificate rollout.
 
+The current pilot reservation is `192.168.0.11`. This is deployment
+configuration, not a source-code constant. Development remains on localhost.
+
 Prefer a router-side DHCP reservation over entering a manual IP on macOS:
 
 1. On the Mac mini, run `networksetup -listallhardwareports`.
@@ -143,6 +146,51 @@ does not expose the server; the separately approved activation step does.
 After the deployment scripts have been committed and pushed from the
 development Mac:
 
+### Preferred Direct Command
+
+For the accepted encrypted clean-database transfer, put the `.age` archive and
+its server transfer identity outside Git, then run directly on the Mac mini:
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+git pull --ff-only origin main
+bash scripts/server-first-deploy-macos.sh \
+  --base-url https://192.168.0.11 \
+  --trusted-cidr 192.168.0.0/24 \
+  --restore-archive "$HOME/incoming/moldpilot-clean-factory-bootstrap.dump.age" \
+  --restore-sha256 01fa05f245b44a2826b4212c24833523910494462654dd0b4861434e89ad79f2 \
+  --age-identity "$HOME/.config/age/moldpilot-transfer.key" \
+  --install-prerequisites \
+  --activate-https
+```
+
+This command installs only missing reviewed Homebrew application packages; it
+does not install Homebrew itself. It updates ClamAV definitions, creates or
+updates the protected deployment origin, verifies and decrypts the dump in
+temporary private storage, refuses a non-empty target schema, restores before
+migrations, verifies the clean dataset, builds and starts MoldPilot, and may
+activate the rendered Caddy configuration.
+
+If the server was already bootstrapped at the old address, omit all restore
+arguments and rerun:
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+bash scripts/server-first-deploy-macos.sh \
+  --base-url https://192.168.0.11 \
+  --trusted-cidr 192.168.0.0/24 \
+  --install-prerequisites \
+  --activate-https
+```
+
+That path atomically updates only origin/security-network entries in `.env`,
+keeps the database, rebuilds/restarts the app, and installs the newly rendered
+Caddy route. It never seeds an existing user database.
+
+### Lower-Level Bootstrap
+
+The lower-level interactive command remains available:
+
 ```bash
 cd ~/LJ_ERP/MoldPilot
 git pull --ff-only origin main
@@ -190,10 +238,15 @@ bash scripts/server-bootstrap-macos.sh --existing-data
 
 The accepted 2026-07-27 rollout path is to build and verify the clean database
 locally, transfer its PostgreSQL custom-format dump inside the approved
-encrypted archive, restore it under the Mac mini's MoldPilot database, and use
-`--existing-data`. Do not run a second production seed after that restore. This
-preserves account IDs, client ownership, KPI groups/leaders, and password
+encrypted archive, and let the direct first-deploy command restore it under
+`--existing-data`. Do not run a second production seed after that restore.
+This preserves account IDs, client ownership, KPI groups/leaders, and password
 lifecycle state exactly as tested locally.
+
+Changing the IP does not require a migration, reseed, or development `.env`
+change. Staff bookmarks/PWA shortcuts must use the new origin. If the same
+Caddy data directory remains in place, its internal root CA is unchanged;
+managed clients that already trust that root normally need only the new URL.
 
 ### Existing Temporary HTTP Pilot
 

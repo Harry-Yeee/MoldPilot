@@ -45,6 +45,12 @@ brew install caddy clamav age pipx
 pipx install oletools
 ```
 
+For the first deployment, passing `--install-prerequisites` to
+`scripts/server-first-deploy-macos.sh` performs the `caddy`, `clamav`, and
+`age` Homebrew installation after the operator has approved that flag.
+Homebrew itself and the separately used `oletools` review remain outside the
+deployment script.
+
 Impact: downloads and installs local executables. Nothing is LAN-facing until
 Caddy is started. Rollback, only after confirming no other application depends
 on these packages:

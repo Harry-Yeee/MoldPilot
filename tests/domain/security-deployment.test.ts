@@ -36,9 +36,13 @@ describe("production network containment", () => {
 
   it("does not pipe a mutable remote Homebrew installer into a shell", () => {
     const bootstrap = source("scripts/server-bootstrap-macos.sh");
-    assert.doesNotMatch(bootstrap, /curl[\s\S]{0,120}\|\s*(?:bash|sh)/);
-    assert.doesNotMatch(bootstrap, /\/bin\/bash -c "\$\(curl/);
+    const firstDeploy = source("scripts/server-first-deploy-macos.sh");
+    for (const script of [bootstrap, firstDeploy]) {
+      assert.doesNotMatch(script, /curl[\s\S]{0,120}\|\s*(?:bash|sh)/);
+      assert.doesNotMatch(script, /\/bin\/bash -c "\$\(curl/);
+    }
     assert.match(bootstrap, /Homebrew is required but was not found/);
+    assert.match(firstDeploy, /Install a reviewed official Homebrew \.pkg/);
   });
 
   it("requires a healthy local scanner before the production process starts", () => {

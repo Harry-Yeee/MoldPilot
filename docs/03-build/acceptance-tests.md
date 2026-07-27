@@ -1661,6 +1661,14 @@ Expected:
   retaining HttpOnly, SameSite=Lax, path, and expiration controls.
 - The local pilot launcher exits before migration or seed in production mode
   and directs the operator to `scripts/server-deploy-macos.sh`.
+- `server:first-deploy` accepts an explicit base URL and trusted CIDR without
+  hard-coding the Mac mini address in application code.
+- An encrypted first-deploy restore verifies the expected plaintext dump
+  SHA-256, rejects a non-empty public schema, restores before `migrate deploy`,
+  runs with `--existing-data`, and does not seed.
+- Rerunning first deploy without restore arguments may atomically update an
+  existing production origin while preserving database credentials, secrets,
+  users, projects, and password lifecycle state.
 - The backup is versioned, encrypted, off-machine, non-overwriting, and the
   manifest-verified scratch restore succeeds.
 - No secrets, business uploads, dumps, certificates, scanner output, or the

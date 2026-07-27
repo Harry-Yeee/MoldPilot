@@ -21,6 +21,37 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-27: Server Address Is Deployment Configuration And First Deploy Is One Command
+
+The Mac mini's reserved factory address changed from `192.168.0.178` to
+`192.168.0.11` before production rollout. Development must not inherit or
+hard-code either address.
+
+Decision:
+
+- Development continues to use localhost and its own `.env`.
+- The staff-facing server origin belongs only in the protected Mac mini `.env`
+  as `MOLDPILOT_BASE_URL`; the factory subnet belongs in
+  `MOLDPILOT_TRUSTED_CIDR`.
+- Keep the address stable with a router DHCP reservation. A future local DNS
+  name may replace the IP without changing application code.
+- Use `scripts/server-first-deploy-macos.sh` as the operator-facing first
+  deployment command. It accepts the base URL and CIDR, optionally installs
+  reviewed Homebrew application packages, verifies/decrypts the accepted
+  PostgreSQL bootstrap dump, restores only into an empty schema, migrates,
+  verifies, builds, installs the launch agent, and may activate Caddy.
+- A restore dump must match an explicit SHA-256. The restore path implies
+  `--existing-data` and never runs a second production seed.
+- Homebrew installation, router configuration, client CA trust, Admin password
+  replacement, and off-machine backup acceptance remain operator duties.
+
+Reason:
+
+An IP change is infrastructure state, not a product-code change. Parameterizing
+it keeps development portable and makes the same release usable on a
+replacement server. A guarded command also removes the error-prone two-pass
+bootstrap/restore sequence without hiding machine-owner approval steps.
+
 ### 2026-07-25: Docker D1 Is A Parallel Runtime Foundation, Not A Production Cutover
 
 MoldPilot needs a repeatable container runtime before the wider LJ_ERP platform

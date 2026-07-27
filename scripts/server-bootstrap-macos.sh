@@ -12,6 +12,20 @@ SERVICE_LABEL="com.moldpilot.app"
 PLIST_PATH="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/MoldPilot"
 SEED_MODE="production"
+BOOTSTRAP_BASE_URL="${MOLDPILOT_BOOTSTRAP_BASE_URL:-}"
+BOOTSTRAP_TRUSTED_CIDR="${MOLDPILOT_BOOTSTRAP_TRUSTED_CIDR:-}"
+RESTORE_ARCHIVE="${MOLDPILOT_BOOTSTRAP_RESTORE_ARCHIVE:-}"
+RESTORE_IDENTITY="${MOLDPILOT_BOOTSTRAP_RESTORE_IDENTITY:-}"
+RESTORE_SHA256="${MOLDPILOT_BOOTSTRAP_RESTORE_SHA256:-}"
+VERIFY_PRODUCTION_BOOTSTRAP="${MOLDPILOT_BOOTSTRAP_VERIFY_PRODUCTION:-0}"
+RESTORE_TEMP=""
+
+cleanup() {
+  if [ -n "$RESTORE_TEMP" ] && [ -f "$RESTORE_TEMP" ]; then
+    rm -f "$RESTORE_TEMP"
+  fi
+}
+trap cleanup EXIT
 
 note() {
   printf '\n[MoldPilot] %s\n' "$*"
@@ -145,15 +159,30 @@ if [ ! -f .env ]; then
     DETECTED_IP="$(ipconfig getifaddr "$DEFAULT_INTERFACE" 2>/dev/null || true)"
   fi
 
-  printf 'Stable LAN IP for this Mac mini [%s]: ' "${DETECTED_IP:-required}"
-  read -r SERVER_IP
-  SERVER_IP="${SERVER_IP:-$DETECTED_IP}"
-  [ -n "$SERVER_IP" ] || fail "A LAN IP is required. Configure Ethernet, then retry."
-  [[ "$SERVER_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] ||
-    fail "Enter the Mac mini's IPv4 address, for example 192.168.1.50."
-  printf 'Trusted factory subnet in CIDR form [192.168.1.0/24]: '
-  read -r TRUSTED_CIDR
-  TRUSTED_CIDR="${TRUSTED_CIDR:-192.168.1.0/24}"
+  if [ -n "$BOOTSTRAP_BASE_URL" ]; then
+    BASE_URL="$BOOTSTRAP_BASE_URL"
+  else
+    printf 'Stable LAN IP for this Mac mini [%s]: ' "${DETECTED_IP:-required}"
+    read -r SERVER_IP
+    SERVER_IP="${SERVER_IP:-$DETECTED_IP}"
+    [ -n "$SERVER_IP" ] || fail "A LAN IP is required. Configure Ethernet, then retry."
+    [[ "$SERVER_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] ||
+      fail "Enter the Mac mini's IPv4 address, for example 192.168.1.50."
+    BASE_URL="https://$SERVER_IP"
+  fi
+  case "$BASE_URL" in
+    https://*|http://*) ;;
+    *) fail "The bootstrap base URL must begin with https:// or http://." ;;
+  esac
+  [[ "$BASE_URL" != */ ]] || fail "The bootstrap base URL must not end with a slash."
+
+  if [ -n "$BOOTSTRAP_TRUSTED_CIDR" ]; then
+    TRUSTED_CIDR="$BOOTSTRAP_TRUSTED_CIDR"
+  else
+    printf 'Trusted factory subnet in CIDR form [192.168.1.0/24]: '
+    read -r TRUSTED_CIDR
+    TRUSTED_CIDR="${TRUSTED_CIDR:-192.168.1.0/24}"
+  fi
   [[ "$TRUSTED_CIDR" =~ ^[0-9.]+/[0-9]{1,2}$ ]] ||
     fail "Enter a trusted IPv4 CIDR, for example 192.168.1.0/24."
 
@@ -180,7 +209,7 @@ MOLDPILOT_SESSION_SECRET="$SESSION_SECRET"
 MOLDPILOT_STORAGE_DIR="$STORAGE_DIR"
 MOLDPILOT_QUARANTINE_DIR="$QUARANTINE_DIR"
 MOLDPILOT_SCANNER_COMMAND="$BREW_PREFIX/bin/clamscan"
-MOLDPILOT_BASE_URL="https://$SERVER_IP"
+MOLDPILOT_BASE_URL="$BASE_URL"
 MOLDPILOT_SESSION_COOKIE_SECURE="auto"
 MOLDPILOT_TRUST_PROXY="1"
 MOLDPILOT_TRUSTED_CIDR="$TRUSTED_CIDR"
@@ -189,6 +218,14 @@ EOF
 else
   note "Using the existing protected .env"
   chmod 600 .env
+  if [ -n "$BOOTSTRAP_BASE_URL" ] || [ -n "$BOOTSTRAP_TRUSTED_CIDR" ]; then
+    [ -n "$BOOTSTRAP_BASE_URL" ] && [ -n "$BOOTSTRAP_TRUSTED_CIDR" ] ||
+      fail "Updating an existing origin requires both base URL and trusted CIDR."
+    "$NODE_BIN/node" "$PROJECT_ROOT/scripts/update-production-origin.mjs" \
+      --env "$PROJECT_ROOT/.env" \
+      --base-url "$BOOTSTRAP_BASE_URL" \
+      --trusted-cidr "$BOOTSTRAP_TRUSTED_CIDR"
+  fi
 fi
 
 set -a
@@ -237,6 +274,54 @@ DB_CONNECT_URL="${DATABASE_URL%%\?*}"
 "$PG_BIN/psql" "$DB_CONNECT_URL" -Atc "SELECT 1;" >/dev/null ||
   fail "The application DATABASE_URL cannot connect to PostgreSQL."
 
+if [ -n "$RESTORE_ARCHIVE" ]; then
+  [ "$SEED_MODE" = "existing" ] ||
+    fail "A bootstrap restore requires --existing-data."
+  [ -f "$RESTORE_ARCHIVE" ] || fail "Restore archive not found: $RESTORE_ARCHIVE"
+  [[ "$RESTORE_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
+    fail "A lowercase 64-character restore SHA-256 is required."
+
+  RESTORE_FILE="$RESTORE_ARCHIVE"
+  if [[ "$RESTORE_ARCHIVE" == *.age ]]; then
+    [ -n "$RESTORE_IDENTITY" ] ||
+      fail "An age identity is required for an encrypted restore archive."
+    [ -f "$RESTORE_IDENTITY" ] || fail "Age identity not found: $RESTORE_IDENTITY"
+    command -v age >/dev/null 2>&1 || fail "age is required to decrypt the restore archive."
+    RESTORE_TEMP="$(mktemp "${TMPDIR:-/tmp}/moldpilot-bootstrap.XXXXXX")"
+    note "Decrypting the accepted production bootstrap dump"
+    age --decrypt \
+      --identity "$RESTORE_IDENTITY" \
+      --output "$RESTORE_TEMP" \
+      "$RESTORE_ARCHIVE"
+    RESTORE_FILE="$RESTORE_TEMP"
+  elif [ -n "$RESTORE_IDENTITY" ]; then
+    fail "An age identity may only be used with a .age restore archive."
+  fi
+
+  ACTUAL_RESTORE_SHA256="$(
+    shasum -a 256 "$RESTORE_FILE" | awk '{print $1}'
+  )"
+  [ "$ACTUAL_RESTORE_SHA256" = "$RESTORE_SHA256" ] ||
+    fail "Restore dump SHA-256 mismatch. Expected $RESTORE_SHA256, received $ACTUAL_RESTORE_SHA256."
+  "$PG_BIN/pg_restore" --list "$RESTORE_FILE" >/dev/null ||
+    fail "Restore input is not a readable PostgreSQL custom-format dump."
+
+  PUBLIC_TABLE_COUNT="$(
+    "$PG_BIN/psql" "$DB_CONNECT_URL" -Atc \
+      "SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='public';"
+  )"
+  [ "$PUBLIC_TABLE_COUNT" = "0" ] ||
+    fail "Bootstrap restore requires an empty public schema; found $PUBLIC_TABLE_COUNT table(s)."
+
+  note "Restoring the verified production bootstrap database"
+  "$PG_BIN/pg_restore" \
+    --exit-on-error \
+    --no-owner \
+    --no-privileges \
+    --dbname="$DB_CONNECT_URL" \
+    "$RESTORE_FILE"
+fi
+
 note "Installing locked application dependencies"
 pnpm install --frozen-lockfile
 
@@ -264,6 +349,9 @@ case "$SEED_MODE" in
   existing)
     [ "$USER_COUNT" -gt 0 ] || fail "--existing-data was selected, but no users exist after migration."
     note "Restored/existing operational data retained; no seed command was run"
+    if [ "$VERIFY_PRODUCTION_BOOTSTRAP" = "1" ]; then
+      pnpm prisma:verify-production
+    fi
     ;;
 esac
 

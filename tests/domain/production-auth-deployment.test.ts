@@ -33,7 +33,7 @@ describe("production session-cookie configuration", () => {
     assert.equal(
       shouldUseSecureSessionCookie({
         NODE_ENV: "production",
-        MOLDPILOT_BASE_URL: "http://192.168.0.178:3000",
+        MOLDPILOT_BASE_URL: "http://192.0.2.10:3000",
         MOLDPILOT_SESSION_COOKIE_SECURE: "auto"
       }),
       false
@@ -174,6 +174,78 @@ describe("production-safe launch and seed behavior", () => {
         deploy.indexOf("Stopping the running application")
     );
     assert.match(runner, /check-production-config\.mjs/);
+  });
+
+  it("provides one guarded Mac mini first-deployment command", () => {
+    const firstDeploy = source("scripts/server-first-deploy-macos.sh");
+    const bootstrap = source("scripts/server-bootstrap-macos.sh");
+    const originUpdater = source("scripts/update-production-origin.mjs");
+
+    assert.match(firstDeploy, /--base-url/);
+    assert.match(firstDeploy, /--trusted-cidr/);
+    assert.match(firstDeploy, /--restore-archive/);
+    assert.match(firstDeploy, /--restore-sha256/);
+    assert.match(firstDeploy, /--install-prerequisites/);
+    assert.match(firstDeploy, /server-bootstrap-macos\.sh/);
+    assert.doesNotMatch(firstDeploy, /curl[\s\S]{0,120}\|\s*(?:bash|sh)/);
+
+    assert.match(bootstrap, /MOLDPILOT_BOOTSTRAP_BASE_URL/);
+    assert.match(bootstrap, /MOLDPILOT_BOOTSTRAP_RESTORE_ARCHIVE/);
+    assert.match(bootstrap, /Bootstrap restore requires an empty public schema/);
+    assert.match(bootstrap, /Restore dump SHA-256 mismatch/);
+    assert.ok(
+      bootstrap.indexOf("Restoring the verified production bootstrap database") <
+        bootstrap.indexOf("Applying production migrations")
+    );
+    assert.match(originUpdater, /renameSync\(temporaryPath, envPath\)/);
+    assert.doesNotMatch(originUpdater, /DATABASE_URL.*=/);
+  });
+
+  it("atomically updates only deployment-origin settings in an existing environment", () => {
+    const temporaryProject = mkdtempSync(path.join(tmpdir(), "moldpilot-origin-update-"));
+    try {
+      const envPath = path.join(temporaryProject, ".env");
+      const databaseUrl = "postgresql://moldpilot:keep-this-secret@127.0.0.1:5432/moldpilot";
+      writeFileSync(
+        envPath,
+        [
+          `DATABASE_URL="${databaseUrl}"`,
+          'MOLDPILOT_SESSION_SECRET="keep-this-session-secret"',
+          'MOLDPILOT_BASE_URL="https://192.168.0.178"',
+          'MOLDPILOT_SESSION_COOKIE_SECURE="auto"',
+          'MOLDPILOT_TRUST_PROXY="1"',
+          'MOLDPILOT_TRUSTED_CIDR="192.168.0.0/24"',
+          ""
+        ].join("\n"),
+        { encoding: "utf8", mode: 0o600 }
+      );
+
+      const updater = fileURLToPath(
+        new URL("../../scripts/update-production-origin.mjs", import.meta.url)
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          updater,
+          "--env",
+          envPath,
+          "--base-url",
+          "https://192.168.0.11",
+          "--trusted-cidr",
+          "192.168.0.0/24"
+        ],
+        { encoding: "utf8" }
+      );
+      const updated = readFileSync(envPath, "utf8");
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(updated, new RegExp(databaseUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.match(updated, /MOLDPILOT_SESSION_SECRET="keep-this-session-secret"/);
+      assert.match(updated, /MOLDPILOT_BASE_URL="https:\/\/192\.168\.0\.11"/);
+      assert.doesNotMatch(updated, /192\.168\.0\.178/);
+    } finally {
+      rmSync(temporaryProject, { force: true, recursive: true });
+    }
   });
 
   it("preserves all existing credential lifecycle fields during seed-managed profile updates", () => {
