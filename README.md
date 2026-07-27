@@ -36,12 +36,22 @@ python3 scripts/migrate-and-verify.py         # migrate + seed + typecheck + tes
   device that performs the change gets a fresh cookie and stays signed in; an
   admin reset logs the target out everywhere without touching the admin's session.
 - **The monthly KPI snapshot is tamper-evident.** Each run writes a JSON archive
-  (`storage/kpi-snapshots/`, or `MOLDPILOT_KPI_SNAPSHOT_DIR`) and prints an
-  `Integrity code / 校验码` — the first 12 hex characters of the SHA-256 over the
-  snapshot data. Read it aloud at the prize meeting, write it on the page the CEO
-  and both referees sign, and recheck later with `--verify`. Keep the JSON file
-  with the signed page; the rows behind it also travel in the nightly encrypted
-  database dump. It evidences tampering; it does not prevent database edits.
+  and prints an `Integrity code / 校验码` — the first 12 hex characters of the
+  SHA-256 over the snapshot data. Read it aloud at the prize meeting, write it on
+  the page the CEO and both referees sign, and recheck later with `--verify`. Keep
+  the JSON file with the signed page; the rows behind it also travel in the nightly
+  encrypted database dump. It evidences tampering; it does not prevent database
+  edits. Archive path: `MOLDPILOT_KPI_SNAPSHOT_DIR` if set, else
+  `<MOLDPILOT_STORAGE_DIR>/kpi-snapshots/` — which `scripts/backup.sh` already
+  tars, so the archive rides off-machine with the nightly backup — else
+  `storage/kpi-snapshots/` in a plain development checkout.
+- **Health endpoints for ops.** `GET /api/health/live` returns `200 {"status":"ok"}`
+  from the Next process alone. `GET /api/health/ready` (also `HEAD`) runs bounded
+  probes of PostgreSQL, upload storage, quarantine, and the scanner, returning
+  `200` only when all four pass and `503` otherwise, with component verdicts and
+  no error detail. Both are unauthenticated and uncached by design — the launch-agent
+  capture wrapper and every ops smoke script curl them headlessly. Bound the probe
+  with `MOLDPILOT_READINESS_TIMEOUT_MS` (default 7000, accepted range 500–60000).
 - **Backup key escrow.** The private age identity lives in two sealed physical
   copies (office safe + off-site) and is drilled quarterly — see
   `docs/08-rollout/security-hardening-runbook.md` §7a.

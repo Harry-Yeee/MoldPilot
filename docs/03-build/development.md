@@ -39,6 +39,137 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-27: Pre-release Readiness — Health Endpoint, Snapshot Capture Scope, Repo Hygiene
+
+Context:
+
+A pre-release analysis raised three app-lane findings ahead of the pilot cut.
+Deployment-checklist item 7 now requires the D3.1.1 capture wrapper to prove native
+`/api/health/ready`, so that endpoint's unauthenticated contract became a release
+dependency rather than a container convenience. Separately, the KPI snapshot archive
+defaulted to a repo-relative `storage/kpi-snapshots`, which sits outside everything
+`scripts/backup.sh` collects — the signed-page counterpart of the integrity code was
+not travelling off-machine. Repo hygiene needed verifying rather than assuming.
+
+Tried:
+
+*Health endpoint — found, not built.* `/api/health/ready` already existed and
+already matched the substance of the contract: bounded probes of database, storage,
+quarantine, and scanner; `200` only when all four pass; `503` otherwise with
+component verdicts and no error text; `force-dynamic` + `revalidate = 0` +
+`Cache-Control: no-store`. Two gaps were real. First, nothing *tested* the
+unauthenticated guarantee that item 7 leans on. Second, `HEAD` was unimplemented.
+
+Added `HEAD` (same bounded probe, status line only, no body) and
+`tests/domain/health-readiness-endpoint.test.ts`, which walks the route's transitive
+import graph and asserts the session funnel is unreachable. The graph resolves
+`@/…` and relative specifiers, erases whole `import type` statements (they vanish at
+build time and cannot drag a session lookup into the request path), and asserts
+loudly when a first-party import fails to resolve, so the guard cannot go vacuous
+through a rename. The readiness graph is 13 modules whose only external imports are
+`@prisma/*` and `node:*` — no `next/headers`, no `current-user`, no login throttle.
+There is no `middleware.ts` in this app (the test asserts that too), so a route's
+import graph *is* the whole server-side request path.
+
+*KPI archive.* `defaultArchivePath` in `scripts/run-kpi-snapshot.mjs` now resolves:
+explicit `MOLDPILOT_KPI_SNAPSHOT_DIR`, else `<MOLDPILOT_STORAGE_DIR>/kpi-snapshots`
+when that is set, else the repo-relative development fallback. `backup.sh` was not
+touched — it already tars `MOLDPILOT_STORAGE_DIR`, so nesting the archives there
+brings them into the encrypted nightly backup and the D3 capture tree for free.
+Checked first that this cannot collide: attachment blobs live under
+`<root>/attachments/**`, and the only sweeper (`cleanupAbandonedQuarantineFiles`)
+reads the separate quarantine root and unlinks `*.upload` only.
+
+*Repo hygiene.* Verified rather than assumed. `.pnpm-store/`, `storage/`, and
+`generated/` are already gitignored with zero tracked files, so no `.gitignore`
+change was needed and no `git rm --cached` is owed. `RAW/` (4 files, 108 KB) is read
+at seed time by `prisma/seed.ts` and must stay tracked. `assets/fonts/ArialUnicode.ttf`
+(23 MB) is a live runtime dependency of `src/server/simple-pdf.ts` and is listed in
+`next.config.mjs` `outputFileTracingIncludes` — large, but load-bearing. `Tutorial/`
+(1 file, 12 KB) has zero references anywhere in src, scripts, or docs; left in place
+and reported, because history rewriting is the owner's call. The production-mode
+refusal the checklist claims is present in both launchers:
+`run-moldpilot.command:21` inline, and `scripts/local-pilot.mjs:217` via
+`assertLocalPilotDeploymentAllowed` (`src/domain/security/deployment-mode.ts:27`),
+which checks both `process.env` and the `.env` file contents.
+
+Result:
+
+`npx tsc --noEmit` clean. `node --test tests/domain/*.test.ts` — 682 tests, all
+green on the real nested checkout (682/682). During development the sandbox
+environment showed 22 `platform-production-package.test.ts` failures, but those were
+a layout artifact — that suite resolves the platform root as `..`, and the sandbox
+mounted the repos as siblings, so every case failed on ENOENT before asserting
+anything (discussed below). Net new: 8 tests (7 readiness-endpoint, 1
+snapshot-archive default).
+
+The readiness auth guard was mutation-tested rather than merely written: adding a
+`getCurrentUser` import to the route turned the graph test red, and removing it
+turned it green again. The test also carries a deliberate negative control — it
+asserts the attachment download route's graph *does* contain `current-user.ts`,
+`auth-session.ts`, and `next/headers` — so a broken walker fails loudly instead of
+passing everything.
+
+Why:
+
+An unauthenticated probe is only unauthenticated by accident until something
+enforces it. The capture wrapper curls `/api/health/ready` headlessly with no cookie
+jar; one convenience import three modules deep would make every capture fail closed
+while looking like an app bug. Asserting the import graph is the cheapest way to
+make that structural rather than remembered.
+
+The snapshot finding was a scope mismatch, not a bug: the integrity chain is *signed
+paper ↔ integrity code ↔ archived JSON*, and the archive leg was the one not being
+captured. Fixing the default rather than editing `backup.sh` keeps the change inside
+this lane.
+
+Decision:
+
+Keep the readiness body at component verdicts. It is richer than a bare
+`{"status":"ready"}` but it is a documented, consumed contract
+(`docs/08-rollout/docker-d1-runtime-foundation.md`, `docker-d2-private-scanner-storage.md`,
+`scripts/docker-d2-probe.mjs`), and existing tests already assert it leaks no
+secrets, paths, or error text. Narrowing it would break consumers for no security
+gain. Likewise the 7-second default timeout was left alone; it is bounded and
+configurable (`MOLDPILOT_READINESS_TIMEOUT_MS`, 500–60000) and is what the D1/D2
+docs state.
+
+Never add an import to `src/app/api/health/**` without rerunning
+`health-readiness-endpoint.test.ts`. Do not point `MOLDPILOT_KPI_SNAPSHOT_DIR`
+somewhere unbacked now that the default is correct.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- full suite: 682 tests, 660 pass, 22 fail — all 22 in
+  `platform-production-package.test.ts`
+- suite excluding that one file: 660/660 pass, 0 fail
+- readiness auth guard: mutation-tested red-then-green
+- KPI resolution order: all six branches exercised (both unset, storage-dir
+  absolute/relative, explicit override, blank storage-dir, container-style path)
+- `backup.sh`, `ops/**`, `prisma/schema.prisma`, dependencies: untouched
+- no database, dev server, migration, seed, or Prisma generation was involved
+
+An honest caveat on that 22. Those failures are **not** a verdict on the platform
+package. `platform-production-package.test.ts` derives `platformRoot` as
+`path.resolve(appRoot, "..")`, so it only works when MoldPilot is a direct child of
+the LJ_ERP checkout. In the environment used for this work the two repos were mounted
+as siblings, so all 22 tests errored with `ENOENT` on `.../mnt/ops/*` before
+asserting anything. Reconstructing the nested layout gave 21/22 passing, and the last
+failure was traced to a symlinked `ops/` (`ops/scripts/lib.sh` computes
+`PLATFORM_ROOT` with `pwd -P`, resolving past the alias, so a path the test expected
+to be rejected was legitimately outside both checkouts). Read together: no evidence
+of real breakage in that file, and no way to confirm its true state from here. It
+must be rechecked on the real Mac mini layout at the release cut. This fragility is
+written up in `docs/04-agents/proposal-platform-test-migration.md`.
+
+Related Docs:
+
+- `docs/08-rollout/deployment-checklist.md`
+- `docs/08-rollout/security-hardening-runbook.md`
+- `docs/04-agents/proposal-platform-test-migration.md`
+- `README.md` (KPI & operations scripts, Security & operations notes)
+
 ### 2026-07-27: Docker D3.1.1 Native Capture Readiness Regression Coverage
 
 Context:
@@ -851,6 +982,8 @@ counts by scope, archive path, and the first 12 hex characters as
 PASS/FAIL; it is handled before the Prisma import, so verification needs no
 database. Archive path defaults to `storage/kpi-snapshots/kpi-snapshot-<date>.json`
 (override with `MOLDPILOT_KPI_SNAPSHOT_DIR` or `--out`), written mode `0600`.
+(Superseded 2026-07-27: the default is now `<MOLDPILOT_STORAGE_DIR>/kpi-snapshots`
+whenever that variable is set, so the archive lands inside the backed-up tree.)
 
 Result:
 
@@ -885,6 +1018,8 @@ the nightly encrypted archive, but `storage/kpi-snapshots/*.json` does NOT unles
 `MOLDPILOT_KPI_SNAPSHOT_DIR` is pointed inside the backed-up uploads tree.
 `backup.sh` was deliberately left alone (active owner). Operationally the archive
 file is filed with the signed page; the numbers are recoverable from the dump.
+(Closed 2026-07-27: the archive default now resolves inside
+`MOLDPILOT_STORAGE_DIR`, so the JSON is captured without touching `backup.sh`.)
 
 Decision:
 

@@ -358,6 +358,17 @@ there are no backups at all: stop non-essential work, find the cause the same
 day, and do not accept the backup chain again until a drill passes end to end.
 Do not delete or overwrite the last known-good archive while investigating.
 
+### Weekly restart check 每周重启检查
+
+During the baseline month, check `com.moldpilot.app` restart counts once a week so a
+silent crash-loop surfaces before it eats a month of KPI data — `KeepAlive` hides
+repeated crashes behind an app that looks up:
+
+```bash
+log show --predicate 'process == "launchd" AND eventMessage CONTAINS "com.moldpilot.app"' \
+  --last 7d --style compact
+```
+
 ## 8. Scratch Restore Drill
 
 Create an empty scratch database and a separate scratch upload directory. Never

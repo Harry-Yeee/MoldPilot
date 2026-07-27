@@ -233,4 +233,25 @@ describe("KPI snapshot runner wiring", () => {
     assert.match(runner, /MOLDPILOT_KPI_SNAPSHOT_DIR/);
     assert.match(runner, /mode: 0o600/);
   });
+
+  it("defaults the archive into the backed-up storage tree", () => {
+    // scripts/backup.sh tars MOLDPILOT_STORAGE_DIR, so the archive must default
+    // inside it. A repo-relative default would leave the signed-page counterpart
+    // out of the nightly encrypted backup and out of the D3 capture tree.
+    const runner = source("scripts/run-kpi-snapshot.mjs");
+    const resolver = runner.slice(
+      runner.indexOf("function defaultArchivePath"),
+      runner.indexOf("function defaultArchivePath") + 600
+    );
+
+    assert.match(resolver, /MOLDPILOT_STORAGE_DIR/);
+    assert.match(resolver, /"kpi-snapshots"/);
+    // Explicit override is checked before the storage-dir default, which is
+    // checked before the repo-relative development fallback.
+    assert.ok(
+      resolver.indexOf("MOLDPILOT_KPI_SNAPSHOT_DIR") <
+        resolver.indexOf("MOLDPILOT_STORAGE_DIR")
+    );
+    assert.ok(resolver.indexOf("MOLDPILOT_STORAGE_DIR") < resolver.indexOf("PROJECT_ROOT"));
+  });
 });

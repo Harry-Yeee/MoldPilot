@@ -3,6 +3,10 @@
 Findings from the pre-deployment sweep (static audit + gates). Work top to bottom;
 items marked ⛔ are blockers — do not put real users on the system until they're done.
 
+**Sequencing.** The pilot goes live on the NATIVE stack; the D3 container cutover is
+rehearsed and executed only after the baseline month closes. Two novelties never share
+a launch week.
+
 ## ⛔ Security blockers
 
 1. **Secrets and cookies.** Production now refuses the development session
@@ -33,7 +37,9 @@ items marked ⛔ are blockers — do not put real users on the system until they
 
 6. **Private remote + clean release.** Push the reviewed release to the private GitHub repository.
    The production Mac mini should pull with its repository-specific read-only deploy key. Never
-   deploy an uncommitted or dirty production checkout.
+   deploy an uncommitted or dirty production checkout. Tag the exact gate-passing commit
+   `moldpilot-vX.Y.Z-pilot` and record the tag in this checklist's log, so the deployed tree
+   stays nameable after the fact.
 7. **Backups armed.** Configure a mounted off-machine `BACKUP_DIR` and public
    `BACKUP_AGE_RECIPIENT`; keep the private age identity offline. Run one
    encrypted backup, complete the manifest-verified scratch restore, then load
@@ -77,8 +83,15 @@ items marked ⛔ are blockers — do not put real users on the system until they
 
 ## Verification (run these, in order)
 
+Match the smoke to its target: `pnpm e2e:smoke` gates the dev checkout,
+`ops/scripts/moldpilot-production-smoke.sh` gates the production host, and the
+lifecycle/distribution smokes gate platform releases. A green run of the wrong smoke
+counts for nothing.
+
 13. Run `pnpm exec prisma validate`, `pnpm lint`, `pnpm typecheck`,
-    `pnpm test`, and `pnpm build` from the exact release checkout.
+    `pnpm test`, and `pnpm build` from the exact release checkout. At the release cut
+    also run `pnpm audit --prod` and check whether a Next.js security release newer
+    than the pinned version has shipped; record both outcomes in the checklist log.
 14. **Scripted e2e** — two terminals from the NEW path:
     `cd ~/Documents/LJ_ERP/MoldPilot && pnpm dev` … then `pnpm e2e:smoke`.
     Sentinel audit (today): the script is compatible with the UI overhaul — all asserted strings

@@ -23,9 +23,10 @@
  * the page. `--verify` recomputes the hash later. The chain is: signed paper <->
  * integrity code <-> archived JSON (nightly backup, off-machine). This EVIDENCES
  * tampering; it does not prevent anyone with database access from editing rows.
- * File the archive with the signed page — scripts/backup.sh only picks this file
- * up if MOLDPILOT_KPI_SNAPSHOT_DIR sits inside the backed-up uploads tree, though
- * the KpiSnapshot rows behind the code always travel in the nightly dump.
+ * File the archive with the signed page. When MOLDPILOT_STORAGE_DIR is set the
+ * archive defaults to <MOLDPILOT_STORAGE_DIR>/kpi-snapshots, which scripts/backup.sh
+ * already tars, so the JSON travels off-machine with the nightly encrypted backup;
+ * the KpiSnapshot rows behind the code always travel in the nightly dump anyway.
  */
 import "dotenv/config";
 
@@ -324,9 +325,27 @@ function sortRows(rows) {
   });
 }
 
+/**
+ * Archive directory, in resolution order:
+ *   1. MOLDPILOT_KPI_SNAPSHOT_DIR — explicit override, always wins.
+ *   2. <MOLDPILOT_STORAGE_DIR>/kpi-snapshots — the default on any configured
+ *      server. scripts/backup.sh tars MOLDPILOT_STORAGE_DIR, so nesting the
+ *      archives there puts them inside the nightly encrypted backup and the D3
+ *      capture tree for free, instead of stranding them in a repo-relative
+ *      folder that nothing collects.
+ *   3. <repo>/storage/kpi-snapshots — plain development checkout fallback.
+ *
+ * Attachment blobs live under <MOLDPILOT_STORAGE_DIR>/attachments/**, and the
+ * only sweeper (cleanupAbandonedQuarantineFiles) reads the separate quarantine
+ * root and only unlinks `*.upload`, so a sibling `kpi-snapshots/` directory
+ * cannot collide with or be reaped by the attachment layer.
+ */
 function defaultArchivePath(snapshotDate) {
+  const configured = process.env.MOLDPILOT_KPI_SNAPSHOT_DIR?.trim();
+  const storageRoot = process.env.MOLDPILOT_STORAGE_DIR?.trim();
   const directory =
-    process.env.MOLDPILOT_KPI_SNAPSHOT_DIR?.trim() ||
+    configured ||
+    (storageRoot ? path.join(storageRoot, "kpi-snapshots") : null) ||
     path.join(PROJECT_ROOT, "storage", "kpi-snapshots");
   return path.resolve(directory, `kpi-snapshot-${snapshotDate}.json`);
 }
