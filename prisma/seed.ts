@@ -23,6 +23,10 @@ import {
   resolveMoldPilotSeedMode
 } from "../src/domain/mold-trial/seed-mode.ts";
 import {
+  type FactoryUserRoster,
+  validateFactoryUserRoster
+} from "../src/domain/mold-trial/factory-user-roster.ts";
+import {
   seedManagedUserUpdate,
   seededUserCreateCredentials
 } from "../src/domain/security/seed-user-policy.ts";
@@ -34,6 +38,8 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString })
 });
 const seedMode = resolveMoldPilotSeedMode(process.env.MOLDPILOT_SEED_MODE);
+const factoryUserRoster =
+  seedMode === "production" ? loadReviewedFactoryUserRoster() : null;
 
 const seedProjectCodes = [
   "MP-SEED-001",
@@ -84,6 +90,17 @@ function dateTime(value: string): Date {
   return new Date(value);
 }
 
+function loadReviewedFactoryUserRoster(): FactoryUserRoster {
+  const fixturePath = path.join(
+    process.cwd(),
+    "prisma",
+    "fixtures",
+    "factory-users-2026-07-27.json"
+  );
+  const parsed: unknown = JSON.parse(readFileSync(fixturePath, "utf8"));
+  return validateFactoryUserRoster(parsed);
+}
+
 async function main() {
   if (seedMode === "production") {
     const [users, projects, activityLogs] = await Promise.all([
@@ -111,20 +128,38 @@ async function main() {
 
   const roles = await seedRoles();
   const groups = await seedDepartmentGroups();
-  const users = await seedUsers(roles);
+  const users =
+    factoryUserRoster == null
+      ? await seedUsers(roles)
+      : await seedFactoryUsers(roles, factoryUserRoster);
   if (seedMode === "production") {
     await prisma.user.update({
       where: { username: "admin" },
       data: { forcePasswordChange: true }
     });
   }
-  await seedKpiGroupsAndMembership(groups, users);
+  if (factoryUserRoster == null) {
+    await seedKpiGroupsAndMembership(groups, users);
+  } else {
+    await seedFactoryKpiGroupsAndMembership(groups, users, factoryUserRoster);
+  }
   const permissions = await seedPermissions();
   await seedRolePermissions(roles, permissions, users);
+  if (factoryUserRoster != null) {
+    await seedFactoryPermissionExceptions(
+      permissions,
+      users,
+      factoryUserRoster
+    );
+  }
   await seedKpiRules(users);
   await seedInjectionMachines();
   const defaultProcessTemplate = await seedDefaultProcessSheetTemplate();
-  await seedCustomers(users, defaultProcessTemplate);
+  await seedCustomers(
+    users,
+    defaultProcessTemplate,
+    seedMode !== "production"
+  );
   await backfillProjectProcessSheetTemplates(defaultProcessTemplate);
 
   if (seedMode === "production") {
@@ -290,6 +325,70 @@ async function seedUsers(roles: Awaited<ReturnType<typeof seedRoles>>) {
   return Object.fromEntries(entries.map((user) => [user.username, user]));
 }
 
+async function seedFactoryUsers(
+  roles: Awaited<ReturnType<typeof seedRoles>>,
+  roster: FactoryUserRoster
+): Promise<Awaited<ReturnType<typeof seedUsers>>> {
+  const admin = await prisma.user.upsert({
+    where: { username: "admin" },
+    update: seedManagedUserUpdate({
+      displayName: "Admin",
+      chineseName: null,
+      roleId: roles.admin.id,
+      isDefaultAdmin: true
+    }),
+    create: {
+      username: "admin",
+      displayName: "Admin",
+      chineseName: null,
+      ...seededUserCreateCredentials(hashPassword("admin"), true),
+      roleId: roles.admin.id,
+      departmentGroupId: null,
+      locale: "EN_US",
+      isDefaultAdmin: true,
+      status: "ACTIVE"
+    }
+  });
+
+  const employees = await Promise.all(
+    roster.people.map((person) => {
+      const role = roles[person.roleCode.toLowerCase()];
+      if (role == null) {
+        throw new Error(`Factory user ${person.username} references missing role ${person.roleCode}.`);
+      }
+
+      return prisma.user.upsert({
+        where: { username: person.username },
+        update: {
+          ...seedManagedUserUpdate({
+            displayName: person.displayName,
+            chineseName: person.chineseName,
+            roleId: role.id,
+            isDefaultAdmin: false
+          }),
+          locale: person.locale,
+          status: person.active ? "ACTIVE" : "INACTIVE"
+        },
+        create: {
+          username: person.username,
+          displayName: person.displayName,
+          chineseName: person.chineseName,
+          ...seededUserCreateCredentials(hashPassword("123456"), true),
+          roleId: role.id,
+          departmentGroupId: null,
+          locale: person.locale,
+          isDefaultAdmin: false,
+          status: person.active ? "ACTIVE" : "INACTIVE"
+        }
+      });
+    })
+  );
+
+  return Object.fromEntries(
+    [admin, ...employees].map((user) => [user.username, user])
+  );
+}
+
 /**
  * KPI leader-designation layer: split the assembly department into two GROUP
  * children (钟组 / 裴组) so Zhong and Pei each get a SEPARATE leader bar, designate
@@ -353,6 +452,84 @@ async function seedKpiGroupsAndMembership(
   );
 }
 
+async function seedFactoryKpiGroupsAndMembership(
+  groups: Awaited<ReturnType<typeof seedDepartmentGroups>>,
+  users: Awaited<ReturnType<typeof seedUsers>>,
+  roster: FactoryUserRoster
+) {
+  const leaders = Object.fromEntries(
+    roster.people
+      .filter((person) => person.teamLeader && person.kpiTeamCode != null)
+      .map((person) => [person.kpiTeamCode, users[person.username]])
+  );
+
+  const assemblyA = await prisma.departmentGroup.upsert({
+    where: { code: "assembly-a" },
+    update: {
+      name: "钟组",
+      groupType: "GROUP",
+      parentGroupId: groups.assembly.id,
+      kpiLeaderId: leaders["assembly-a"].id,
+      active: true
+    },
+    create: {
+      code: "assembly-a",
+      name: "钟组",
+      groupType: "GROUP",
+      parentGroupId: groups.assembly.id,
+      kpiLeaderId: leaders["assembly-a"].id
+    }
+  });
+  const assemblyB = await prisma.departmentGroup.upsert({
+    where: { code: "assembly-b" },
+    update: {
+      name: "裴组",
+      groupType: "GROUP",
+      parentGroupId: groups.assembly.id,
+      kpiLeaderId: leaders["assembly-b"].id,
+      active: true
+    },
+    create: {
+      code: "assembly-b",
+      name: "裴组",
+      groupType: "GROUP",
+      parentGroupId: groups.assembly.id,
+      kpiLeaderId: leaders["assembly-b"].id
+    }
+  });
+
+  await Promise.all([
+    prisma.departmentGroup.update({
+      where: { code: "pm" },
+      data: { kpiLeaderId: null }
+    }),
+    ...["marketing", "injection", "qc", "design"].map((code) =>
+      prisma.departmentGroup.update({
+        where: { code },
+        data: { kpiLeaderId: leaders[code].id }
+      })
+    )
+  ]);
+
+  const kpiGroups = {
+    ...groups,
+    "assembly-a": assemblyA,
+    "assembly-b": assemblyB
+  };
+  await Promise.all(
+    roster.people
+      .filter((person) => person.kpiTeamCode != null)
+      .map((person) =>
+        prisma.user.update({
+          where: { username: person.username },
+          data: {
+            departmentGroupId: kpiGroups[person.kpiTeamCode as keyof typeof kpiGroups].id
+          }
+        })
+      )
+  );
+}
+
 async function seedRolePermissions(
   roles: Awaited<ReturnType<typeof seedRoles>>,
   permissions: Awaited<ReturnType<typeof seedPermissions>>,
@@ -386,6 +563,53 @@ async function seedRolePermissions(
             updatedById: users.admin.id
           }
         });
+      });
+    })
+  );
+}
+
+async function seedFactoryPermissionExceptions(
+  permissions: Awaited<ReturnType<typeof seedPermissions>>,
+  users: Awaited<ReturnType<typeof seedUsers>>,
+  roster: FactoryUserRoster
+) {
+  await Promise.all(
+    roster.permissionExceptions.map((exception) => {
+      const user = users[exception.username];
+      const permission = permissions[exception.permissionCode];
+      if (user == null || permission == null) {
+        throw new Error(
+          `Factory permission exception references unknown user or permission: ${exception.username} / ${exception.permissionCode}.`
+        );
+      }
+
+      return prisma.userPermissionOverride.upsert({
+        where: {
+          userId_permissionId: {
+            userId: user.id,
+            permissionId: permission.id
+          }
+        },
+        update: {
+          effect: exception.effect,
+          reason: exception.reason,
+          expiresAt:
+            exception.expiresOn == null
+              ? null
+              : new Date(`${exception.expiresOn}T23:59:59.999Z`),
+          updatedById: users.admin.id
+        },
+        create: {
+          userId: user.id,
+          permissionId: permission.id,
+          effect: exception.effect,
+          reason: exception.reason,
+          expiresAt:
+            exception.expiresOn == null
+              ? null
+              : new Date(`${exception.expiresOn}T23:59:59.999Z`),
+          updatedById: users.admin.id
+        }
       });
     })
   );
@@ -1047,7 +1271,8 @@ function loadWorkbookClients(): WorkbookClientRow[] {
 
 async function seedCustomers(
   users: Awaited<ReturnType<typeof seedUsers>>,
-  defaultProcessTemplate: Awaited<ReturnType<typeof seedDefaultProcessSheetTemplate>>
+  defaultProcessTemplate: Awaited<ReturnType<typeof seedDefaultProcessSheetTemplate>>,
+  includeSupportFixtures: boolean
 ) {
   const workbookClients = loadWorkbookClients();
   const unmatchedOwners = new Set<string>();
@@ -1058,7 +1283,14 @@ async function seedCustomers(
           ? null
           : clientOwnerUsernameByChineseName[client.ownerChineseName as keyof typeof clientOwnerUsernameByChineseName] ??
             null;
-      const owner = ownerUsername == null ? null : users[ownerUsername];
+      const owner =
+        ownerUsername == null
+          ? null
+          : users[ownerUsername] ??
+            Object.values(users).find(
+              (user) => user.chineseName === client.ownerChineseName
+            ) ??
+            null;
 
       if (client.ownerChineseName != null && owner == null) {
         unmatchedOwners.add(client.ownerChineseName);
@@ -1114,35 +1346,37 @@ async function seedCustomers(
     ["C-WF", "Workflow", "workflow e2e", "Workflow E2E support client", "peng"]
   ] as const;
 
-  const supportEntries = await Promise.all(
-    supportCustomerDefinitions.map(([code, shortName, aliases, notes, ownerUsername]) =>
-      prisma.customer.upsert({
-        where: { code },
-        update: {
-          displayName: shortName,
-          shortName,
-          ownerUserId: users[ownerUsername].id,
-          defaultProcessSheetTemplateId: defaultProcessTemplate.id,
-          aliases,
-          notes,
-          active: true,
-          updatedById: users.admin.id
-        },
-        create: {
-          code,
-          displayName: shortName,
-          shortName,
-          ownerUserId: users[ownerUsername].id,
-          defaultProcessSheetTemplateId: defaultProcessTemplate.id,
-          aliases,
-          notes,
-          active: true,
-          createdById: users.admin.id,
-          updatedById: users.admin.id
-        }
-      })
-    )
-  );
+  const supportEntries = includeSupportFixtures
+    ? await Promise.all(
+        supportCustomerDefinitions.map(([code, shortName, aliases, notes, ownerUsername]) =>
+          prisma.customer.upsert({
+            where: { code },
+            update: {
+              displayName: shortName,
+              shortName,
+              ownerUserId: users[ownerUsername].id,
+              defaultProcessSheetTemplateId: defaultProcessTemplate.id,
+              aliases,
+              notes,
+              active: true,
+              updatedById: users.admin.id
+            },
+            create: {
+              code,
+              displayName: shortName,
+              shortName,
+              ownerUserId: users[ownerUsername].id,
+              defaultProcessSheetTemplateId: defaultProcessTemplate.id,
+              aliases,
+              notes,
+              active: true,
+              createdById: users.admin.id,
+              updatedById: users.admin.id
+            }
+          })
+        )
+      )
+    : [];
 
   return Object.fromEntries([...workbookEntries, ...supportEntries].map((customer) => [customer.code, customer]));
 }

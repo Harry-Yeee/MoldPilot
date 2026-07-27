@@ -17,7 +17,8 @@ import type {
   TrialIssueType as PrismaTrialIssueType,
   TrialOutcomeDisposition as PrismaTrialOutcomeDisposition,
   TrialResult as PrismaTrialResult,
-  TrialStatus as PrismaTrialStatus
+  TrialStatus as PrismaTrialStatus,
+  UserStatus as PrismaUserStatus
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
@@ -84,6 +85,7 @@ import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-t
 import { requirePermission, requirePermissions } from "@/server/permissions";
 import { createSimplePdfBuffer } from "@/server/simple-pdf";
 import { isAssemblyRelevantIssue, type PermissionCode } from "@/domain/mold-trial/permission-policy";
+import { resolveDefaultPlanningPm } from "@/domain/mold-trial/users";
 import type { RoleCode, TrialIssueLifecycleField, ValidationResult } from "@/domain/mold-trial/types";
 
 const disallowedCustomerIdentityFields = [
@@ -769,6 +771,56 @@ async function findUserByUsername(username: string, label: string) {
   return user;
 }
 
+type AssignablePlanningPm = {
+  id: string;
+  username: string;
+  status: PrismaUserStatus;
+};
+
+/**
+ * Planning PM for a project when neither the submitted form nor the acting user
+ * names one. The rule lives in `resolveDefaultPlanningPm`; this wrapper supplies
+ * the roster half of it (one query, only on the fallback path) and turns a
+ * failed resolution into the bilingual error the action surfaces.
+ *
+ * Used to be a hardcoded lookup of the retired dev PM account, which throws on
+ * any database that does not carry the old dev seed roster.
+ */
+async function fallbackPlanningPm(
+  assigned: {
+    planningPm?: AssignablePlanningPm | null;
+    technicalPm?: AssignablePlanningPm | null;
+  } = {}
+): Promise<AssignablePlanningPm> {
+  const fromProject = resolveDefaultPlanningPm({
+    projectPlanningPm: assigned.planningPm,
+    projectTechnicalPm: assigned.technicalPm
+  });
+
+  const resolution = fromProject.ok
+    ? fromProject
+    : resolveDefaultPlanningPm({
+        firstActivePm: await prisma.user.findFirst({
+          where: {
+            status: "ACTIVE",
+            role: { code: "pm" }
+          },
+          select: {
+            id: true,
+            username: true,
+            status: true
+          },
+          orderBy: { username: "asc" }
+        })
+      });
+
+  if (!resolution.ok) {
+    throw new Error(resolution.message);
+  }
+
+  return resolution.user;
+}
+
 async function maxTrialSequence(tx: Prisma.TransactionClient, projectId: string): Promise<number> {
   const aggregate = await tx.trialEvent.aggregate({
     where: { moldTrialProjectId: projectId },
@@ -957,11 +1009,14 @@ export async function createMoldTrialProject(formData: FormData) {
       firstPlannedTrialDate == null ? "project.intake.create" : ["project.intake.create", "trial.schedule.first_t0"]
     );
     const planningPmUsername = optionalValue(formData, "planningPmUsername");
+    // Intake with no first trial date may stay unassigned; a project created
+    // straight into WAITING_TRIAL must carry a planning PM (see
+    // validateMoldTrialProjectCreate), so an unpicked PM falls back to the roster.
     const planningPm =
       planningPmUsername == null
         ? firstPlannedTrialDate == null
           ? null
-          : await findUserByUsername("bill", "PM")
+          : await fallbackPlanningPm()
         : await findUserByUsername(planningPmUsername, "PM");
     const technicalPmUsername = optionalValue(formData, "technicalPmUsername");
     const technicalPm = technicalPmUsername == null ? null : await findUserByUsername(technicalPmUsername, "Secondary PM");
@@ -1331,6 +1386,20 @@ export async function setFirstPlannedTrialDate(formData: FormData) {
             }
           }
         },
+        planningPm: {
+          select: {
+            id: true,
+            username: true,
+            status: true
+          }
+        },
+        technicalPm: {
+          select: {
+            id: true,
+            username: true,
+            status: true
+          }
+        },
         trialEvents: {
           select: { id: true, trialCode: true }
         }
@@ -1344,11 +1413,14 @@ export async function setFirstPlannedTrialDate(formData: FormData) {
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
 
+    // Setting the T0 date writes planningPmId, so a PM is always needed. A PM
+    // who schedules takes the slot; anyone else (GM/Admin) keeps whoever the
+    // project already has, and only an unassigned project falls back to the roster.
     const planningPm =
       planningPmUsername == null
         ? actor.roleCode === "PM"
           ? actor
-          : await findUserByUsername("bill", "PM")
+          : await fallbackPlanningPm(project)
         : await findUserByUsername(planningPmUsername, "PM");
     const validation = validateFirstPlannedTrialSchedule({
       projectStatus: projectStatusLabels[project.status],

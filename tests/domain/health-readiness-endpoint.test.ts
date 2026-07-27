@@ -150,11 +150,11 @@ describe("unauthenticated health probe contract", () => {
       []
     );
 
-    for (const module of graph.modules) {
+    for (const modulePath of graph.modules) {
       assert.doesNotMatch(
-        source(module),
+        source(modulePath),
         /getCurrentUser|getOptionalCurrentUser|requireLoginAttempt|cookies\(\)/,
-        `${module} performs a session lookup but is reachable from ${readyRoute}.`
+        `${modulePath} performs a session lookup but is reachable from ${readyRoute}.`
       );
     }
   });

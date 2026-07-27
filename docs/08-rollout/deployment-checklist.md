@@ -56,6 +56,8 @@ a launch week.
    freezing `com.moldpilot.app` and again within the bounded recovery timeout
    after bootstrap/kickstart. Launchctl success without application readiness
    is a failed capture and the recovered agent must remain loaded for diagnosis.
+   Dev slices (`pnpm slice:export`) are sanitized development subsets, not
+   backups; never restore production from a slice.
 
 ## Production run mode (the server is not `pnpm dev`)
 
@@ -74,12 +76,17 @@ a launch week.
     wired Ethernet plus a router DHCP reservation, keep NTP on, prevent automatic sleep, and keep
     the dedicated server account logged in because Homebrew services and the app are user agents.
 12. **Fresh database for go-live.** Baseline month must not contain MP-SIM-*/MP-SEED-* simulator
-    rows. Use `pnpm prisma:bootstrap` only on a fresh database; it installs production master data
-    without demo projects and refuses to overwrite users/projects/activity. Never run `prisma:seed`
-    or `pilot:reset` on production. Both `run-moldpilot.command` and
+    rows. Use `pnpm prisma:bootstrap` only on a fresh database; it installs the
+    reviewed factory roster and production master data without demo projects or
+    support clients, and refuses to overwrite users/projects/activity. Verify 18
+    reviewed employees plus protected Admin, 19 active accounts total, before
+    acceptance. Never run `prisma:seed` or `pilot:reset` on production. Both `run-moldpilot.command` and
     `scripts/local-pilot.mjs` must refuse production deployment mode before
     migration or seed. Seed upserts preserve existing password and login
-    lifecycle fields as defense in depth.
+    lifecycle fields as defense in depth. When the clean database has already
+    been accepted locally, prefer a verified PostgreSQL dump/restore to the Mac
+    mini and start with `--existing-data` so user IDs, client ownership, KPI
+    membership, and password state are carried together.
 
 ## Verification (run these, in order)
 

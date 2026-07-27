@@ -31,6 +31,13 @@
  * so the live Scores tab and the nightly snapshot agree with the summary below.
  * (Live channels assume a mid-month run so their hour-offset anchors stay in the
  * current month; that matches how the monthly generators spread across past days.)
+ *
+ * ROSTER: targets the legacy dev seed roster (`pnpm prisma:seed`) by username —
+ * bill/wang/zhong/pei/gong/yvonne/lin — because the personas below are tied to
+ * named individuals. NOT for bootstrapped DBs (`pnpm prisma:bootstrap` loads the
+ * reviewed factory roster, where those usernames do not exist and requireUser()
+ * aborts). For a demo on the real roster use `pnpm training:examples`, which
+ * resolves every actor by ROLE at runtime.
  */
 import "dotenv/config";
 

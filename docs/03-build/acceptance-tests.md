@@ -30,20 +30,22 @@ Use these roles in tests:
 - Assembly
 - Injection
 - QC
+- Design
 - Viewer
 
-Seeded real pilot users:
+Reviewed production-bootstrap users:
 
-| Role | Users |
+| Role | Usernames |
 | --- | --- |
-| Admin | admin |
-| GM | Xie |
-| PM | Bill, Jun, Cheng |
-| Marketing | Yvonne, Anna, Zoe, Peng, Juria, Sahara |
-| Assembly | Zhong, Pei |
-| Injection | Wang |
-| QC | Gong, Shuang |
-| Viewer | Viewer |
+| Admin | `admin` |
+| GM | `xie.fengxia` |
+| PM | `long.shiyuan`, `liu.zhijun`, `li.dacheng` |
+| Marketing | `wang.qunying`, `liu.wanxia`, `zhou.juane`, `peng.liman`, `wu.siying`, `xiao.siqin` |
+| Assembly | `jiang.zhong`, `liu.zhenpei` |
+| Injection | `wang.sheng` |
+| QC | `gong.jilin`, `ye.shuangshuang` |
+| Design | `liu.xi`, `luo.honghui` |
+| Viewer | `viewer` |
 
 Legacy test text that still mentions Planning PM, Technical PM, or PM Assistant should be interpreted as the current `PM` role. Legacy text that mentions Marketing/Sales maps to `Marketing`; Injection Manager maps to `Injection`.
 
@@ -1169,8 +1171,10 @@ Expected:
 - Default admin has Admin role.
 - The account is clearly marked as initial/default admin.
 - Default admin has a hashed temporary password.
-- Default admin is not forced through first-login password change in the local pilot.
-- Default admin password must be changed or disabled before real deployment.
+- Demo-only local Admin may bypass first-login password change for developer
+  troubleshooting.
+- Clean production bootstrap sets `force_password_change = true` for protected
+  Admin and must not expose normal workflow pages before the password changes.
 
 ### AT-023A: Seeded Real Pilot Users Exist
 
@@ -1182,10 +1186,16 @@ Steps:
 
 Expected:
 
-- Roles exist: Admin, GM, PM, Marketing, Assembly, Injection, QC, Viewer.
-- Seeded users exist: admin, Xie, Bill, Jun, Cheng, Yvonne, Anna, Zoe, Peng, Juria, Sahara, Zhong, Pei, Wang, Gong, Shuang, Viewer.
+- Roles exist: Admin, GM, PM, Marketing, Assembly, Injection, QC, Design, Viewer.
+- Production bootstrap creates exactly 19 active accounts: protected `admin`
+  plus the 18 reviewed employee usernames listed above.
+- Production bootstrap uses the reviewed roster fixture whose source workbook
+  hash matches the approved workbook.
+- No demo/support users, demo projects, support clients, simulator rows, or
+  individual permission exceptions are created.
 - Seeded employee accounts have temporary password `123456` stored only as a hash.
 - Seeded employee accounts have `force_password_change = true`.
+- Production protected Admin also has `force_password_change = true`.
 
 ### AT-023B: First Login Forces Password Change
 
@@ -1210,7 +1220,7 @@ Expected:
 - Temporary password no longer works after password change.
 - ActivityLog or auth audit record captures the password change without storing the password.
 
-Admin local-pilot exception:
+Admin demo-only local-pilot exception:
 
 - Default Admin can log in with `admin` / `admin` and open normal app pages without first-login password change.
 - Admin can still use Change Password manually.

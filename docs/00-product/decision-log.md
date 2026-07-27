@@ -625,6 +625,10 @@ Seeded pilot users:
 | QC | Gong, Shuang |
 | Viewer | Viewer |
 
+This table records the initial 2026-07-01 local pilot seed. The reviewed
+production usernames and added Design role are superseded by the 2026-07-27
+factory-roster decision below; demo fixtures may retain the short usernames.
+
 Password rule:
 
 - For local testing, seeded employee accounts may start with password `123456`.
@@ -865,6 +869,56 @@ Impact:
   for independent D3 planning, not as a deployment or production cutover.
 - The parent `LJ_ERP` package still needs its own version-control strategy
   before D3.
+
+### 2026-07-27: Reviewed Factory Roster Drives The Clean Production Database
+
+Decision:
+
+- Keep the demo seed and its synthetic projects/accounts for development only.
+- Use the reviewed `Factory-Users-Reviewed.xlsx` roster as the source for a
+  versioned production bootstrap fixture.
+- The production roster contains 18 active employees plus the protected Admin
+  account, for 19 active accounts total.
+- Production usernames use the reviewed permanent form such as
+  `long.shiyuan`, `liu.wanxia`, and `wang.sheng`; display names and Chinese
+  names remain separate fields.
+- Production roles are GM, PM, Marketing, Assembly, Injection, QC, Design, and
+  Viewer. The protected Admin account is not assignable from the workbook.
+- KPI membership is organizational scoring metadata only. It does not grant
+  permissions. The reviewed leaders are Yvonne, Zhong, Pei, Wang, Gong, and
+  Louis; PM remains an individual-score group without a team leader.
+- The reviewed roster grants no individual permission exceptions. Role
+  permissions remain the effective policy.
+- All production-bootstrap accounts, including protected Admin, start in
+  forced-password-change state. Temporary bootstrap credentials remain for
+  controlled local acceptance only and must not be treated as permanent.
+- A production bootstrap is fresh-database-only. It imports real clients,
+  machines, process templates, roles, permissions, KPI rules, and the reviewed
+  roster, but no demo projects, support clients, issues, simulator rows, or
+  activity fixtures.
+- Build and verify the clean database locally first. Later, transfer that exact
+  database to the Mac mini through a verified PostgreSQL dump/restore and start
+  the server with `--existing-data`; do not independently reseed a second set of
+  users on the server.
+
+Reason:
+
+- One reviewed roster prevents username drift between local acceptance and the
+  future server.
+- Keeping employee identity out of the demo seed preserves stable developer
+  fixtures while allowing production to use real names.
+- Moving the verified database preserves user IDs, client ownership, KPI
+  memberships, and password lifecycle state as one coherent dataset.
+
+Impact:
+
+- `prisma/fixtures/factory-users-2026-07-27.json` is the reviewed
+  production-bootstrap fixture and records the source workbook SHA-256.
+- `MOLDPILOT_SEED_MODE=production` uses that fixture; normal demo seeding keeps
+  the legacy synthetic accounts and projects.
+- Any later roster revision requires a newly reviewed workbook, a new fixture
+  revision/hash, tests, and a decision/development-log update. Never silently
+  edit a deployed production roster through seed.
 
 ## Conflict Resolution Rule
 

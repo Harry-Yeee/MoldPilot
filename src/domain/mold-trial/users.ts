@@ -28,6 +28,59 @@ export function formatIssueOwnerUserOption(user: IssueOwnerUserOptionInput): str
   return `${roleName} / ${displayName} / ${chineseName}`;
 }
 
+/**
+ * Minimum shape needed to decide whether a user may receive a project's planning
+ * PM slot. `status` is the Prisma `UserStatus` value, typed as a plain string so
+ * this module stays free of Prisma imports.
+ */
+export type PlanningPmCandidate = {
+  id: string;
+  username: string;
+  status: string;
+};
+
+export type PlanningPmSource = "PROJECT_PLANNING_PM" | "PROJECT_TECHNICAL_PM" | "FIRST_ACTIVE_PM";
+
+export type PlanningPmResolution<TCandidate extends PlanningPmCandidate = PlanningPmCandidate> =
+  | { ok: true; source: PlanningPmSource; user: TCandidate }
+  | { ok: false; message: string };
+
+export const noActivePlanningPmMessage = "No active PM exists / 没有可用的项目管理员";
+
+/**
+ * Who owns a project's planning PM slot when neither the form nor the acting
+ * user names one.
+ *
+ * Order: whoever the project already has (planning PM first, then technical PM),
+ * otherwise the first ACTIVE user holding role `pm` ordered by username — the
+ * caller supplies that as `firstActivePm`. Archived candidates are skipped at
+ * every step, matching the ACTIVE guard on explicitly named users. No username
+ * is hardcoded, so the rule follows whatever roster the database was loaded
+ * with (`pnpm prisma:bootstrap` / `pnpm prisma:seed`).
+ *
+ * Returns a failure instead of throwing so callers can turn it into their own
+ * redirect/error style; the message is bilingual because it can reach the UI.
+ */
+export function resolveDefaultPlanningPm<TCandidate extends PlanningPmCandidate>(input: {
+  projectPlanningPm?: TCandidate | null;
+  projectTechnicalPm?: TCandidate | null;
+  firstActivePm?: TCandidate | null;
+}): PlanningPmResolution<TCandidate> {
+  const ordered: readonly (readonly [PlanningPmSource, TCandidate | null | undefined])[] = [
+    ["PROJECT_PLANNING_PM", input.projectPlanningPm],
+    ["PROJECT_TECHNICAL_PM", input.projectTechnicalPm],
+    ["FIRST_ACTIVE_PM", input.firstActivePm]
+  ];
+
+  for (const [source, candidate] of ordered) {
+    if (candidate != null && candidate.status === "ACTIVE") {
+      return { ok: true, source, user: candidate };
+    }
+  }
+
+  return { ok: false, message: noActivePlanningPmMessage };
+}
+
 export type AccountIdentityLineInput = {
   displayName: string;
   username: string;

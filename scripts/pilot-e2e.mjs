@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+/**
+ * ROSTER: targets the legacy dev seed roster (`pnpm prisma:seed`) by username —
+ * yvonne/bill/jun/zhong. Not for bootstrapped DBs (`pnpm prisma:bootstrap`
+ * loads the reviewed factory roster, where those usernames do not exist and
+ * requiredUser() aborts).
+ */
 import "dotenv/config";
 
 import assert from "node:assert/strict";

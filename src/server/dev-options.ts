@@ -1,24 +1,9 @@
-export const devUsers = [
-  { username: "admin", label: "Admin", role: "Admin" },
-  { username: "xie", label: "Xie", role: "GM" },
-  { username: "bill", label: "Bill", role: "PM" },
-  { username: "jun", label: "Jun", role: "PM" },
-  { username: "cheng", label: "Cheng", role: "PM" },
-  { username: "yvonne", label: "Yvonne", role: "Marketing" },
-  { username: "anna", label: "Anna", role: "Marketing" },
-  { username: "zoe", label: "Zoe", role: "Marketing" },
-  { username: "peng", label: "Peng", role: "Marketing" },
-  { username: "juria", label: "Juria", role: "Marketing" },
-  { username: "sahara", label: "Sahara", role: "Marketing" },
-  { username: "zhong", label: "Zhong", role: "Assembly" },
-  { username: "pei", label: "Pei", role: "Assembly" },
-  { username: "wang", label: "Wang", role: "Injection" },
-  { username: "gong", label: "Gong", role: "QC" },
-  { username: "shuang", label: "Shuang", role: "QC" },
-  { username: "lin", label: "Lin", role: "Design" },
-  { username: "mei", label: "Mei", role: "Design" },
-  { username: "viewer", label: "Viewer", role: "Viewer" }
-] as const;
+// Accounts are NOT listed here. This module is imported by client components, so
+// it stays free of database access, and a hardcoded roster copy goes stale the
+// moment `pnpm prisma:bootstrap` loads a new one. The dev account selector reads
+// live users through `getSelectableUsers()` in `src/server/current-user.ts`
+// (ACTIVE only, admin first, then username); PM pickers use
+// `getActivePmUserOptions()` in `src/server/user-options.ts`.
 
 export const departmentGroups = [
   { code: "pm", label: "PM" },

@@ -77,12 +77,12 @@ Phase 1 uses admin-assigned internal accounts with simple username/password logi
 | Field | Type | Notes |
 | --- | --- | --- |
 | id | uuid | Primary key. |
-| username | text | Unique internal account code, such as admin, bill, gong. |
+| username | text | Unique internal account code. Production uses the reviewed permanent format, such as `admin`, `long.shiyuan`, or `gong.jilin`. |
 | display_name | text | English/internal display name used in current app UI. |
 | chinese_name | text | Optional Chinese display name. Used for bilingual display and imported client-owner matching. |
 | email | text | Optional internal contact email, not required for login and never a customer email. |
 | password_hash | text | Required for login. Store a secure hash only; never store plaintext passwords. |
-| force_password_change | boolean | True for seeded employee users and Admin-reset accounts until they change their temporary password. The local default Admin is not forced on first login. |
+| force_password_change | boolean | True for seeded employee users and Admin-reset accounts until they change their temporary password. The clean production bootstrap also sets this true for protected Admin; only the demo-only local Admin may bypass it. |
 | password_updated_at | datetime | Updated whenever password changes. |
 | last_login_at | datetime | Optional audit/support field. |
 | role_id | uuid | References Role. |
@@ -98,12 +98,26 @@ Seeded login rule:
 - The default Admin may start as `admin` / `admin` for local setup.
 - Seeded employee accounts may start with temporary password `123456` for testing.
 - Seeded employee accounts must have `force_password_change = true`.
-- The default Admin may have `force_password_change = false` for local pilot setup.
+- The demo-only local Admin may have `force_password_change = false` for
+  developer troubleshooting. The clean production bootstrap requires
+  `force_password_change = true` for Admin.
 - Users with `force_password_change = true` must change password after first login before accessing normal app pages.
 - Admin can reset a user password by setting a new temporary password and forcing password change again.
 - Users can change their own username/password after login.
 - Admin can maintain both English display name and Chinese name.
 - English/current app display names and role names remain the default UI labels for now.
+
+Production roster rule:
+
+- The reviewed roster fixture contains employee identity, active state, locale,
+  role, KPI team membership, and optional permission exceptions. It never
+  contains passwords or password hashes.
+- Protected Admin is created by the application and is intentionally absent
+  from workbook-assigned people.
+- Role remains the permission source. `department_group_id` stores KPI
+  membership only.
+- The 2026-07-27 reviewed roster contains 18 active employees and zero
+  individual permission exceptions.
 
 User archive rule:
 

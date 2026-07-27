@@ -130,9 +130,9 @@ describe("Customer Master domain rules", () => {
 
   test("workbook owner names map to the seeded active users", () => {
     assert.deepEqual(clientOwnerUsernameByChineseName, {
-      "刘婉霞": "anna",
-      "周娟娥": "zoe",
-      "彭利满": "peng"
+      "刘婉霞": "liu.wanxia",
+      "周娟娥": "zhou.juane",
+      "彭利满": "peng.liman"
     });
   });
 

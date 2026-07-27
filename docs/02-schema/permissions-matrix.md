@@ -21,7 +21,9 @@ Rules:
 - For local testing, seeded employee accounts may start with temporary password `123456`.
 - The default Admin may start with username `admin` and temporary password `admin`.
 - Seeded employee users must be forced to change password after first login before using normal app pages.
-- The default Admin is not forced through first-login password change in the local pilot, but must be changed or disabled before real deployment.
+- The demo-only local Admin may bypass first-login password change for developer
+  troubleshooting. The clean production bootstrap forces the protected Admin
+  through first-login password change as well.
 - Admin can reset a user's temporary password.
 - Users can change their own username/password after login.
 - Stronger authentication should be added before broader production deployment.
@@ -46,17 +48,21 @@ The real pilot intentionally uses a single PM role. It replaces the earlier Plan
 
 Seeded pilot users:
 
-| Role | Users |
+| Role | Production usernames |
 | --- | --- |
-| Admin | admin |
-| GM | Xie |
-| PM | Bill, Jun, Cheng |
-| Marketing | Yvonne, Anna, Zoe, Peng, Juria, Sahara |
-| Assembly | Zhong, Pei |
-| Injection | Wang |
-| QC | Gong, Shuang |
-| Design | Lin, Mei |
-| Viewer | Viewer |
+| Admin | `admin` |
+| GM | `xie.fengxia` |
+| PM | `long.shiyuan`, `liu.zhijun`, `li.dacheng` |
+| Marketing | `wang.qunying`, `liu.wanxia`, `zhou.juane`, `peng.liman`, `wu.siying`, `xiao.siqin` |
+| Assembly | `jiang.zhong`, `liu.zhenpei` |
+| Injection | `wang.sheng` |
+| QC | `gong.jilin`, `ye.shuangshuang` |
+| Design | `liu.xi`, `luo.honghui` |
+| Viewer | `viewer` |
+
+The reviewed 2026-07-27 production roster has no individual permission
+exceptions. KPI team membership and leader designation do not grant workflow
+permissions.
 
 Optional later:
 

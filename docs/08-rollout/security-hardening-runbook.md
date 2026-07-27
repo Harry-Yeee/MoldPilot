@@ -276,6 +276,9 @@ launchctl bootout "gui/$UID/com.moldpilot.backup"
 Rollback does not delete existing archives. Never delete or overwrite the only
 known-good backup.
 
+Dev slices (`pnpm slice:export`) are sanitized, windowed subsets for development;
+they are not backups and production must never be restored from one.
+
 ## 7a. Backup Key Escrow & Restore Drill 备份密钥托管与恢复演练
 
 The `BACKUP_AGE_RECIPIENT` public key lives in the server `.env`. The matching

@@ -39,6 +39,610 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-27: Retired `bill` Fallback Removed — Planning PM Is Resolved By Role
+
+Context:
+
+`pnpm prisma:bootstrap` replaced the dev seed roster with the 18 reviewed
+employees (`prisma/fixtures/factory-users-2026-07-27.json`), whose PM usernames
+are `long.shiyuan` / `liu.zhijun` / `li.dacheng`. Two server actions still asked
+for the retired dev account by name — `findUserByUsername("bill", "PM")` in
+`createMoldTrialProject` (~line 964) and in `setFirstPlannedTrialDate` (~line
+1351) — so on a bootstrapped database both threw `PM bill was not found. Run
+prisma:seed first.` The intent of each fallback was *default PM attribution*:
+creating a project that skips intake (a first trial date is supplied) writes
+`planningPmId`, which `validateMoldTrialProjectCreate` requires; setting the
+first T0 date writes `planningPmId` too, and only a PM actor self-attributed.
+
+Why it survived the roster migration: neither path is reachable from normal UI
+use. The dashboard PM picker submits a username whenever one is chosen, and the
+project page's PM picker pre-selects the project's PM (or the first active PM),
+so the fallback only fires when the picker is left on "Unassigned", when there
+are no active PM options at all, or when a script/API posts without the field.
+Nothing in the type system or the domain suite names a user, so `tsc` and
+`pnpm test` stayed green while the code pointed at an account that no longer
+exists. `src/server/dev-options.ts` carried the same rot: a `devUsers` array of
+old usernames that NOTHING imported (the real dev selector queries live users
+via `getSelectableUsers()`), so it could not fail loudly either.
+
+Tried / Decision:
+
+New pure rule `resolveDefaultPlanningPm` in `src/domain/mold-trial/users.ts`
+returns `{ ok, source }` for the first ACTIVE candidate of: the project's
+`planningPm`, then its `technicalPm`, then `firstActivePm` — the caller's
+already-fetched "first ACTIVE user with role `pm` ordered by username" — and
+otherwise `{ ok: false, message: "No active PM exists / 没有可用的项目管理员" }`.
+`fallbackPlanningPm()` in `src/server/mold-trial-actions.ts` supplies the roster
+half (one `user.findFirst`, issued only on the fallback path) and throws the
+bilingual message, which reaches the redirect banner through
+`friendlyActionErrorMessage`. Precedence otherwise unchanged: an explicitly
+submitted username still wins, and a PM who sets the T0 date still takes the
+slot. Project create has no project yet, so it resolves straight to the roster
+PM. Side benefit: `setFirstPlannedTrialDate` now keeps a project's existing PM
+instead of silently reassigning it when a GM/Admin schedules the date (its
+`findUnique` gained `planningPm`/`technicalPm` selects for that).
+
+`devUsers` was deleted rather than rebuilt: `src/server/dev-options.ts` is
+imported by client components (`add-planned-trial-form.tsx` is `"use client"`),
+so it cannot hold a Prisma query, and a static fixture copy would go stale on
+the next bootstrap. A comment now points at the runtime sources that already
+exist (`getSelectableUsers`, `getActivePmUserOptions`).
+
+Sweep: no other retired username remains in `src/`. The dev-only scripts that
+legitimately target the OLD seed roster (`simulate-kpi-data.mjs`,
+`debug-my-plate.mjs`, `e2e-smoke.mjs`, `pilot-e2e.mjs`, `pilot-workflow-e2e.mjs`,
+`pilot-preflight.mjs`) keep their usernames and gained a top-of-file ROSTER note
+saying they target `pnpm prisma:seed` and are not for bootstrapped databases;
+`e2e-smoke.mjs`'s forged-cookie logic was not touched. Domain tests still use
+short names as opaque fixture strings, which is fine — they never reach a DB.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- `node --test tests/domain/*.test.ts`: 789 tests, 767 pass, 22 fail — the SAME
+  22 platform-package sandbox failures (all inside
+  `tests/domain/platform-production-package.test.ts`, which needs the sibling
+  `ops/` checkout); 0 new failures. +7 tests from
+  `tests/domain/planning-pm-fallback.test.ts` (assigned → assigned, archived
+  assignee skipped, none assigned → first active PM, no PM → bilingual failure,
+  plus a source scan asserting `mold-trial-actions.ts` and `dev-options.ts`
+  never quote a retired seed username again)
+- both changed Prisma shapes returned `P1001` against an unreachable database
+  (the new active-PM `findFirst` and the extended project `findUnique`); a
+  deliberate bogus-field control returned a validation error instead, so the
+  check discriminates
+- NOT verified here: no database was reachable, so the end-to-end behaviour on
+  the bootstrapped roster (create-with-T0-date and set-first-T0 as GM/Admin with
+  the picker untouched) still needs one pass on Harry's Mac
+
+Related Docs: `docs/03-build/development.md` (2026-07-27 training-data entry,
+which flagged this bug), `prisma/fixtures/factory-users-2026-07-27.json`
+
+### 2026-07-27: Training Demo Data — `scripts/create-training-examples.mjs`
+
+Context:
+
+The pre-launch training session needs the workflows the v2 posters in
+`docs/07-training/` teach to be ON SCREEN, start to finish, not described.
+`simulate-kpi-data.mjs` is the wrong tool for that: it writes ~6 weeks of
+statistical MP-SIM- noise tuned to hit persona percentages, and it addresses
+people by the OLD dev usernames (`bill`/`wang`/`zhong`), which the reviewed
+factory roster replaced. A small, separate generator was needed.
+
+Tried:
+
+`pnpm training:examples` (`--reset`, `--reset-only`, `--help`) writes three
+projects under `MP-DEMO-`:
+
+1. **MP-DEMO-001 完整流程** — one COMPLETE journey spread over ~3 weeks: intake
+   (Marketing) → first T0 planned (PM) → date + machine confirmed (Injection) →
+   trial run with 31 process values → defect filed with one line and one photo →
+   我来处理 claimed → root cause + fix → assembly acknowledge (with estimated
+   finish) + self-check → PM confirms ready and plans T1 → T1 confirmed → QC
+   verifies the fix and sets the severity → two CUSTOMER_SAFE measurement reports
+   → T1 result Approved → issue CLOSED, `finalTrialCount` 2, close reason filled.
+2. **MP-DEMO-002 待确认** — a T0 date created ~19h ago and still
+   PENDING_CONFIRMATION, so the Injection leader's `/me` shows ONE live card with
+   an amber "~5h left" chip (inj.date_confirm = 24h).
+3. **MP-DEMO-003 整改中** — a FRESH UNCLAIMED assembly-inbox defect with a photo
+   (the 我来处理 demo, ~42h left of 48h) plus one already-claimed defect waiting
+   for the acknowledge → self-check demo (amber ~4h left of 24h), with T1 planned
+   in 4 days and already confirmed so "before the next trial" is concrete.
+
+*No usernames anywhere.* Every actor is resolved at RUNTIME by role — the first
+ACTIVE user of `pm` / `marketing` / `injection` / `assembly` / `qc` ordered by
+username — so the script follows whatever roster `pnpm prisma:bootstrap` loaded
+(`prisma/fixtures/factory-users-2026-07-27.json`). `admin`/`gm`/`viewer` are
+refused as actors by a guard, so no operational row is admin-attributed. Presses
+come from the machine master (numeric-ordered, preferring the 150–600 T band);
+the process template is the seeded `default_process_setup`; the demo client is a
+`MP-DEMO` customer clearly labelled 培训演示客户（非真实客户）.
+
+Row and ActivityLog shapes are copied from the server actions
+(`created_project_intake`, `set_first_t0_planned_date`,
+`created_initial_planned_trial`, `confirmed_trial_date`,
+`saved_trial_process_sheet`, `recorded_completed_trial`, `created_trial_issue`,
+`claimed_department_inbox_issue`, `updated_trial_issue`, `closed_trial_issue`,
+`uploaded_attachment`, `uploaded_measurement_report`) with before/after JSON, so
+the project timeline, the `/me` channels and the KPI extractor in
+`src/server/kpi-events.ts` all read them. Attachments write REAL bytes (1×1 JPEG,
+minimal valid PDF) through `buildStorageKey`/`resolveStoragePath`, and the
+issue-routing and due-date policies are imported from
+`src/domain/mold-trial/issue-routing.ts` instead of being re-guessed.
+
+Result:
+
+Every live item is deliberately KPI-NEUTRAL (pending clocks whose `dueAt` is in
+the future are excluded by `kpi-scoring.ts`, and the unacknowledged defect emits
+no asm.acknowledge event at all), so the demo cannot manufacture a miss against
+the leader who is standing at the projector. Everything the journey completed is
+on time, so MP-DEMO-001 reads as a clean month for all five roles.
+
+Why:
+
+Two timing lessons. (1) `simulate-kpi-data.mjs` CLAMPS day offsets to day 1 of
+the month; a 3-week journey clamped that way collapses into a single day and the
+hour offsets then read backwards. This script uses unclamped
+`Date.UTC(y, m, runDay - n, h)` (which rolls into the previous month by itself)
+so ordering can never invert — the cost is that a run in the first days of a
+month splits the journey across two KPI months. Run the session in the second
+half of a month (2026-07-27 does). (2) Timestamps that must produce a live
+countdown chip are anchored on `hoursAgo(n)`, and the surrounding trial-day
+timestamps are DERIVED from those anchors (`actualDate = startOfDayUtc(record)`)
+rather than fixed hours, so "result recorded on the trial day" holds at any run
+hour. A `chain()` clock plus `ordered()`/`past()` guards fail loudly on a
+mistyped offset instead of shipping a backwards timeline.
+
+Also found: the app has NO close-project action (project status CLOSED is
+reachable only by hand), so the journey ends at the app's real terminal state —
+status APPROVED with `finalTrialCount`/`closeReason` filled and the issue CLOSED.
+And `src/server/mold-trial-actions.ts` still falls back to
+`findUserByUsername("bill", "PM")` in TWO places (project create, line ~964, and
+set-first-T0, line ~1351) when no planning PM is supplied and the actor is not a
+PM; `src/server/dev-options.ts` likewise lists the old dev usernames. `bill` does
+not exist in the reviewed roster (the PM usernames are now
+`long.shiyuan`/`liu.zhijun`/`li.dacheng`), so those paths throw "PM bill was not
+found" on a bootstrapped database. Not touched here; flagged for a separate fix.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- `node --test tests/domain/*.test.ts`: 782 tests, 760 pass, 22 fail — the same
+  22 platform-package sandbox failures as before this change (all inside
+  `tests/domain/platform-production-package.test.ts`, which needs the sibling
+  `ops/` checkout); 0 new failures
+- all 40 Prisma query shapes issued against an unreachable database returned
+  `P1001` "can't reach database server", i.e. every delegate, `where`, `select`,
+  `orderBy` and `data` shape is structurally valid (a field typo raises a
+  validation error instead)
+- the generator ran END TO END against a stub Prisma client (a resolver hook
+  substituting `@prisma/client`): 3 projects, 5 trials, 3 issues, 279 process
+  values, 6 real files on disk, 38 ActivityLog rows, 5 distinct actors, ZERO
+  ordering violations, and the whole timeline inside 2026-07-06 … 2026-07-27
+- guards exercised: `--help` exits 0; `MOLDPILOT_DEPLOYMENT_MODE=production`
+  (env AND `.env`) refuses with a one-line message and exit 1 (`.env` restored
+  byte-identical); a second run without `--reset` refuses because MP-DEMO- data
+  exists; `--reset-only` removed 3 projects, 5 trials, 3 issues, 6 files and 38
+  log rows and left the disk empty; `--reset` is idempotent on an empty database
+- untouched: `prisma/schema.prisma`, `node_modules/`, `ops/`, `scripts/backup.sh`,
+  `scripts/server-*.sh`, `scripts/export-slice.mjs`, `scripts/import-slice.mjs`,
+  `tests/domain/platform-production-package.test.ts`. No dependency, no
+  migration, no seed change
+
+**Not verified, and it has to be verified on the Mac mini.** There is no database
+in this environment:
+
+- one real `pnpm prisma:bootstrap` followed by `pnpm training:examples`, then the
+  five logins (`/me` for Injection, Assembly, QC, PM, Marketing) and the
+  MP-DEMO-001 project page top to bottom
+- whether the photo/PDF thumbnails, lightbox and measurement-report downloads
+  render from the written bytes (the key/path convention is shared, the bytes are
+  the ones `simulate-kpi-data.mjs` already proved on that Mac)
+- the Scores tab / `/score` reading of these events for the current month
+- that `prisma db seed --production` verification (`pnpm prisma:verify-production`)
+  is run BEFORE the demo data, since it asserts zero operational rows
+
+Related Docs:
+
+- `README.md` (KPI & operations scripts)
+- `docs/07-training/README.md` (the three v2 posters this data walks)
+- `docs/03-build/pilot-acceptance-checklist.md`
+
+### 2026-07-27: Dev Slice Phase 2 — Ingest
+
+Context:
+
+Phase 1 (entry below) exports a sanitized, windowed slice and stops there: the
+files existed, but nothing could read them back. Phase 2 is the other half —
+`scripts/import-slice.mjs` (`pnpm slice:import`) turns a slice directory into a
+working development database. This is the first tool in the slice lane that
+WRITES, so the whole design is about refusing to write in the wrong place.
+
+Tried:
+
+*Four gates, in order, each with a message that says what to do instead.*
+(1) **Not production** — `assertLocalPilotDeploymentAllowed()` from
+`src/domain/security/deployment-mode.ts`, the same guard `scripts/local-pilot.mjs`
+uses, over `process.env` AND the `.env` file. (2) **Manifest integrity** — the
+SHA-256 over the manifest's `data` section is recomputed with
+`snapshot-integrity.ts`, the `XXXX-XXXX-XXXX` code is printed, and a mismatch
+prints both codes and stops. (3) **Schema match** — the migration recorded in the
+slice, the newest folder in `prisma/migrations`, and the newest applied row in the
+target's `_prisma_migrations` must be the same name; all three are printed when
+they are not. The slice's `exportOrder` is compared with this checkout's
+`SLICE_EXPORT_ORDER` in the same gate. (4) **Empty target** — every table the
+import writes must hold zero rows, and a count that cannot be read never counts as
+zero. The refusal lists the non-empty tables and prints the recipe: fresh
+`createdb`, `pnpm exec prisma migrate deploy`, then import.
+
+*The cycles are computed, not remembered.* `src/domain/slice/schema-map.ts` parses
+`prisma/schema.prisma` into a column-type map and a foreign-key list;
+`planSliceDeferrals()` in `src/domain/slice/ingest.ts` compares every FK against
+`SLICE_EXPORT_ORDER` and returns the columns that cannot be satisfied at insert
+time. On today's schema that is exactly the three documented cycle columns —
+`User.departmentGroupId`, `DepartmentGroup.parentGroupId` (self-reference), and
+`Customer.defaultProcessSheetTemplateId` — inserted null and patched afterwards by
+`buildSlicePatchPlan()`, one UPDATE per row, skipping rows whose deferred columns
+were null anyway. A NOT NULL foreign key pointing forward is not deferred: it is
+reported as a hard problem, because that means the ORDER is wrong and ingest must
+not paper over it.
+
+*Revival mirrors the export's serializer.* `reviveSliceRow()` is the inverse of
+`toJsonSafe()` in `scripts/export-slice.mjs`: ISO string → `Date`, decimal string
+kept AS A STRING (Prisma accepts decimal strings; parsing to a float is exactly
+the precision loss the export avoided), `{ $base64 }` → bytes, Json through
+untouched, and a null in a nullable Json column mapped to the caller's sentinel
+(`Prisma.DbNull`) because Prisma refuses a bare `null` there. Which columns need
+revival comes from the schema at run time, so a `DateTime?` added by a migration
+is handled without editing the script. A corrupt value names its `Model.column`
+and the NDJSON line instead of reaching the database.
+
+*Load and verify.* Chunked `createMany` (500) in `SLICE_EXPORT_ORDER` — imported
+from the same module the export imports it from, with a test that asserts both
+CLIs read the same specifier and that neither carries its own model list. Blobs
+under `blobs/` are copied to `<MOLDPILOT_STORAGE_DIR>/<storageKey>` through the
+same traversal guard the download route uses; a photo the slice does not carry is
+counted, never fatal. Afterwards, every model's row count is compared with the
+manifest and a mismatch exits 1 with a table.
+
+*Dev password policy.* The export nulls `passwordHash`, so nobody could log in.
+Every imported user is given `slice-dev-login` through the real `hashPassword()`
+(one salt each, same `scrypt-v1` verifier the app checks), with
+`forcePasswordChange = true` and `passwordUpdatedAt = null`, and the summary says
+so in English and Chinese.
+
+Result:
+
+`npx tsc --noEmit` clean. Full suite 782 tests, 760 pass, 22 fail — the same 22
+`platform-production-package.test.ts` sandbox-layout failures as the entry below,
+unchanged in count and unchanged in name. Baseline before this work was 736/714/22,
+so the 46 new tests are 46 new passes and zero new failures.
+
+Why:
+
+**Empty target, not merge.** A slice carries production ids. Loading it on top of
+seeded demo data, or on top of a previous import, produces a database that looks
+fine and is quietly neither — and every later bug report from that laptop is
+unreadable. Refusing costs one `createdb`; merging costs trust in the whole lane.
+
+**Not atomic, deliberately.** Loading is chunked `createMany` per model rather
+than one transaction: a failed 40 MB transaction tells an operator less than a
+failed model name does, and recovery is trivial precisely because the gate proved
+the target was empty — drop it and start again.
+
+**One password for everybody, printed loudly.** A per-user password would have to
+be stored somewhere, and a random one would have to be transcribed. The whole
+directory sharing one obviously-worthless password is honest about what a slice
+database is: a development toy that must never be reachable from anything but the
+laptop that loaded it.
+
+Decision:
+
+`pnpm slice:import` is CLI only, for the same reason as the export — a web path
+would put "overwrite the database from a file" behind a cookie. The test suite
+enforces it structurally (nothing under `src/app` or `src/server` may reference
+`import-slice` or `domain/slice`).
+
+A slice is still not a backup and still not a cutover source. The result of an
+import is a development database with no real password hashes, no login-throttle
+state, out-of-window projects missing entirely, and almost no attachment bytes.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- full suite: 782 tests, 760 pass, 22 fail — all 22 in
+  `platform-production-package.test.ts` (sandbox sibling-layout ENOENT, see below);
+  baseline 736/714/22, so +46 tests, +46 passes, +0 failures
+- deferral plan checked against the REAL schema: exactly the three documented
+  cycle columns, zero unsatisfiable foreign keys, and the schema parser reports no
+  unrecognised line in any model block
+- revival round-trips run through a copy of the export's own `toJsonSafe()`, so a
+  change to Phase 1's serialization breaks the round-trip first
+- `prisma/schema.prisma`, `scripts/export-slice.mjs`, `LJ_ERP/ops/**`,
+  `scripts/backup.sh`, `scripts/server-*.sh`, and
+  `tests/domain/platform-production-package.test.ts`: untouched. No dependency
+  added, no migration, no seed, no `prisma generate`
+
+**Not verified, and it has to be verified on the owner's Mac.** There was no
+database and no generated Prisma client in this environment:
+
+- no gate has been run against a real database (gates 3 and 4 both query one)
+- `createMany`, the deferred-FK patch UPDATEs, and the post-load counts have never
+  executed; the payload shapes are derived from the schema, not from a client
+- `Prisma.DbNull` for null `Json` columns is the documented API but was not
+  exercised; the code falls back to omitting the column, which lands the same SQL
+  NULL because no nullable column in this schema has a default
+- the `_prisma_migrations` result shape is assumed to be
+  `[{ migration_name, finished_at }]`, the same assumption Phase 1 records
+- blob copying into `MOLDPILOT_STORAGE_DIR` has not been run
+
+Acceptance recipe for this entry, on the owner's Mac:
+
+```bash
+pnpm slice:export -- --months 1 --out ~/slices           # Phase 1, on the data machine
+createdb moldpilot_slice                                 # fresh, empty
+export DATABASE_URL=postgresql://moldpilot:moldpilot@localhost:5432/moldpilot_slice?schema=public
+pnpm exec prisma migrate deploy
+pnpm slice:import -- --slice ~/slices/moldpilot-slice-<from>_<to> --dry-run   # gates only
+pnpm slice:import -- --slice ~/slices/moldpilot-slice-<from>_<to>
+pnpm dev                                                 # then open /api/health/ready
+```
+
+Expected: the integrity code matches the one the export printed, the four gates
+pass in order, row counts equal the manifest, and any user logs in with
+`slice-dev-login` and is redirected to the forced password change. Rerunning the
+import against the same database must fail gate 4 and name the non-empty tables.
+
+Related Docs:
+
+- `README.md` (KPI & operations scripts)
+- `docs/08-rollout/security-hardening-runbook.md` §7
+- `docs/02-schema/schema-v0.md`
+
+### 2026-07-27: Reviewed Factory Roster And Clean Local Production Database
+
+Context:
+
+The factory supplied a reviewed employee workbook and asked to replace the
+sample account database locally before the Mac mini deployment. The source
+workbook contained 18 employees, but its People validation formulas had broken
+`#REF!` username references and GM/Viewer had invalid KPI-team values.
+
+Tried:
+
+Rendered and inspected every workbook sheet. Repaired the People validation
+formula across all editable rows, cleared KPI team for GM and Viewer, and
+removed stray reference-note values. The resulting workbook reports 18/18 rows
+Ready and zero permission exceptions.
+
+Added a versioned production roster fixture with the reviewed workbook SHA-256,
+pure validation for identity/role/locale/KPI-team/leader/permission-exception
+rules, production-only user/KPI seeding, and a post-bootstrap verifier. Demo
+users and projects remain unchanged. Production customer seeding now omits fake
+support customers and resolves imported Anna/Zoe/Peng ownership to the reviewed
+permanent usernames.
+
+Before reset, created and validated a PostgreSQL custom-format rollback dump of
+the 29-project demo database. The first reset command included Prisma's removed
+`--skip-seed` option and stopped before changing data. The supported Prisma 7
+reset then applied all migrations without implicit seed; the explicit
+production bootstrap created the clean dataset.
+
+The first post-bootstrap verifier run exposed a verifier-only `undefined`
+versus `null` comparison for GM's blank KPI team. Normalizing the optional
+relation fixed it. ESLint also exposed a pre-existing use of the reserved
+variable name `module` in the readiness endpoint test; it was renamed to
+`modulePath`.
+
+Result:
+
+Worked. The active local `moldpilot` database now contains 19 active accounts
+(18 reviewed employees plus protected Admin), and all 19 require first-login
+password change. It contains 75 real imported clients, 26 machines, one process
+template, and no projects, trials, issues, activity fixtures, individual
+permission exceptions, or fake support clients. Client ownership points to
+`liu.wanxia`, `zhou.juane`, and `peng.liman`.
+
+Admin and Anna both authenticated through the running local web app and were
+redirected to forced password change. A new clean custom-format dump restored
+successfully into an isolated scratch database with matching counts; the
+scratch database was then removed.
+
+Why:
+
+Separating reviewed production identity from stable demo fixtures avoids
+breaking development tests while giving the future Mac mini exactly the users
+accepted locally. A verified dump/restore preserves user IDs, ownership, KPI
+membership, and password state as one dataset instead of recreating them
+independently on the server.
+
+Decision:
+
+Use `prisma/fixtures/factory-users-2026-07-27.json` only for fresh production
+bootstrap. Later roster changes require a new reviewed workbook/fixture/hash;
+never use seed to rewrite a live roster. Transfer the accepted local database
+to the Mac mini through an encrypted PostgreSQL dump and start it with
+`--existing-data`.
+
+Verification:
+
+- Reviewed workbook: 18 Ready, 0 needs review, 0 exceptions, 0 formula errors
+- `pnpm prisma:verify-production`: passed
+- Admin and employee browser login: forced-password redirect passed
+- Isolated PostgreSQL scratch restore: passed
+- `pnpm exec prisma validate`: passed
+- `pnpm lint`: passed
+- `pnpm build`: passed
+- `CI=true pnpm test:domain`: 735/735 passed
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/02-schema/schema-v0.md`
+- `docs/02-schema/permissions-matrix.md`
+- `docs/03-build/acceptance-tests.md`
+- `docs/08-rollout/deployment-checklist.md`
+
+### 2026-07-27: Dev Slice Phase 1 — Classified Export
+
+Context:
+
+Development happens on laptops; the real data lives on the factory Mac mini. Until
+now the only ways to move data were the encrypted nightly backup (whole database,
+password hashes, every attachment byte — correct for recovery, wrong for a laptop)
+or hand-written seed fixtures (safe, but they never reproduce the shapes that break
+in production). A "dev slice" is the missing third thing: 1–12 months of real
+activity, sanitized, windowed, and stripped of heavy binaries, exported once so a
+dev machine can recreate a working database from it.
+
+Phase 1 is the export half only. Ingest is Phase 2 and is **not** built.
+
+Tried:
+
+*Classification before code.* `src/domain/slice/classification.ts` classifies every
+model in `prisma/schema.prisma` as `master` (exported whole — roles, permissions,
+users, groups, customers, machines, process-sheet templates and parameters, KPI
+rules, settings), `windowed` (exported only for in-window projects), or `excluded`.
+The map is data, and `tests/domain/slice-classification.test.ts` parses the schema
+at test time: a model added later with no classification fails the suite. That was
+mutation-tested — appending a dummy `model` to the schema turned it red with the
+name of the offender, removing it turned it green.
+
+Twelve master, eleven windowed, one excluded. The one exclusion is
+`LoginThrottleBucket`: brute-force counters keyed by a hash of an account name or a
+source address, rebuilt the moment anyone types a password, of zero development
+value. There is no session table to exclude (sessions are signed cookies) and no
+quarantine table (quarantine is `*.upload` files on disk).
+
+*Two judgment calls, both documented in the map.* `ActivityLog` has no project FK —
+`entityType`/`entityId` is a loose reference — so only rows whose `entityId` is an
+exported PROJECT-LINEAGE id travel. Admin-lineage rows (entityType `User`, `Role`,
+`Customer`, `InjectionMachine`, `SystemSetting`) are dropped: that is the audit trail
+of admin actions on people, which is exactly what a dev laptop should not carry.
+`KpiSnapshot` has no FK at all; rows are selected by `snapshotDate` inside the
+window, and project-scoped ones additionally require an in-window project. Its
+`metricsJson` is an aggregate that can still name project codes and usernames from
+out-of-window projects — a known leak-through, accepted because the payload is
+aggregate and the slice is confidential regardless.
+
+*Windowing rule.* A project is IN when ANY timestamp in its lineage — the project
+row, a part, a trial event, a missed trial, an issue, a process value, a design
+change, a limit adjustment, an attachment upload/delete, or an activity-log row
+pointing at any of those — falls inside the window. An IN project then exports its
+COMPLETE history, every child row, regardless of that row's own date. An OUT project
+exports nothing. Half a project is worse than no project: it reads as a data bug
+rather than an absence. The verdict is a pure function
+(`src/domain/slice/project-window.ts`) fed per-table latest-activity timestamps, so
+it is unit-testable without a database, and the manifest records *which* signal
+pulled each project in.
+
+*Window math.* `--months N` (1–12) starts on the 1st of the month N-1 months back
+and ends at the end of today; `--from/--to` takes explicit inclusive business dates
+and is capped at 366 days. Both produce a half-open `[start, end)` instant range on
+`Asia/Shanghai` midnights, fixed +08:00, the same convention
+`management-reports.ts` already uses.
+
+*Sanitization as data.* Every column in the schema whose name contains
+hash/secret/token/password/key was read and decided. `User.passwordHash` → null.
+`User.email` → null (staff PII with zero readers anywhere in `src/`).
+`ActivityLog.beforeJson`/`afterJson` → recursive key redaction (today's writers use
+explicit selects and log no secrets; the column is schema-less, so this is defensive,
+not a correction). `SystemSetting.value` → redacted only when the row's *key* looks
+secret-bearing (today nothing matches). `LoginThrottleBucket.keyHash` is recorded as
+found-and-handled by excluding the model. Deliberately kept: `FileAttachment.storageKey`
+(a relative path Phase 2 needs to restore blobs), `ProcessSheetParameter.parameterKey`,
+`SystemSetting.key`, `User.passwordUpdatedAt`.
+
+*The CLI.* `scripts/export-slice.mjs` (`pnpm slice:export`). Read-only — only
+`findMany` and one `$queryRaw` against `_prisma_migrations`. It refuses an `--out`
+that resolves inside the repository (the same rule as `scripts/backup.sh`'s
+`BACKUP_DIR` guard, reimplemented in node rather than shared, because a wrong-looking
+duplicate is safer than a clever cross-language import) and refuses to overwrite an
+existing slice. Output is `<out>/moldpilot-slice-<from>_<to>/` with one
+`<Model>.ndjson` per exported model, a `blobs/` tree, and `manifest.json`. Blobs are
+copied only for `TRIAL_PHOTO` attachments at or below 400 000 bytes and never for
+soft-deleted rows; a file missing from disk is recorded in the manifest, never fatal.
+The manifest reuses `snapshot-integrity.ts` for canonicalization and the SHA-256, and
+prints the same `XXXX-XXXX-XXXX` code as the KPI snapshot, so both artifacts are
+checked the same way.
+
+Result:
+
+`npx tsc --noEmit` clean. Full suite 736 tests, 714 pass, 22 fail — the same 22
+`platform-production-package.test.ts` sandbox-layout failures described in the entry
+below, unchanged in count. The suite run with the two new files excluded is 685
+tests / 663 pass / 22 fail, so the 51 new tests are 51 new passes and zero new
+failures.
+
+Why:
+
+**CLI only. Never a web endpoint, never a server action, never an admin button.**
+A web path would mean one stolen admin cookie could export the operational database
+over the LAN — the whole point of the windowing and sanitization would be undone by
+the transport. A server-side CLI requires shell access on the Mac mini, which is a
+different and much smaller attack surface. If slices ever surface in the admin UI it
+will be a read-only *listing* panel (what exists, when, how big); the export itself
+stays on the command line. `tests/domain/slice-export.test.ts` enforces this
+structurally: it walks `src/app` and `src/server` and fails if any file references
+`export-slice` or `domain/slice`.
+
+Decision:
+
+A slice is not a backup and is not a cutover source. It has no password hashes, no
+throttle state, no out-of-window projects, and almost no attachment bytes. Never
+restore production from one. Recovery remains `scripts/backup.sh` plus a verified
+scratch restore.
+
+`SLICE_EXPORT_ORDER` in `classification.ts` is load-bearing for Phase 2, not
+cosmetic. Three reference cycles exist in the schema — User ↔ DepartmentGroup,
+Customer ↔ ProcessSheetTemplate, and DepartmentGroup's self-reference — and every
+cycle-forming column is nullable, so ingest will insert with them null and patch
+afterwards. Do not reorder without rerunning the FK-order test.
+
+Verification:
+
+- `npx tsc --noEmit`: clean
+- full suite: 736 tests, 714 pass, 22 fail — all 22 in
+  `platform-production-package.test.ts` (sandbox sibling-layout ENOENT, see below)
+- suite excluding the two new slice files: 685 tests, 663 pass, 22 fail — so the
+  slice work adds 51 tests and 0 failures
+- completeness test mutation-tested: a dummy `model` appended to
+  `prisma/schema.prisma` turned it red naming the model; the schema was restored
+  byte-identical (checksum compared) and `git status` was clean afterwards
+- every Prisma query in the CLI was validated against the generated client by
+  issuing it at an unreachable database: all 34 came back `P1001`/`P2010`
+  "can't reach database server", i.e. every model delegate, `select`, `where`, and
+  `orderBy` is structurally valid; a field typo would have raised a validation error
+  instead
+- CLI argument and guard paths exercised for real: `--help`, `--out` inside the repo
+  root, `--out` inside `storage/`, `--months 99`, reversed `--from/--to`, and
+  `--months` together with `--from` all fail with the intended message and exit 1,
+  and none of them creates a directory
+- `prisma/schema.prisma`, `LJ_ERP/ops/**`, `scripts/backup.sh`, `scripts/server-*.sh`,
+  and `tests/domain/platform-production-package.test.ts`: untouched. No dependency
+  added, no migration, no seed, no `prisma generate`
+
+**Not verified, and it has to be verified on the Mac mini.** There was no database
+in this environment, so nothing below has been executed end to end:
+
+- an actual export against real data — row counts, NDJSON shape, `Decimal` and `Json`
+  serialization, and the integrity code printed at the end
+- the `_prisma_migrations` read (the query is valid; the *result shape* returned by
+  the pg adapter is assumed to be `[{ migration_name, finished_at }]`)
+- blob copying from `MOLDPILOT_STORAGE_DIR`, including the missing-on-disk path
+- whether the two-pass index over every table is fast enough on the real dataset
+  (pass 1 reads ids and timestamps only, but it reads them for the whole database)
+
+Acceptance for this entry is one real `pnpm slice:export --months 1 --out <external
+volume>` on the owner's Mac against the dev database.
+
+Related Docs:
+
+- `README.md` (KPI & operations scripts)
+- `docs/08-rollout/security-hardening-runbook.md` §7
+- `docs/08-rollout/deployment-checklist.md` item 7
+- `docs/02-schema/schema-v0.md`
+
 ### 2026-07-27: Pre-release Readiness — Health Endpoint, Snapshot Capture Scope, Repo Hygiene
 
 Context:

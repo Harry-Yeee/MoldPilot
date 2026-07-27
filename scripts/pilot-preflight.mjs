@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/**
+ * ROSTER: the seed check verifies the legacy dev seed roster (`pnpm prisma:seed`
+ * runs this script with --check-seed) and asserts those exact usernames, KPI
+ * groups and Chinese names. Not for bootstrapped DBs — `pnpm prisma:bootstrap`
+ * loads the reviewed factory roster and is verified by
+ * `scripts/verify-production-bootstrap.mjs` instead.
+ */
 import "dotenv/config";
 
 import { spawnSync } from "node:child_process";

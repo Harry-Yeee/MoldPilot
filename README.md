@@ -25,7 +25,12 @@ node scripts/simulate-kpi-data.mjs [--reset]  # generate ~6 weeks of MP-SIM- tes
 node scripts/run-kpi-snapshot.mjs             # persist daily KpiSnapshot rows (schedule nightly via launchd in production)
 node scripts/run-kpi-snapshot.mjs --verify F  # recheck an archived snapshot JSON against its integrity code
 node scripts/debug-my-plate.mjs <username>    # explain why an issue does/doesn't appear on someone's task list
+pnpm training:examples [-- --reset]           # MP-DEMO- demo projects for the training session: one complete journey (intake -> approval), one date awaiting Injection confirmation, one correction loop with an unclaimed inbox defect; actors resolved by ROLE from the live roster, --reset removes MP-DEMO- data and its files only
 python3 scripts/migrate-and-verify.py         # migrate + seed + typecheck + tests in one go (restart dev server after)
+pnpm slice:export -- --months 3 --out DIR     # dev slice: 1-12 months of sanitized activity (--out must be outside the repo; CLI only, never a web endpoint)
+# A slice is not a backup: no password hashes, in-window projects only, trial photos <=400 KB. Safe for dev laptops, still confidential.
+pnpm slice:import -- --slice DIR              # load a slice into a FRESH, empty dev database (gates: not production, manifest integrity, same migration, empty target; --dry-run checks without writing)
+# Import gives every user the password "slice-dev-login" with a forced change at first login; the export carries no real hashes.
 ```
 
 ### Security & operations notes

@@ -10,6 +10,10 @@
  * functions from src/domain/mold-trial/my-plate.ts — the verdict for each
  * section of the task list, plus a likely-cause hint for misses.
  * Makes no writes.
+ *
+ * ROSTER: works against ANY roster, but the DEFAULT argument is the legacy dev
+ * seed username `zhong`. On a bootstrapped DB (`pnpm prisma:bootstrap`) pass a
+ * real username from the reviewed factory roster instead.
  */
 import "dotenv/config";
 

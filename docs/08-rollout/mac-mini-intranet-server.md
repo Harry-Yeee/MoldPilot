@@ -166,8 +166,10 @@ The script:
 8. Verifies the local malware scanner and renders a reviewed Caddy
    configuration without activating the privileged proxy.
 9. Applies Prisma production migrations.
-10. Bootstraps real users, roles, permissions, clients, machines, and the
-    process-sheet template without demo projects.
+10. Bootstraps the reviewed 18-person factory roster plus protected Admin,
+    roles, permissions, real clients, machines, and the process-sheet template
+    without demo projects or support clients, then runs the production
+    bootstrap verifier.
 11. Runs typecheck, domain tests, and the production build.
 12. Installs and starts the loopback-only `com.moldpilot.app` launch agent.
 
@@ -185,6 +187,13 @@ For a database restored from a real backup before bootstrap:
 ```bash
 bash scripts/server-bootstrap-macos.sh --existing-data
 ```
+
+The accepted 2026-07-27 rollout path is to build and verify the clean database
+locally, transfer its PostgreSQL custom-format dump inside the approved
+encrypted archive, restore it under the Mac mini's MoldPilot database, and use
+`--existing-data`. Do not run a second production seed after that restore. This
+preserves account IDs, client ownership, KPI groups/leaders, and password
+lifecycle state exactly as tested locally.
 
 ### Existing Temporary HTTP Pilot
 

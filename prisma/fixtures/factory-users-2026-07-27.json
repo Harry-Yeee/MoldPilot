@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "sourceWorkbook": "Factory-Users-Reviewed.xlsx",
+  "sourceWorkbookSha256": "d7cef2db53cf5a5532e053b5b2f545406e62ee02817cbddc5759f8151a9bd91c",
+  "reviewedAt": "2026-07-27",
+  "people": [
+    {
+      "username": "xie.fengxia",
+      "displayName": "Xie",
+      "chineseName": "谢凤侠",
+      "roleCode": "GM",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": null,
+      "teamLeader": false
+    },
+    {
+      "username": "long.shiyuan",
+      "displayName": "Bill",
+      "chineseName": "龙世源",
+      "roleCode": "PM",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "pm",
+      "teamLeader": false
+    },
+    {
+      "username": "liu.zhijun",
+      "displayName": "Jun",
+      "chineseName": "刘志军",
+      "roleCode": "PM",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "pm",
+      "teamLeader": false
+    },
+    {
+      "username": "li.dacheng",
+      "displayName": "Cheng",
+      "chineseName": "利达成",
+      "roleCode": "PM",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "pm",
+      "teamLeader": false
+    },
+    {
+      "username": "wang.qunying",
+      "displayName": "Yvonne",
+      "chineseName": "王群英",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": true
+    },
+    {
+      "username": "liu.wanxia",
+      "displayName": "Anna",
+      "chineseName": "刘婉霞",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": false
+    },
+    {
+      "username": "zhou.juane",
+      "displayName": "Zoe",
+      "chineseName": "周娟娥",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": false
+    },
+    {
+      "username": "peng.liman",
+      "displayName": "Peng",
+      "chineseName": "彭利满",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": false
+    },
+    {
+      "username": "wu.siying",
+      "displayName": "Juria",
+      "chineseName": "吴思颖",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": false
+    },
+    {
+      "username": "xiao.siqin",
+      "displayName": "Sahara",
+      "chineseName": "肖思琴",
+      "roleCode": "MARKETING",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "marketing",
+      "teamLeader": false
+    },
+    {
+      "username": "jiang.zhong",
+      "displayName": "Zhong",
+      "chineseName": "江忠",
+      "roleCode": "ASSEMBLY",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "assembly-a",
+      "teamLeader": true
+    },
+    {
+      "username": "liu.zhenpei",
+      "displayName": "Pei",
+      "chineseName": "刘振培",
+      "roleCode": "ASSEMBLY",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "assembly-b",
+      "teamLeader": true
+    },
+    {
+      "username": "wang.sheng",
+      "displayName": "Wang",
+      "chineseName": "王胜",
+      "roleCode": "INJECTION",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "injection",
+      "teamLeader": true
+    },
+    {
+      "username": "gong.jilin",
+      "displayName": "Gong",
+      "chineseName": "龚济林",
+      "roleCode": "QC",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "qc",
+      "teamLeader": true
+    },
+    {
+      "username": "ye.shuangshuang",
+      "displayName": "Shuang",
+      "chineseName": "叶双双",
+      "roleCode": "QC",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "qc",
+      "teamLeader": false
+    },
+    {
+      "username": "liu.xi",
+      "displayName": "Louis",
+      "chineseName": "刘希",
+      "roleCode": "DESIGN",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "design",
+      "teamLeader": true
+    },
+    {
+      "username": "luo.honghui",
+      "displayName": "Luo",
+      "chineseName": "罗洪辉",
+      "roleCode": "DESIGN",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": "design",
+      "teamLeader": false
+    },
+    {
+      "username": "viewer",
+      "displayName": "Viewer",
+      "chineseName": "观众",
+      "roleCode": "VIEWER",
+      "locale": "ZH_CN",
+      "active": true,
+      "kpiTeamCode": null,
+      "teamLeader": false
+    }
+  ],
+  "permissionExceptions": []
+}

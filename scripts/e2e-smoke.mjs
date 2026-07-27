@@ -38,6 +38,12 @@
  *     Node 22.18+/24). It never imports src/server/*-actions.ts or anything that
  *     pulls in next/headers ("use server" modules cannot run outside Next).
  *
+ * ROSTER: targets the legacy dev seed roster (`pnpm prisma:seed`) — the forged
+ * session cookies below are minted for admin/bill/wang/yvonne/lin/viewer. NOT
+ * for bootstrapped DBs (`pnpm prisma:bootstrap` loads the reviewed factory
+ * roster, where those usernames are absent); the run then stops on the
+ * "role users missing" precondition instead of reporting false failures.
+ *
  * Exit code: 0 when every check passes, 1 on any FAIL or unmet precondition.
  */
 import "dotenv/config";
