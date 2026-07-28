@@ -6,6 +6,8 @@
  * `src/app/globals.css` (@theme). Add a new status here, not inline in JSX.
  */
 
+import type { CSSProperties } from "react";
+
 export type StatusTone =
   // trial / project state
   | "planned"
@@ -85,4 +87,26 @@ const statusKeyToTone: Record<string, StatusTone> = {
 /** Resolve a domain status/severity label to a tone; falls back to neutral. */
 export function toneForStatus(status: string): StatusTone {
   return statusKeyToTone[status] ?? "paused";
+}
+
+/**
+ * The two CSS custom properties a "section hue" needs: a strong rule/dot colour
+ * and its tint. Both resolve to the same `@theme` tokens the pill classes above
+ * use — this is the variable form, for places that colour a border, a header
+ * band, and a matching nav swatch from one tone (project-page dual coding).
+ *
+ * Tone names are the token suffixes by construction (`at-risk` ->
+ * `--color-status-at-risk`, `severity-high` -> `--color-severity-high`), so no
+ * second colour table can drift from this one.
+ */
+export function sectionHueVars(tone: StatusTone): CSSProperties {
+  const token = tone.startsWith("severity-") ? tone : `status-${tone}`;
+
+  // React writes `--*` keys through style.setProperty, but CSSProperties is a
+  // closed type that deliberately models no custom properties — one assertion
+  // here keeps every call site clean.
+  return {
+    "--section-hue": `var(--color-${token})`,
+    "--section-hue-bg": `var(--color-${token}-bg)`
+  } as CSSProperties;
 }

@@ -29,6 +29,8 @@ Admin, later/minimal
 
 Most operational work should happen from the Mold Trial Detail page.
 
+On desktop (lg and up) that page carries a sticky section rail whose entries are built from the sections actually rendered, each section repeating its rail swatch as a 4px left rule plus a tinted header band, above a six-step stage stepper that uses the training poster's stage names verbatim; below `lg` none of it renders and the phone layout is unchanged.
+
 On the dashboard/header, Admin and My tasks should appear as sibling buttons in one nav/action group when both are visible. Desktop should show them in one horizontal row with consistent spacing; small screens may wrap when needed.
 
 Manager/staff score navigation is role-aware:

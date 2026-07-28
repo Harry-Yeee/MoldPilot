@@ -7,7 +7,8 @@ import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { AttachmentUploader } from "@/components/attachments/AttachmentUploader";
 import { ImageCaptureField } from "@/components/attachments/image-capture-field";
 import { IssuePhotoCountChip, IssuePhotoGallery, type IssuePhoto } from "@/components/attachments/issue-photo-gallery";
-import { StatusBadge, SubmitButton, statusToneClasses, toneForStatus } from "@/components/ui";
+import { StatusBadge, SubmitButton, sectionHueVars, statusToneClasses, toneForStatus } from "@/components/ui";
+import { ProjectSectionNav, type ProjectSectionNavItem } from "@/components/project/ProjectSectionNav";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
 import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
@@ -25,10 +26,26 @@ import {
   trialVerificationStatusOptions
 } from "@/domain/mold-trial/trial-panel";
 import { formatBilingualUserOption, formatIssueOwnerUserOption } from "@/domain/mold-trial/users";
-import { attachmentLabels, issueFormLabels, issuePhotoLabels, myPlateLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import {
+  attachmentLabels,
+  issueFormLabels,
+  issuePhotoLabels,
+  measurementReportLabels,
+  myPlateLabels,
+  pickLabel,
+  projectSectionLabels,
+  type BilingualLabel,
+  type Locale
+} from "@/domain/mold-trial/labels";
+import {
+  computeProjectStage,
+  projectStages,
+  type ProjectStageTrial
+} from "@/domain/mold-trial/project-stage";
 import {
   daysBetweenProposedAndTarget,
   isProposedDateAfterTarget,
+  participatesInDateConfirmation,
   type DateConfirmationStatus
 } from "@/domain/mold-trial/date-confirmation";
 import { createTranslator, translateLabel, type Dictionary } from "@/i18n";
@@ -774,7 +791,12 @@ function ProcessSheetComparison({
   const editableTrial = trials.find((trial) => trial.id === currentEditableTrialId) ?? null;
 
   return (
-    <section className="workSurface processSheetSurface" aria-labelledby="process-sheet-heading">
+    <section
+      className="workSurface processSheetSurface sectionHue sectionAnchor"
+      id="section-process-sheet"
+      style={sectionHueVars("paused")}
+      aria-labelledby="process-sheet-heading"
+    >
       <div className="surfaceHeader">
         <div>
           <h2 id="process-sheet-heading">{t("project.digitalProcessSheet")}</h2>
@@ -1061,6 +1083,139 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   }));
   const todayInputDate = inputDate(new Date());
 
+  /* -------------------------------------------------------------------------
+   * Desktop orientation (lg+ rail, md+ stepper).
+   *
+   * Everything below is derived from data this page already loaded — no new
+   * queries — and every element it feeds is hidden below its breakpoint, so the
+   * phone renders exactly what it rendered before. The rail is built from the
+   * sections this render actually produces (permission-gated ones included),
+   * never from a hard-coded list that could drift.
+   * ---------------------------------------------------------------------- */
+  const locale = currentUser.locale;
+  const bilingual = (label: BilingualLabel) => ({ labelEn: label.en, labelZh: label.zh });
+  const openProjectIssues = project.trialIssues.filter(
+    (issue) => issue.status !== "CLOSED" && issue.status !== "VERIFIED"
+  );
+  /** Per-panel facts shared by the rail dots and the stage function. */
+  const trialPanelFacts = trialPanels.map((panel) => {
+    const rawTrialEvent =
+      panel.trial?.id == null
+        ? null
+        : project.trialEvents.find((event) => event.id === panel.trial?.id) ?? null;
+    const panelIssues =
+      panel.trial?.id == null
+        ? []
+        : openProjectIssues.filter((issue) => issue.foundAtTrialEventId === panel.trial?.id);
+
+    return {
+      panel,
+      rawTrialEvent,
+      openIssueCount: panelIssues.length,
+      reportMissing: measurementReportPanelState(panel.trial?.id)?.kind === "MISSING"
+    };
+  });
+  // Every DB status has a label, so the fallback is unreachable; it only keeps
+  // the stage input honestly typed.
+  const projectStageStatus = projectStatusLabels[project.status] ?? "Active";
+  // Every trial event, not just the paneled ones, so the stage's "current trial"
+  // is selected from the same candidate set as `defaultCurrentTrialId` and the
+  // two can never disagree about which panel is the open one.
+  const stageTrials: ProjectStageTrial[] = project.trialEvents.map((trial) => ({
+    id: trial.id,
+    sequenceNumber: trial.sequenceNumber,
+    plannedDate: trial.plannedDate,
+    status: trialStatusLabels[trial.status],
+    result: trial.result == null ? null : trialResultLabels[trial.result],
+    dateConfirmationStatus: trial.dateConfirmationStatus,
+    measurementReportMissing: measurementReportByTrialId.get(trial.id)?.kind === "MISSING"
+  }));
+  const projectStage = computeProjectStage({
+    projectStatus: projectStageStatus,
+    trials: stageTrials,
+    issues: {
+      openCount: openProjectIssues.length,
+      unclaimedCount: openProjectIssues.filter((issue) => issue.ownerUserId == null).length,
+      awaitingVerificationCount: project.trialIssues.filter((issue) => issue.status === "WAITING_VERIFICATION")
+        .length
+    }
+  });
+  const currentStage = projectStages[projectStage.stageIndex] ?? projectStages[0];
+  /** One pending-action dot per trial entry, highest-priority reason only. */
+  const trialNavBadge = (fact: (typeof trialPanelFacts)[number]): ProjectSectionNavItem["badge"] => {
+    const trial = fact.panel.trial;
+    if (trial == null) {
+      return undefined;
+    }
+
+    if (trial.status === "Auto Missed - Reason Required") {
+      return { tone: "missed", ...bilingual(projectSectionLabels.needsReason) };
+    }
+
+    const raw = fact.rawTrialEvent;
+    if (
+      raw != null &&
+      participatesInDateConfirmation(raw.status) &&
+      raw.dateConfirmationStatus !== "CONFIRMED"
+    ) {
+      return {
+        tone: raw.dateConfirmationStatus === "RETURNED_TO_PM" ? "missed" : "at-risk",
+        ...bilingual(projectSectionLabels.needsDateConfirmation)
+      };
+    }
+
+    if (fact.reportMissing) {
+      return { tone: "at-risk", ...bilingual(projectSectionLabels.needsReport) };
+    }
+
+    if (fact.openIssueCount > 0) {
+      return { tone: "at-risk", ...bilingual(projectSectionLabels.openIssues) };
+    }
+
+    return undefined;
+  };
+  const trialsSectionTone =
+    defaultCurrentTrial == null ? "planned" : toneForStatus(trialStatusLabels[defaultCurrentTrial.status]);
+  const showFirstT0Section = project.status === "INTAKE" && canSetFirstT0;
+  const navItems: ProjectSectionNavItem[] = [
+    { id: "section-overview", tone: "planned", ...bilingual(projectSectionLabels.overview) },
+    ...(canEditProjectBasics
+      ? [{ id: "section-identifiers", tone: "paused" as const, ...bilingual(projectSectionLabels.identifiers) }]
+      : []),
+    { id: "section-parts", tone: "paused", ...bilingual(projectSectionLabels.parts) },
+    ...(showFirstT0Section
+      ? [
+          {
+            id: "section-first-t0",
+            tone: "at-risk" as const,
+            ...bilingual(projectSectionLabels.firstT0),
+            badge: { tone: "at-risk" as const, ...bilingual(projectSectionLabels.needsFirstDate) }
+          }
+        ]
+      : []),
+    { id: "section-trials", tone: trialsSectionTone, ...bilingual(projectSectionLabels.trials) },
+    ...trialPanelFacts.map((fact): ProjectSectionNavItem => ({
+      id: `trial-panel-${fact.panel.sequenceNumber}`,
+      labelEn: `${fact.panel.title} ${myPlateLabels.trial.en}`,
+      labelZh: `${fact.panel.title} ${myPlateLabels.trial.zh}`,
+      tone: fact.panel.trial == null ? "paused" : toneForStatus(fact.panel.trial.status),
+      badge: trialNavBadge(fact)
+    })),
+    { id: "section-process-sheet", tone: "paused", ...bilingual(projectSectionLabels.processSheet) },
+    { id: "section-files", tone: "paused", ...bilingual(attachmentLabels.filesTitle) },
+    ...(canDownloadCustomerSafe
+      ? [
+          {
+            id: "section-customer-files",
+            tone: "in-correction" as const,
+            ...bilingual(measurementReportLabels.customerFilesTitle)
+          }
+        ]
+      : []),
+    { id: "section-history", tone: "paused", ...bilingual(projectSectionLabels.history) },
+    { id: "section-activity", tone: "paused", ...bilingual(projectSectionLabels.activity) }
+  ];
+
   function canEditSimpleIssue(issue: ProjectDetail["project"]["trialIssues"][number]): boolean {
     if (issue.status === "CLOSED") {
       return currentUser.roleCode === "GM" && hasPermissionCode(permissionCodes, "trial.issue.create");
@@ -1099,7 +1254,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   }
 
   return (
-    <main className="shell">
+    <main className="shell shellWide">
       <AppHeader current="project" nav={nav} currentUser={currentUser} />
       <section className="pageHeader">
         <div>
@@ -1132,6 +1287,64 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         <span>{projectStatusDisplay}</span>
       </div>
 
+      {/* Poster stepper (md and up). The six stages, wording and order, are the
+          six stages of the training poster, so the page and the wall teach one
+          workflow. One next-action line names the role that moves it. */}
+      <section
+        className="mt-2 mb-4 hidden gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-3 md:grid"
+        aria-label={pickLabel(projectSectionLabels.stageTitle, locale)}
+      >
+        <ol className="m-0 grid list-none grid-cols-6 gap-2 p-0">
+          {projectStages.map((stage) => {
+            const done = stage.index < projectStage.stageIndex;
+            const isCurrent = stage.index === projectStage.stageIndex;
+            const marker = done
+              ? "bg-status-completed text-white"
+              : isCurrent
+                ? "bg-white text-brand-600 ring-2 ring-brand-600"
+                : "bg-neutral-100 text-neutral-500";
+            const text = done ? "text-status-completed" : isCurrent ? "text-brand-600" : "text-neutral-500";
+
+            return (
+              <li
+                key={stage.id}
+                className="flex min-w-0 items-center gap-2"
+                aria-current={isCurrent ? "step" : undefined}
+              >
+                <span
+                  className={`flex h-6 w-6 flex-none items-center justify-center rounded-full text-xs font-bold ${marker}`}
+                >
+                  {stage.index + 1}
+                </span>
+                {/* Poster convention: both languages always visible (rail does the
+                    same) — the stepper is a teaching device, not locale-bound. */}
+                <span className={`grid min-w-0 gap-px leading-tight ${text}`}>
+                  <span className="text-xs font-bold">{stage.labelZh}</span>
+                  <span className="text-[0.6875rem] font-normal opacity-80">{stage.labelEn}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        <p className="m-0 text-sm font-bold text-neutral-800">
+          <span className="font-normal text-neutral-500">
+            {projectSectionLabels.stageNext.zh} · {projectSectionLabels.stageNext.en}:{" "}
+          </span>
+          {projectStage.nextAction.zh}
+          <span className="font-normal text-neutral-500"> · {projectStage.nextAction.en}</span>
+          {projectStage.approximate ? (
+            <span className="font-normal text-neutral-500">
+              {" "}
+              ({pickLabel(projectSectionLabels.stageEstimated, locale)})
+            </span>
+          ) : null}
+          <span className="sr-only">
+            {" "}
+            — {pickLabel({ en: currentStage.labelEn, zh: currentStage.labelZh }, locale)}
+          </span>
+        </p>
+      </section>
+
       {error == null ? null : (
         <section className="notice noticeError" role="alert">
           <strong>{t("common.actionFailed")}</strong>
@@ -1146,7 +1359,24 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         </section>
       )}
 
-      <section className="workSurface detailSurface" aria-labelledby="project-overview-heading">
+      {/* Two-column shell: sticky section rail + content. Both wrappers are
+          plain blocks below lg (the grid rules are inside a min-width query and
+          the rail is `hidden`), so the phone keeps today's single column and the
+          sections keep their exact order. */}
+      <div className="projectLayout">
+      <ProjectSectionNav
+        items={navItems}
+        locale={locale}
+        title={`${projectSectionLabels.navTitle.zh} · ${projectSectionLabels.navTitle.en}`}
+      />
+      <div className="projectLayoutMain">
+
+      <section
+        className="workSurface detailSurface sectionHue sectionAnchor"
+        id="section-overview"
+        style={sectionHueVars("planned")}
+        aria-labelledby="project-overview-heading"
+      >
         <div className="surfaceHeader">
           <h2 id="project-overview-heading">{t("project.projectOverview")}</h2>
           <span className={`state state${limit.warningState.replaceAll(" ", "")}`}>
@@ -1220,7 +1450,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       </section>
 
       {canEditProjectBasics ? (
-        <section className="workSurface formSurface" aria-labelledby="identifier-heading">
+        <section
+          className="workSurface formSurface sectionHue sectionAnchor"
+          id="section-identifiers"
+          style={sectionHueVars("paused")}
+          aria-labelledby="identifier-heading"
+        >
           <div className="surfaceHeader">
             <h2 id="identifier-heading">{t("project.identifierTitle")}</h2>
           </div>
@@ -1243,7 +1478,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         </section>
       ) : null}
 
-      <section className="workSurface" aria-labelledby="parts-cavities-heading">
+      <section
+        className="workSurface sectionHue sectionAnchor"
+        id="section-parts"
+        style={sectionHueVars("paused")}
+        aria-labelledby="parts-cavities-heading"
+      >
         <div className="surfaceHeader">
           <h2 id="parts-cavities-heading">{t("project.partsCavities")}</h2>
           <span>{partSummary}</span>
@@ -1306,7 +1546,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       </section>
 
       {project.status !== "INTAKE" ? null : canSetFirstT0 ? (
-        <section className="workSurface formSurface" aria-labelledby="first-t0-heading">
+        <section
+          className="workSurface formSurface sectionHue sectionAnchor"
+          id="section-first-t0"
+          style={sectionHueVars("at-risk")}
+          aria-labelledby="first-t0-heading"
+        >
           <div className="surfaceHeader">
             <h2 id="first-t0-heading">{t("project.setFirstT0Date")}</h2>
           </div>
@@ -1337,7 +1582,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         <BlockedAction headingId="first-t0-heading" title={t("project.setFirstT0Date")} />
       )}
 
-      <section className="workSurface trialPanelSurface" aria-labelledby="trial-panel-heading">
+      <section
+        className="workSurface trialPanelSurface sectionHue sectionAnchor"
+        id="section-trials"
+        style={sectionHueVars(trialsSectionTone)}
+        aria-labelledby="trial-panel-heading"
+      >
         <div className="surfaceHeader">
           <div>
             <h2 id="trial-panel-heading">{t("project.trialPanel")}</h2>
@@ -1371,12 +1621,20 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               rawTrialEvent != null &&
               (panel.trial?.status === "Planned" || panel.trial?.status === "At Risk");
 
+            const isCurrentTrialPanel =
+              panel.trial?.id != null && panel.trial.id === projectStage.currentTrialId;
+
             return (
             <details
-              className="trialPanel"
+              className="trialPanel sectionAnchor"
               id={`trial-panel-${panel.sequenceNumber}`}
               key={panel.sequenceNumber}
-              open={panel.isNextActionPanel && limit.completedTrialCount > 0}
+              /* Progressive disclosure: finished trials stay folded to their
+                 summary line, the current trial (per the stage function, which
+                 selects it with the same rule that drives `defaultCurrentTrialId`)
+                 opens. The completed-count guard is deliberately unchanged — it
+                 is what the phone renders today. */
+              open={isCurrentTrialPanel && limit.completedTrialCount > 0}
             >
               <summary>
                 <span>
@@ -1387,6 +1645,32 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                       : `${translateLabel(dictionary, "trialStatus", panel.trial.status)} / ${formatDate(panel.trial.plannedDate)}`}
                   </small>
                 </span>
+                {/* Desktop-only fold summary: what a folded trial must still say
+                    out loud — result, the date it ran, the machine it ran on.
+                    `hidden` below lg, so the phone summary is untouched. */}
+                {panel.trial == null ? null : (
+                  <span className="hidden flex-wrap items-center gap-2 lg:flex">
+                    {isCurrentTrialPanel ? (
+                      <StatusBadge tone="planned">{pickLabel(projectSectionLabels.trialCurrent, locale)}</StatusBadge>
+                    ) : null}
+                    {panel.trial.result == null ? null : (
+                      <StatusBadge status={panel.trial.result}>
+                        {translateLabel(dictionary, "trialResult", panel.trial.result)}
+                      </StatusBadge>
+                    )}
+                    <small className="text-neutral-600">
+                      {formatDate(panel.trial.actualDate ?? panel.trial.plannedDate)}
+                    </small>
+                    {(() => {
+                      const machine = rawTrialEvent?.machineNoSnapshot ?? panel.trial.machine;
+                      return machine == null || machine.length === 0 ? null : (
+                        <small className="text-neutral-600">
+                          {pickLabel(projectSectionLabels.trialMachine, locale)} {machine}
+                        </small>
+                      );
+                    })()}
+                  </span>
+                )}
                 {panel.trial == null ? (
                   <span className="state">{t("project.notPlanned")}</span>
                 ) : (
@@ -1652,7 +1936,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         redirectTo={redirectTo}
       />
 
-      <section className="workSurface" aria-labelledby="files-heading">
+      <section
+        className="workSurface sectionHue sectionAnchor"
+        id="section-files"
+        style={sectionHueVars("paused")}
+        aria-labelledby="files-heading"
+      >
         <details>
           <summary className="surfaceHeader cursor-pointer list-none">
             <div>
@@ -1694,10 +1983,18 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             uploaderName: attachment.uploadedBy.displayName
           }))}
           locale={currentUser.locale}
+          sectionId="section-customer-files"
+          sectionClassName="sectionHue sectionAnchor"
+          sectionStyle={sectionHueVars("in-correction")}
         />
       ) : null}
 
-      <section className="workSurface" aria-labelledby="planning-history-heading">
+      <section
+        className="workSurface sectionHue sectionAnchor"
+        id="section-history"
+        style={sectionHueVars("paused")}
+        aria-labelledby="planning-history-heading"
+      >
         <div className="surfaceHeader">
           <h2 id="planning-history-heading">{t("project.planningChangeHistory")}</h2>
         </div>
@@ -1733,7 +2030,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         </div>
       </section>
 
-      <section className="workSurface" aria-labelledby="activity-heading">
+      <section
+        className="workSurface sectionHue sectionAnchor"
+        id="section-activity"
+        style={sectionHueVars("paused")}
+        aria-labelledby="activity-heading"
+      >
         <div className="surfaceHeader">
           <h2 id="activity-heading">{t("project.activityTimeline")}</h2>
         </div>
@@ -1752,6 +2054,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           )}
         </ol>
       </section>
+
+      </div>
+      </div>
     </main>
   );
 }

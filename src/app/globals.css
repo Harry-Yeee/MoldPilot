@@ -3161,3 +3161,168 @@ th {
   }
 }
 }
+
+/*
+ * Project-detail orientation (navigation + cognitive structure bundle).
+ *
+ * Training feedback: the project page shows everything at once, with no sense of
+ * where you are or what matters. Three answers live here — a sticky section rail,
+ * one section hue carried in two places (a 4px left rule + a tinted header band,
+ * matched by the rail's swatch), and smooth anchor jumps.
+ *
+ * EVERY rule below sits inside `@media (min-width: 1024px)`. Below lg the project
+ * page renders exactly the layout it rendered before this feature existed: the
+ * wrapper divs are plain blocks, the rail is `hidden`, and no hue, border, or
+ * scroll behaviour applies. That is the phone contract for this bundle.
+ *
+ * Colours come only from `@theme` tokens, indirected through the `--section-hue`
+ * / `--section-hue-bg` pair that `sectionHueVars()` sets from a StatusTone, so
+ * the rail swatch and the section rule can never drift apart.
+ */
+@layer components {
+@media (min-width: 1024px) {
+  /* Anchor jumps from the rail glide instead of teleporting. */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  .projectLayout {
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  /* The project page earns a wider canvas on large screens: the rail hugs the
+     left edge and the data tables breathe instead of squeezing into 1180px
+     while both sides sit empty. lg-only so phones/tablets are untouched. */
+  @media (min-width: 1024px) {
+    .shellWide {
+      width: min(2200px, calc(100% - 64px));
+    }
+  }
+
+  .projectLayoutMain {
+    min-width: 0;
+  }
+
+  .projectSectionNavInner {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    /* overflow-y:auto forces overflow-x to compute to auto; any 1px of
+       overflow then spawns a horizontal scrollbar inside the card. Labels
+       wrap now, so clip the x-axis outright. */
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    border: 1px solid var(--color-neutral-300);
+    border-radius: 8px;
+    background: white;
+    padding: 12px 10px;
+  }
+
+  .projectSectionNavTitle {
+    margin: 0 0 8px;
+    padding: 0 6px;
+    color: var(--color-neutral-600);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .projectSectionNavList {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .projectSectionNavLink {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--color-neutral-700);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .projectSectionNavLink:hover {
+    background: var(--color-neutral-100);
+    text-decoration: none;
+  }
+
+  .projectSectionNavLink.isActive {
+    background: var(--section-hue-bg);
+    color: var(--section-hue);
+  }
+
+  .projectSectionNavSwatch {
+    flex: none;
+    width: 4px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--section-hue);
+  }
+
+  .projectSectionNavText {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+
+  .projectSectionNavZh {
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+
+  .projectSectionNavEn {
+    color: var(--color-neutral-500);
+    font-size: 0.6875rem;
+    font-weight: 400;
+  }
+
+  .projectSectionNavLink.isActive .projectSectionNavEn {
+    color: var(--section-hue);
+    opacity: 0.75;
+  }
+
+  /* Pending action inside that section: one small dot, amber or red. */
+  .projectSectionNavAlert {
+    flex: none;
+    margin-left: auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--section-hue);
+  }
+
+  /* Section boundary: a 4px rule plus a tinted header band — the same hue the
+     rail swatch shows. No full-section background floods. */
+  .sectionHue {
+    border-left: 4px solid var(--section-hue, var(--color-neutral-300));
+  }
+
+  .sectionHue > .surfaceHeader,
+  .sectionHue > details > .surfaceHeader {
+    background: var(--section-hue-bg, transparent);
+  }
+
+  /* Jump targets stop clear of the top edge instead of hugging it. */
+  .sectionAnchor {
+    scroll-margin-top: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+}

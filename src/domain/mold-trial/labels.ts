@@ -110,6 +110,42 @@ export const issuePhotoLabels = {
   photoCount: { en: "photos", zh: "张照片" }
 } as const satisfies Record<string, BilingualLabel>;
 
+/**
+ * Project-detail orientation labels (desktop only): the section rail, the
+ * poster-mirrored stage stepper, and the folded trial summary chips.
+ *
+ * The section names deliberately repeat the `project.*` dictionary strings word
+ * for word — the rail must read exactly like the heading it jumps to, and the
+ * rail needs both languages at once (it is built server-side from a bilingual
+ * pair, not from the active-language translator).
+ */
+export const projectSectionLabels = {
+  navTitle: { en: "On this page", zh: "本页内容" },
+  overview: { en: "Project Overview", zh: "项目概览" },
+  identifiers: { en: "Project Identifiers", zh: "项目识别信息" },
+  parts: { en: "Parts / Cavities", zh: "零件 / 穴位" },
+  firstT0: { en: "Set First T0 Date", zh: "设置首次 T0 日期" },
+  trials: { en: "Trial Panel", zh: "试模记录" },
+  processSheet: { en: "Digital Process Sheet", zh: "电子工艺表" },
+  history: { en: "Planning & Change History", zh: "计划与变更历史" },
+  activity: { en: "Activity Timeline", zh: "活动记录" },
+  // Pending-action dots carried by a rail entry.
+  needsFirstDate: { en: "First trial date not set", zh: "尚未设定首次试模日期" },
+  needsDateConfirmation: { en: "Trial date not confirmed", zh: "试模日期待确认" },
+  needsReport: { en: "Measurement report missing", zh: "缺少测量报告" },
+  needsReason: { en: "Missed trial needs a reason", zh: "漏做试模需要填写原因" },
+  openIssues: { en: "Open issues", zh: "未结问题" },
+  // Stage stepper (mirrors the training poster's six stages).
+  stageTitle: { en: "Workflow stage", zh: "流程阶段" },
+  stageNext: { en: "Next", zh: "下一步" },
+  stageEstimated: { en: "estimated", zh: "估算" },
+  stageDone: { en: "done", zh: "已完成" },
+  stageCurrent: { en: "current", zh: "当前" },
+  // Folded trial summary (progressive disclosure).
+  trialCurrent: { en: "Current", zh: "当前" },
+  trialMachine: { en: "Machine", zh: "机台" }
+} as const satisfies Record<string, BilingualLabel>;
+
 /** Trial-issue create form labels (blame-free intake — R1). */
 export const issueFormLabels = {
   moreDetails: { en: "More details (optional)", zh: "更多细节（可选）" }

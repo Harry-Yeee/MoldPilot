@@ -10,7 +10,7 @@ export type { StatusBadgeProps } from "./StatusBadge";
 export { ConfirmationBadge, dateConfirmationBadge } from "./ConfirmationBadge";
 export type { ConfirmationBadgeProps, ConfirmationTone } from "./ConfirmationBadge";
 
-export { statusToneClasses, toneForStatus } from "./status-colors";
+export { sectionHueVars, statusToneClasses, toneForStatus } from "./status-colors";
 export type { StatusTone } from "./status-colors";
 
 export { Card, CardBody } from "./Card";

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { EmptyState, StatusBadge } from "@/components/ui";
 import { extensionBadge } from "@/domain/mold-trial/attachments";
 import {
@@ -21,6 +22,12 @@ export type CustomerFile = {
 export type CustomerFilesSectionProps = {
   files: readonly CustomerFile[];
   locale: Locale;
+  /** DOM id so the desktop section rail can jump here. Omitted = no anchor. */
+  sectionId?: string;
+  /** Extra classes on the surface (desktop hue + anchor offset). */
+  sectionClassName?: string;
+  /** Section-hue custom properties from `sectionHueVars()`. */
+  sectionStyle?: CSSProperties;
 };
 
 function label(key: keyof typeof measurementReportLabels, locale: Locale): string {
@@ -46,12 +53,23 @@ function labelOrCode(labels: Record<string, { en: string; zh: string }>, code: s
  * arrives with its stored `<projectCode>_<trialCode>_measurement-report.<ext>`
  * name. Rendered only for holders of `attachment.download.customer_safe`.
  */
-export function CustomerFilesSection({ files, locale }: CustomerFilesSectionProps) {
+export function CustomerFilesSection({
+  files,
+  locale,
+  sectionId,
+  sectionClassName,
+  sectionStyle
+}: CustomerFilesSectionProps) {
   // Measurement reports (QC_REPORT) surface first; stable within each group.
   const ordered = [...files].sort((a, b) => rank(a) - rank(b));
 
   return (
-    <section className="workSurface" aria-labelledby="customer-files-heading">
+    <section
+      className={sectionClassName == null ? "workSurface" : `workSurface ${sectionClassName}`}
+      id={sectionId}
+      style={sectionStyle}
+      aria-labelledby="customer-files-heading"
+    >
       <div className="surfaceHeader">
         <div>
           <h2 id="customer-files-heading">{label("customerFilesTitle", locale)}</h2>

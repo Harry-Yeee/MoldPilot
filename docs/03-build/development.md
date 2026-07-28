@@ -39,6 +39,84 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-28: Gave The Project Page A Spine (Rail, Stepper, Folded Trials) Without Touching The Phone
+
+Context:
+
+Worker training produced one consistent complaint about `/projects/[code]`: the
+page shows everything at once, and a new user has no sense of where they are on
+it or what actually matters. Nothing was missing — orientation was. The phone
+flow, by contrast, tested well and must not move.
+
+Tried:
+
+- A sticky left section rail (`src/components/project/ProjectSectionNav.tsx`,
+  the only new client component). The server page builds the entry list from the
+  sections it actually rendered — permission-gated ones included, one entry per
+  trial panel — so the rail can never advertise a section the viewer cannot see.
+  Navigation is plain anchor jumps with CSS `scroll-behavior: smooth`; the sole
+  client behaviour is an IntersectionObserver that highlights the active entry.
+- Dual-coded section hues: one `StatusTone` per section drives both a 4px left
+  rule + tinted header band on the surface and the matching swatch in the rail.
+  `sectionHueVars()` in `status-colors.ts` derives `--section-hue` /
+  `--section-hue-bg` from the tone name, so the two places cannot drift and no
+  second colour table exists. Colour is never the only signal — position in the
+  rail and the heading text carry the same information.
+- A poster-mirrored stage stepper. `src/domain/mold-trial/project-stage.ts` is a
+  pure function from (project status + trials + issue counts) to a 0-5 stage plus
+  one bilingual next action naming the responsible role. The six stage names are
+  copied verbatim from `docs/07-training/roles-responsibilities-poster.html`, so
+  the screen and the wall poster teach one vocabulary, not two.
+- Progressive disclosure on trial panels: the fold is the existing `<details>`,
+  and the desktop summary line now carries result badge, date, and machine so a
+  folded trial still answers "what happened".
+
+Result:
+
+Desktop gains a spine; below `lg` the page is byte-for-byte what it was. Every
+new rule in `globals.css` sits inside `@media (min-width: 1024px)`, the rail is
+`hidden lg:block`, the stepper is `hidden md:grid`, and the new trial-summary
+chips are `hidden lg:flex`. The layout wrappers are unstyled blocks below `lg`,
+and margin collapsing through them leaves the same 48px page tail as before.
+
+Why:
+
+Colour alone would have been a quilt, and a second stage vocabulary would have
+made the training poster wrong. Deriving the rail from the render (rather than a
+constant list) means permission changes and extra trial panels keep it honest for
+free.
+
+Decision:
+
+- The `<details open>` expression keeps its `limit.completedTrialCount > 0`
+  guard. `open` is one attribute for both viewports, so "expand the current
+  trial" cannot be made desktop-only; the current-trial source was rewired to the
+  stage function (which selects with the same `selectCurrentPlannedTrial` rule
+  over the same candidate set) and the guard left alone, giving identical phone
+  output. Do not "fix" this without a viewport-aware plan.
+- Per-trial rail entries anchor to the existing `#trial-panel-<sequence>` ids
+  rather than new `section-trial-T1` ids: an element has one id, and that id is
+  already the target of the "Add trial result" link. Page-level sections got new
+  `section-*` ids.
+- Pending-action dots reuse existing predicates only (auto-missed status,
+  `participatesInDateConfirmation` + handshake state, `measurementReportState`
+  MISSING, open-issue counts). No new notion of "pending" was invented.
+
+Verification:
+
+- `npx tsc --noEmit` clean.
+- `node --test tests/domain/*.test.ts`: 831 tests, 0 failures (the 22-test
+  platform-production-package suite cancels in this sandbox layout, as expected).
+  34 of those are the new `tests/domain/project-stage.test.ts`.
+- ESLint clean on every touched file.
+- e2e sentinels re-checked in `scripts/e2e-smoke.mjs` and still rendered:
+  "Trial Panel", "Digital Process Sheet", "Mold Trial Detail".
+
+Related Docs:
+
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/07-training/roles-responsibilities-poster.html`
+
 ### 2026-07-28: Reviewed Usernames And Guarded Worker Training On The Mac Mini
 
 Context:
