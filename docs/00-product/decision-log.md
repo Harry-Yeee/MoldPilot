@@ -21,6 +21,31 @@ Marketing creates intake -> PM schedules T0 -> Trial happens or is missed
 
 ## Decisions
 
+### 2026-07-28: Worker Training May Use Explicitly Confirmed MP-DEMO Fixtures
+
+The real pilot server needs the same three training journeys workers will see
+during onboarding. This is not permission to seed or reset production.
+
+Decision:
+
+- Production bootstrap remains fresh-database-only and must never be rerun over
+  operational data.
+- `pnpm training:examples` still refuses production by default.
+- After a fresh verified backup, an operator may create the clearly marked
+  `MP-DEMO-001/002/003` fixtures with the exact
+  `--production-confirm "CREATE MP-DEMO TRAINING DATA"` phrase.
+- The generator may create only the `MP-DEMO` demo client, `MP-DEMO-*` projects,
+  their child records, ActivityLog rows, and demo attachment bytes.
+- Production reset requires the same confirmation and remains scoped to those
+  demo projects and their files. It must not delete real projects or master data.
+
+Reason:
+
+An explicit, auditable training lane is safer than disguising the production
+environment or running the normal development seed. It gives workers realistic
+screens while preserving the production seed prohibition and a narrow cleanup
+boundary.
+
 ### 2026-07-27: Server Address Is Deployment Configuration And First Deploy Is One Command
 
 The Mac mini's reserved factory address changed from `192.168.0.178` to

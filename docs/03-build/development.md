@@ -39,6 +39,45 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-28: Reviewed Usernames And Guarded Worker Training On The Mac Mini
+
+Context:
+
+The first native Mac mini database contained the retired development usernames
+(`bill`, `wang`, `anna`, and similar) even though the reviewed production roster
+uses full employee usernames. The worker demo also needed the three
+`MP-DEMO-*` journeys on the actual pilot server, while the generator correctly
+refused every production deployment.
+
+Tried:
+
+- Took a custom-format PostgreSQL/config/file snapshot before data changes.
+- Migrated the 18 employee identities in place from the reviewed
+  `factory-users-2026-07-27.json` mapping. The transaction preserved user IDs,
+  password hashes, credential lifecycle fields, ownership relations, and
+  history, rejected username collisions, and wrote one ActivityLog per account.
+- Kept production refusal as the default and added one exact
+  `--production-confirm "CREATE MP-DEMO TRAINING DATA"` path. No deployment-mode
+  environment override or normal production seed is used.
+
+Result:
+
+The account migration changed 18 reviewed identities and its before/after
+credential checksum matched. Training generation remains limited to the
+`MP-DEMO` client, three `MP-DEMO-*` projects, their children/logs, and demo files.
+
+Verification:
+
+- Focused production-auth/deployment tests: 16/16 passed.
+- ESLint passed.
+- Mac mini demo generation and browser verification are recorded in the
+  completion evidence for this operation.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/08-rollout/mac-mini-intranet-server.md`
+
 ### 2026-07-27: First Mac Mini Deploy Blocked By Platform Skew — Preflight Added
 
 Context:

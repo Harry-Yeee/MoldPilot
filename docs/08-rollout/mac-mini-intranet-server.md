@@ -269,6 +269,29 @@ Do not launch `run-moldpilot.command`, `pnpm pilot:start`, or another local
 pilot command on this checkout. The production marker makes those paths exit
 before migrations or seed and directs the operator to the deploy script.
 
+### Worker Training Fixtures
+
+Normal production use of `pnpm training:examples` refuses before opening
+Prisma. After a fresh verified backup, the operator may create the clearly
+marked worker-training records with:
+
+```bash
+pnpm training:examples -- \
+  --production-confirm "CREATE MP-DEMO TRAINING DATA"
+```
+
+This creates only the `MP-DEMO` demo client, `MP-DEMO-001/002/003`, their child
+records, ActivityLog rows, and small demo attachment files. It does not run the
+production seed. Rebuilding the examples requires the same confirmation:
+
+```bash
+pnpm training:examples -- --reset \
+  --production-confirm "CREATE MP-DEMO TRAINING DATA"
+```
+
+Never use `pnpm prisma:seed`, `prisma migrate reset`, or a deployment-mode
+override to prepare worker training on the pilot server.
+
 ## 6. Verify Current Access And Activate Preferred HTTPS
 
 For temporary HTTP, first validate without restarting anything:

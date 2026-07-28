@@ -5,7 +5,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { assertLocalPilotDeploymentAllowed } from "../../src/domain/security/deployment-mode.ts";
+import {
+  PRODUCTION_TRAINING_CONFIRMATION,
+  assertLocalPilotDeploymentAllowed,
+  assertTrainingExamplesDeploymentAllowed
+} from "../../src/domain/security/deployment-mode.ts";
 import {
   parseSessionCookieSecureMode,
   shouldUseSecureSessionCookie,
@@ -159,6 +163,52 @@ describe("production-safe launch and seed behavior", () => {
     const command = source("run-moldpilot.command");
     assert.ok(command.indexOf("MOLDPILOT_DEPLOYMENT_MODE") < command.indexOf("run-local-pilot.sh"));
     assert.match(command, /No migration or seed was run/);
+  });
+
+  it("requires an exact explicit confirmation before creating production training examples", () => {
+    const productionEnvironment = {
+      MOLDPILOT_DEPLOYMENT_MODE: "production"
+    };
+
+    assert.throws(
+      () =>
+        assertTrainingExamplesDeploymentAllowed(
+          productionEnvironment,
+          "",
+          undefined
+        ),
+      /No demo data was written/
+    );
+    assert.throws(
+      () =>
+        assertTrainingExamplesDeploymentAllowed(
+          productionEnvironment,
+          "",
+          "yes"
+        ),
+      /No demo data was written/
+    );
+    assert.deepEqual(
+      assertTrainingExamplesDeploymentAllowed(
+        productionEnvironment,
+        "",
+        PRODUCTION_TRAINING_CONFIRMATION
+      ),
+      { production: true }
+    );
+    assert.deepEqual(
+      assertTrainingExamplesDeploymentAllowed({}, "", undefined),
+      { production: false }
+    );
+  });
+
+  it("documents the production training confirmation without weakening the default refusal", () => {
+    const script = source("scripts/create-training-examples.mjs");
+
+    assert.match(script, /--production-confirm/);
+    assert.match(script, /assertTrainingExamplesDeploymentAllowed/);
+    assert.match(script, /PRODUCTION TRAINING/);
+    assert.doesNotMatch(script, /MOLDPILOT_DEPLOYMENT_MODE\s*=\s*["']development/);
   });
 
   it("checks production authentication configuration before stopping the service", () => {

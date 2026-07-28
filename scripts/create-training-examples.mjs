@@ -43,10 +43,10 @@
  * as `src/server/attachment-storage.ts`, so galleries, the lightbox and downloads
  * work. `--reset` removes those files from disk again.
  *
- * SAFETY — refuses to run when the deployment mode is production (the same guard
- * `scripts/local-pilot.mjs` uses). `--reset` touches ONLY MP-DEMO- projects, their
- * cascade children, their ActivityLog rows and their files. Nothing else is read
- * for writing and no master data is deleted.
+ * SAFETY — production requires the exact explicit confirmation phrase shown by
+ * `--help`; otherwise it refuses before opening Prisma. `--reset` touches ONLY
+ * MP-DEMO- projects, their cascade children, their ActivityLog rows and their
+ * files. Nothing else is read for writing and no master data is deleted.
  *
  * TIME — timestamps are day offsets counted back from the run day (scenario 1
  * spreads over ~3 weeks) plus hour offsets from `now` for the two live countdown
@@ -63,7 +63,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 
-import { assertLocalPilotDeploymentAllowed } from "../src/domain/security/deployment-mode.ts";
+import {
+  PRODUCTION_TRAINING_CONFIRMATION,
+  assertTrainingExamplesDeploymentAllowed
+} from "../src/domain/security/deployment-mode.ts";
 import { buildStorageKey, resolveStoragePath } from "../src/domain/mold-trial/attachments.ts";
 import { measurementReportFileName } from "../src/domain/mold-trial/measurement-report.ts";
 import {
@@ -83,6 +86,13 @@ const RESET_ONLY = args.has("--reset-only");
 const PREFIX = "MP-DEMO-";
 const DEMO_CUSTOMER_CODE = "MP-DEMO";
 
+function optionValue(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 && index + 1 < process.argv.length
+    ? process.argv[index + 1]
+    : undefined;
+}
+
 if (args.has("--help") || args.has("-h")) {
   console.log(`MoldPilot training examples (MP-DEMO-)
 
@@ -90,20 +100,31 @@ Usage:
   pnpm training:examples                 build MP-DEMO-001/002/003
   pnpm training:examples -- --reset      delete MP-DEMO- data, then rebuild
   pnpm training:examples -- --reset-only delete MP-DEMO- data and stop
+  pnpm training:examples -- --production-confirm "${PRODUCTION_TRAINING_CONFIRMATION}"
+                                         explicitly allow MP-DEMO data in production
 
 Requires a seeded database (pnpm prisma:bootstrap for the factory roster, or
-pnpm prisma:seed in development). Refuses to run against a production
-deployment mode.`);
+pnpm prisma:seed in development). Production refuses before opening Prisma
+unless the exact confirmation phrase is supplied.`);
   process.exit(0);
 }
 
-// --- Gate 1: never production (same guard as scripts/local-pilot.mjs) ---------
+// --- Gate 1: production requires an exact, visible operator confirmation -----
+let deploymentAllowance;
 try {
-  assertLocalPilotDeploymentAllowed(process.env, existsSync(".env") ? readFileSync(".env", "utf8") : "");
+  deploymentAllowance = assertTrainingExamplesDeploymentAllowed(
+    process.env,
+    existsSync(".env") ? readFileSync(".env", "utf8") : "",
+    optionValue("--production-confirm")
+  );
 } catch (error) {
   console.error(`\n[FAIL] ${error instanceof Error ? error.message : String(error)}`);
-  console.error("Training demo data is never written to a production deployment.");
   process.exit(1);
+}
+if (deploymentAllowance.production) {
+  console.warn(
+    `[PRODUCTION TRAINING] Confirmed: only ${PREFIX} projects, their files, and the ${DEMO_CUSTOMER_CODE} demo client may be created.`
+  );
 }
 
 const { PrismaClient } = await import("@prisma/client");
@@ -1315,7 +1336,10 @@ async function main() {
   console.log("Note: if MP-SIM- simulator data is loaded too, its cards appear on the same /me");
   console.log("pages. For a clean training session run `node scripts/simulate-kpi-data.mjs --reset`");
   console.log("first, or point the trainer at the MP-DEMO- project codes on each card.");
-  console.log("Reset: `pnpm training:examples -- --reset` (MP-DEMO- only, files included).");
+  const resetCommand = deploymentAllowance.production
+    ? `pnpm training:examples -- --reset --production-confirm "${PRODUCTION_TRAINING_CONFIRMATION}"`
+    : "pnpm training:examples -- --reset";
+  console.log(`Reset: \`${resetCommand}\` (MP-DEMO- only, files included).`);
 }
 
 try {
