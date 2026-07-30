@@ -15,16 +15,18 @@ import {
   attachmentLabels,
   fileTypeLabels,
   fileVisibilityLabels,
+  localeFromLanguage,
   pickLabel,
   type Locale
 } from "@/domain/mold-trial/labels";
 import { directUploadFile } from "@/components/attachments/direct-upload";
+import { translateWorkflowMessage } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
 
 export type AttachmentUploaderProps = {
   projectId: string;
   entityType: AttachmentEntityTypeValue;
   entityId: string;
-  locale: Locale;
   /**
    * Whether the actor may choose a file visibility. Required (no default) so every
    * call site decides based on the viewer's role. When false the visibility select
@@ -86,9 +88,10 @@ export function AttachmentUploader({
   projectId,
   entityType,
   entityId,
-  locale,
   canChooseVisibility
 }: AttachmentUploaderProps) {
+  const { dictionary, language, t } = useI18n();
+  const locale = localeFromLanguage(language);
   const router = useRouter();
   const [fileType, setFileType] = useState<AttachmentFileType>("OTHER");
   const [visibility, setVisibility] = useState<AttachmentVisibility>(defaultVisibilityForFileType("OTHER"));
@@ -113,7 +116,7 @@ export function AttachmentUploader({
     const form = event.currentTarget;
     const selected = new FormData(form).get("file");
     if (!(selected instanceof File) || selected.size === 0) {
-      setFeedback({ success: false, message: "Choose a file to upload." });
+      setFeedback({ success: false, message: t("common.chooseFile") });
       return;
     }
 
@@ -128,7 +131,10 @@ export function AttachmentUploader({
       visibility: canChooseVisibility ? visibility : undefined
     });
     setUploading(false);
-    setFeedback({ success: result.success, message: result.message });
+    setFeedback({
+      success: result.success,
+      message: translateWorkflowMessage(dictionary, result.message) ?? result.message
+    });
     if (result.success) {
       form.reset();
       router.refresh();
@@ -202,7 +208,7 @@ export function AttachmentUploader({
 
       <div className="sm:col-span-3">
         <Button type="submit" size="lg" disabled={uploading}>
-          {uploading ? "Uploading..." : pickLabel(attachmentLabels.upload, locale)}
+          {uploading ? t("common.uploading") : pickLabel(attachmentLabels.upload, locale)}
         </Button>
       </div>
       {feedback == null ? null : (

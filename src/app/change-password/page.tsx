@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AccountMenu } from "@/app/account-menu";
 import { SubmitButton } from "@/components/ui";
-import { createTranslator } from "@/i18n";
+import { createTranslator, translateWorkflowMessage } from "@/i18n";
 import { getDictionary } from "@/i18n/server";
 import { changeOwnCredentials } from "@/server/auth-actions";
 import { getCurrentUser } from "@/server/current-user";
@@ -22,15 +22,16 @@ export default async function ChangePasswordPage({ searchParams }: PageProps) {
     searchParams,
     getCurrentUser({ allowPasswordChangeRequired: true })
   ]);
-  const error = messageValue(params, "error");
-  const success = messageValue(params, "success");
-  const t = createTranslator(await getDictionary());
+  const dictionary = await getDictionary();
+  const error = translateWorkflowMessage(dictionary, messageValue(params, "error"));
+  const success = translateWorkflowMessage(dictionary, messageValue(params, "success"));
+  const t = createTranslator(dictionary);
 
   return (
     <main className="shell">
       <section className="pageHeader">
         <div>
-          <p className="eyebrow">MoldPilot Account</p>
+          <p className="eyebrow">MoldPilot · {t("common.account")}</p>
           <h1>{t("auth.changePassword")}</h1>
           {currentUser.forcePasswordChange ? (
             <p className="backLink" aria-hidden={false}>

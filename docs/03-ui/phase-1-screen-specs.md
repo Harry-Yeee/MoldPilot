@@ -51,11 +51,16 @@ Rules:
 - English is the default language.
 - A visible language switcher appears in the main header/account area and on login.
 - The selected language is remembered across reloads/navigation with a local cookie/storage setting.
-- The `moldpilot_language` provider/cookie setting is the only UI-language source. `/me` must not derive display language from `User.locale`.
+- The `moldpilot_language` provider/cookie setting is the only UI-language source. No screen, including project detail and `/me`, may derive display language from `User.locale`.
+- Server components use `getCurrentLanguage()`/the matching dictionary. Client components use `useI18n()`. Older bilingual-label components convert the active language with `localeFromLanguage()`.
 - The standalone `/me` My Tasks page and the mobile My Tasks panel embedded on the dashboard use the same selected language and update together.
 - `/me` includes the shared Language Switcher beside an always-available Dashboard link. At 360–430 px, these controls may wrap as one action group but must not overlap or create horizontal scrolling.
 - Translate interface text, headings, tabs, labels, buttons, status labels, enum display labels, empty states, and common workflow messages.
 - My Tasks translation includes trial and issue statuses, severity, missed-trial reasons, responsible areas, issue-status options, design-change requester labels, countdown/date-confirmation labels, bottom sheets, and generated trial titles such as `T0 trial` / `T0 试模`.
+- Dashboard, project detail, Admin, Reports, Calendar, My Tasks, Score, attachments, lightbox/photo gallery, measurement reports, and Customer Files use the same active language. Dates, days-away text, trial-limit badges, system empty/error states, placeholders, and accessibility labels follow it.
+- Dashboard next-trial and limit-basis display is built from stable kinds/codes plus sequence numbers, never by parsing completed English sentences.
+- Translate protected/default role and responsibility-group names by stable code. Preserve custom role, group, and process-template section names exactly as entered.
+- Trial display names are sequential: sequence 1 is T0, sequence 2 is T1, sequence 3 is T2, and sequence 4 is T3. Do not show the stored `EXTRA` enum as “Extra”.
 - Do not translate user-entered business data: mold codes, project/client refs, client names, part codes, issue titles, notes, machine brands, uploaded/report content, or historical record payloads.
 - Keep URLs simple; do not require `/en` or `/zh-CN` route prefixes in Phase 1.
 
@@ -169,7 +174,7 @@ The dashboard should include a compact list:
 | Mold Code | Link to detail. Show internal tracking ID if mold code is not set yet. |
 | Project Code / Client Ref | Optional. |
 | Customer Code | Code by default; display name optional for authorized PM/GM/Admin context. |
-| Next Trial | T0/T1/T2/Extra. |
+| Next Trial | T0/T1/T2/T3 and later, derived from sequence number. |
 | Planned Date | Next planned date. |
 | Trial Count | Example: 2 / 3. |
 | Open Issues | Total open. |
@@ -271,6 +276,7 @@ Start tracking one mold trial cycle.
 - First planned trial date, for PM/Admin users who can schedule T0
 - Additional part/cavity rows
 - Part name, cavity label, cavity count, and part notes
+- Inserts 嵌件, a multi-select checkbox group in the main grid (IML, IMD, threaded nut, magnet, metal terminal, stamped metal, glass/lens, other). Nothing checked means no inserts. Correctable later in the project Identifiers form.
 - Base trial limit, default 3
 - Notes
 - Initial feedback/design-change note
@@ -312,6 +318,7 @@ Show:
 - Optional Project Code / Client Ref
 - Customer code
 - Primary part code and part/cavity count
+- Inserts 嵌件 as neutral chips, only when the project has any; no row at all when it has none
 - Status
 - Priority
 - PM

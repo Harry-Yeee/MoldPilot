@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Button, FormField } from "@/components/ui";
 import { directUploadFile } from "@/components/attachments/direct-upload";
+import { translateWorkflowMessage } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
 
 export type DirectFileUploadFormProps = {
   projectId: string;
@@ -34,6 +36,7 @@ export function DirectFileUploadForm({
   children,
   onSuccess
 }: DirectFileUploadFormProps) {
+  const { dictionary, t } = useI18n();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState<{ success: boolean; message: string } | null>(null);
@@ -43,7 +46,7 @@ export function DirectFileUploadForm({
     const form = event.currentTarget;
     const file = new FormData(form).get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setFeedback({ success: false, message: "Choose a file to upload." });
+      setFeedback({ success: false, message: t("common.chooseFile") });
       return;
     }
 
@@ -58,7 +61,10 @@ export function DirectFileUploadForm({
       visibility
     });
     setUploading(false);
-    setFeedback({ success: result.success, message: result.message });
+    setFeedback({
+      success: result.success,
+      message: translateWorkflowMessage(dictionary, result.message) ?? result.message
+    });
     if (result.success) {
       form.reset();
       onSuccess?.();
@@ -81,7 +87,7 @@ export function DirectFileUploadForm({
       </FormField>
       <div className="pt-1">
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={uploading}>
-          {uploading ? "Uploading..." : submitLabel}
+          {uploading ? t("common.uploading") : submitLabel}
         </Button>
       </div>
       {feedback == null ? null : (

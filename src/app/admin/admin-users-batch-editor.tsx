@@ -8,6 +8,8 @@ import {
   undoLastAdminAction,
   type AdminBatchActionState
 } from "@/server/admin-actions";
+import { translateWorkflowMessage } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
 
 type RoleOption = {
   id: string;
@@ -35,6 +37,7 @@ type Props = {
     discardChanges: string;
     displayName: string;
     forcePasswordChange: string;
+    inactiveSuffix: string;
     noActiveUsers: string;
     noArchivedUsers: string;
     passwordSet: string;
@@ -77,6 +80,7 @@ function sameRow(left: UserRow, right: UserRow): boolean {
 
 export function AdminUsersBatchEditor({ labels, roles, users, redirectTo }: Props) {
   const router = useRouter();
+  const { dictionary } = useI18n();
   const [baselineRows, setBaselineRows] = useState(users);
   const [rows, setRows] = useState(users);
   const [sourceUsers, setSourceUsers] = useState(users);
@@ -175,7 +179,7 @@ export function AdminUsersBatchEditor({ labels, roles, users, redirectTo }: Prop
             {roles.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}
-                {role.active ? "" : " (inactive)"}
+                {role.active ? "" : ` (${labels.inactiveSuffix})`}
               </option>
             ))}
           </select>
@@ -273,7 +277,7 @@ export function AdminUsersBatchEditor({ labels, roles, users, redirectTo }: Prop
         <span>{labels.unsavedChanges.replace("{count}", String(changedCount))}</span>
         {state.message == null ? null : (
           <span className={state.ok ? "batchMessage batchMessageSuccess" : "batchMessage batchMessageError"}>
-            {state.message}
+            {translateWorkflowMessage(dictionary, state.message)}
           </span>
         )}
         <button type="submit" disabled={changedCount === 0}>

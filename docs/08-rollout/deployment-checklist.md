@@ -48,6 +48,21 @@ a launch week.
    private age identity in the two sealed copies and schedule the quarterly
    restore drill: `security-hardening-runbook.md` §7a "Backup key escrow &
    restore drill".
+   **Cloud leg (Backup v2).** Then arm the off-site copy per
+   `security-hardening-runbook.md` §7b: `brew install rclone`, the estate bucket
+   `lj-erp-backups` with versioning + a **locked 30-day compliance retention
+   (WORM)** policy + the four-rule lifecycle policy (current versions expire at
+   180 days, noncurrent at 30, expired delete markers cleaned, incomplete
+   multipart uploads aborted at 7 days), a per-app prefix-scoped, no-delete
+   (Put/Get/List) RAM key scoped to `lj-erp-backups/moldpilot/*`, the
+   `BACKUP_OSS_*` block plus `BACKUP_EXPECTED=1` in `.env`, and the
+   `com.moldpilot.backup-verify` LaunchAgent alongside `com.moldpilot.backup`.
+   Confirm the admin page health line is green.
+   **Rotation-retirement rule.** Manual USB rotation is retired only after the
+   §7b acceptance tests G0–G5 pass — including the owner-laptop check that the
+   WORM policy is **Locked** and the deliberate `rclone deletefile` attempt that
+   MUST fail — **and** the first scheduled cloud drill passes on its own. Until
+   both are true, keep rotating the drives.
    Before any future native-to-container cutover, also require the parent
    platform's non-mutating native inventory and encrypted cutover format v2.
    Native backup v1 remains a routine recovery archive but is not an accepted

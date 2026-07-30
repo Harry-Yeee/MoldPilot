@@ -5,24 +5,26 @@ import { useState, type FormEvent } from "react";
 import { Button, FormField, Select, Textarea } from "@/components/ui";
 import {
   fileVisibilityLabels,
+  localeFromLanguage,
   measurementReportLabels,
-  pickLabel,
-  type Locale
+  pickLabel
 } from "@/domain/mold-trial/labels";
 import { directUploadFile } from "@/components/attachments/direct-upload";
+import { translateWorkflowMessage } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
 
 const REPORT_VISIBILITIES = ["CUSTOMER_SAFE", "INTERNAL"] as const;
 const REPORT_ACCEPT = "application/pdf,.pdf,.xlsx,.xls,.docx,.csv,.pptx,.ppt";
 
 export function MeasurementReportUploadForm({
   trialEventId,
-  locale,
   onSuccess
 }: {
   trialEventId: string;
-  locale: Locale;
   onSuccess?: () => void;
 }) {
+  const { dictionary, language, t } = useI18n();
+  const locale = localeFromLanguage(language);
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState<{ success: boolean; message: string } | null>(null);
@@ -35,7 +37,7 @@ export function MeasurementReportUploadForm({
     const data = new FormData(form);
     const file = data.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setFeedback({ success: false, message: "Choose a report file to upload." });
+      setFeedback({ success: false, message: t("common.chooseReport") });
       return;
     }
 
@@ -48,7 +50,10 @@ export function MeasurementReportUploadForm({
       note: String(data.get("note") ?? "")
     });
     setUploading(false);
-    setFeedback({ success: result.success, message: result.message });
+    setFeedback({
+      success: result.success,
+      message: translateWorkflowMessage(dictionary, result.message) ?? result.message
+    });
     if (result.success) {
       form.reset();
       onSuccess?.();
@@ -82,7 +87,7 @@ export function MeasurementReportUploadForm({
       </FormField>
       <div className="pt-1">
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={uploading}>
-          {uploading ? "Uploading..." : label("submit")}
+          {uploading ? t("common.uploading") : label("submit")}
         </Button>
       </div>
       {feedback == null ? null : (

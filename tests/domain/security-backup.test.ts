@@ -7,11 +7,20 @@ function source(relativePath: string): string {
 }
 
 describe("backup security", () => {
+  // Backup v2 parameterised the archive name so the next estate app can reuse
+  // the logic (scripts/backup-app-config.sh). The names these tests used to
+  // pin are now the CONFIG defaults, asserted here so the rendered filenames
+  // and the recovery-config entry cannot drift.
   it("creates encrypted versioned archives without an overwrite mirror", () => {
     const backup = source("scripts/backup.sh");
+    const config = source("scripts/backup-app-config.sh");
     assert.match(backup, /BACKUP_AGE_RECIPIENT/);
-    assert.match(backup, /age --recipient/);
-    assert.match(backup, /moldpilot-backup-\$STAMP\.tar\.age/);
+    assert.match(backup, /age "\$\{AGE_RECIPIENT_ARGS\[@\]\}"/);
+    assert.match(backup, /--recipient "\$BACKUP_AGE_RECIPIENT"/);
+    assert.match(backup, /ARCHIVE_NAME="\$\{BACKUP_ARCHIVE_PREFIX\}\$\{STAMP\}\$\{BACKUP_ARCHIVE_SUFFIX\}"/);
+    assert.match(config, /BACKUP_APP_NAME:-moldpilot/);
+    assert.match(config, /BACKUP_ARCHIVE_PREFIX:-\$BACKUP_APP_NAME-backup-/);
+    assert.match(config, /BACKUP_ARCHIVE_SUFFIX:-\.tar\.age/);
     assert.match(backup, /\[ ! -e "\$DESTINATION" \]/);
     assert.doesNotMatch(backup, /uploads-mirror/);
     assert.doesNotMatch(backup, /rsync -a --delete/);
@@ -20,7 +29,7 @@ describe("backup security", () => {
   it("includes encrypted recovery configuration and requires off-machine storage", () => {
     const backup = source("scripts/backup.sh");
     assert.match(backup, /\/Volumes\/\*/);
-    assert.match(backup, /recovery\/moldpilot\.env/);
+    assert.match(backup, /recovery\/\$\{BACKUP_APP_NAME\}\.env/);
     assert.match(backup, /manifest\.sha256/);
   });
 

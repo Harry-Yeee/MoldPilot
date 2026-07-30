@@ -286,6 +286,10 @@ Impact:
 
 - Add a lightweight centralized i18n layer instead of scattered bilingual conditionals.
 - Add a visible language switcher in normal app headers and login.
+- Treat `moldpilot_language`, read through `LanguageProvider`/`getCurrentLanguage()`, as the only UI-language source. `User.locale` is not a display preference.
+- Server components resolve the active dictionary for each request; reactive client components use the shared provider. Older bilingual-label components receive a `Locale` converted from that same active language.
+- Translate system-owned role/group names by stable code and preserve custom role/group/template names exactly as entered.
+- Derive visible trial names from sequence number (`1 = T0`, `4 = T3`) rather than exposing the stored `EXTRA` enum.
 - Future UI text should use translation keys when it is user-facing interface copy.
 
 ### 2026-07-03: Failed Trials Require Same-Trial Issues Before Moving Forward

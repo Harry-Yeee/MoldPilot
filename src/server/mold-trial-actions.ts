@@ -34,6 +34,7 @@ import {
   isDuplicateTrialSubmission
 } from "@/domain/mold-trial/submission-guards";
 import { createInternalTrackingCode, normalizeClientProjectRef } from "@/domain/mold-trial/identifiers";
+import { parseInsertTypes, projectInsertTypes } from "@/domain/mold-trial/insert-types";
 import { computeDefaultIssueDueDate, defaultOwnerGroupCodeForIssueType } from "@/domain/mold-trial/issue-routing";
 import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
 import {
@@ -369,6 +370,24 @@ function values(formData: FormData, key: string): string[] {
 
 function indexedValues(formData: FormData, key: string): string[] {
   return formData.getAll(key).map((raw) => (typeof raw === "string" ? raw.trim() : ""));
+}
+
+/** The checked insert-type boxes, allowlisted and put in canonical order. */
+function formInsertTypes(formData: FormData): string[] {
+  return parseInsertTypes(values(formData, "insertTypes"));
+}
+
+/**
+ * The one place `insertTypes` enters a Prisma write payload.
+ *
+ * `mold_trial_projects.insert_types` arrives with the 2026-07-30 migration, so a
+ * checkout that has not run `prisma generate` since then has a generated client
+ * that does not know the field. Spreading this typed object into a `data`
+ * literal keeps every other field strictly checked against the generated input
+ * type — and stays correct, unchanged, once the client is regenerated.
+ */
+function insertTypesWrite(insertTypes: string[]): { insertTypes: string[] } {
+  return { insertTypes };
 }
 
 /** All non-empty File entries submitted under `key` (e.g. issue photos). */
@@ -1052,6 +1071,7 @@ export async function createMoldTrialProject(formData: FormData) {
     const processSheetTemplate = await processSheetTemplateSnapshotForCustomer(selectedCustomer);
 
     const priority = toDbEnum(value(formData, "priority"), priorityValues, "priority", "NORMAL");
+    const insertTypes = formInsertTypes(formData);
     const partResult = normalizeMoldTrialParts(parseMoldTrialPartRows(formData), {
       fallbackPartCode: value(formData, "partCode")
     });
@@ -1105,7 +1125,8 @@ export async function createMoldTrialProject(formData: FormData) {
           nextPlannedTrialDate: firstPlannedTrialDate,
           baseTrialLimit: 3,
           currentTrialLimit: 3,
-          createdById: actor.id
+          createdById: actor.id,
+          ...insertTypesWrite(insertTypes)
         }
       });
 
@@ -1134,7 +1155,8 @@ export async function createMoldTrialProject(formData: FormData) {
             customerId: project.customerId,
             customerCode: project.customerCode,
             processSheetTemplateCode: project.processSheetTemplateCode,
-          partCount: partResult.parts.length
+          partCount: partResult.parts.length,
+          insertTypes
         }
       });
 
@@ -1310,6 +1332,7 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
     const actor = await getActor("project.basic.edit");
     const clientProjectRef = normalizeClientProjectRef(optionalValue(formData, "clientProjectRef"));
     const moldCode = value(formData, "moldCode");
+    const insertTypes = formInsertTypes(formData);
     const project = await prisma.moldTrialProject.findUnique({ where: { projectCode } });
 
     if (project == null) {
@@ -1325,7 +1348,8 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
         where: { id: project.id },
         data: {
           clientProjectRef,
-          moldCode
+          moldCode,
+          ...insertTypesWrite(insertTypes)
         }
       });
 
@@ -1336,11 +1360,13 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
         action: "updated_project_identifiers",
         beforeJson: {
           clientProjectRef: project.clientProjectRef,
-          moldCode: project.moldCode
+          moldCode: project.moldCode,
+          insertTypes: projectInsertTypes(project)
         },
         afterJson: {
           clientProjectRef: next.clientProjectRef,
-          moldCode: next.moldCode
+          moldCode: next.moldCode,
+          insertTypes
         }
       });
 

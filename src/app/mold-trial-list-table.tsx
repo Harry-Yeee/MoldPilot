@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import type { MoldTrialDashboardRow } from "@/domain/mold-trial/dashboard";
-import { EmptyState, StatusBadge, toneForStatus } from "@/components/ui";
+import { EmptyState, StatusBadge, type StatusTone } from "@/components/ui";
 import { translateLabel, type Dictionary, type TranslationKey } from "@/i18n";
+import { formatDashboardNextTrial } from "@/i18n/display";
 import { useI18n } from "@/i18n/language-provider";
 import {
   sortDashboardRows,
@@ -60,15 +61,36 @@ function defaultDirection(key: DashboardSortKey): DashboardSortDirection {
  * Limit), amber for "at-risk" (At Risk / Auto Missed / Near Limit / At Limit).
  */
 function rowUrgencyTone(row: MoldTrialDashboardRow): "missed" | "at-risk" | null {
-  const statusTone = toneForStatus(row.status);
-  const warningTone = toneForStatus(row.warningState);
-  if (statusTone === "missed" || warningTone === "missed") {
+  if (
+    row.statusCode === "TRIAL_DELAYED" ||
+    row.statusCode === "BLOCKED" ||
+    row.statusCode === "OVER_LIMIT" ||
+    row.warningState === "Over Limit"
+  ) {
     return "missed";
   }
-  if (statusTone === "at-risk" || warningTone === "at-risk") {
+  if (row.warningState === "Near Limit" || row.warningState === "At Limit") {
     return "at-risk";
   }
   return null;
+}
+
+function projectStatusTone(statusCode: MoldTrialDashboardRow["statusCode"]): StatusTone {
+  const toneByStatus: Record<MoldTrialDashboardRow["statusCode"], StatusTone> = {
+    INTAKE: "planned",
+    ACTIVE: "planned",
+    WAITING_TRIAL: "planned",
+    TRIAL_DELAYED: "missed",
+    IN_CORRECTION: "in-correction",
+    WAITING_VERIFICATION: "in-correction",
+    APPROVED: "completed",
+    OVER_LIMIT: "missed",
+    BLOCKED: "missed",
+    PAUSED: "paused",
+    CANCELLED: "paused",
+    CLOSED: "completed"
+  };
+  return toneByStatus[statusCode];
 }
 
 function rowStripeClass(row: MoldTrialDashboardRow): string | undefined {
@@ -87,11 +109,11 @@ function cardStripeClass(row: MoldTrialDashboardRow): string {
   return "";
 }
 
-function translateTrialCountLabel(dictionary: Dictionary, value: string): string {
-  return value
-    .replaceAll("Near Limit", translateLabel(dictionary, "warning", "Near Limit"))
-    .replaceAll("At Limit", translateLabel(dictionary, "warning", "At Limit"))
-    .replaceAll("Over Limit", translateLabel(dictionary, "warning", "Over Limit"));
+function trialCountLabel(dictionary: Dictionary, row: MoldTrialDashboardRow): string {
+  const count = `${row.completedTrialCount} / ${row.currentTrialLimit}`;
+  return row.warningState === "Healthy"
+    ? count
+    : `${count} ${translateLabel(dictionary, "warning", row.warningState)}`;
 }
 
 function sortLabel(
@@ -193,13 +215,13 @@ export function MoldTrialListTable({ rows }: { rows: MoldTrialDashboardRow[] }) 
                   <td>{row.customerCode}</td>
                   <td>{row.partCode}</td>
                   <td>
-                    <StatusBadge status={row.status}>
+                    <StatusBadge tone={projectStatusTone(row.statusCode)}>
                       {translateLabel(dictionary, "projectStatus", row.status)}
                     </StatusBadge>
                   </td>
-                  <td>{row.nextTrial}</td>
-                  <td>{row.planningPm}</td>
-                  <td>{translateTrialCountLabel(dictionary, row.trialCountLabel)}</td>
+                  <td>{formatDashboardNextTrial(row.nextTrial, dictionary)}</td>
+                  <td>{row.planningPm ?? t("common.unassigned")}</td>
+                  <td>{trialCountLabel(dictionary, row)}</td>
                 </tr>
               ))
             )}
@@ -281,17 +303,17 @@ function MobileRowCard({ row, dictionary }: { row: MoldTrialDashboardRow; dictio
         <Link href={`/projects/${row.projectCode}`} className="font-bold [overflow-wrap:anywhere]">
           {row.workingIdentifier}
         </Link>
-        <StatusBadge status={row.status}>
+        <StatusBadge tone={projectStatusTone(row.statusCode)}>
           {translateLabel(dictionary, "projectStatus", row.status)}
         </StatusBadge>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5">
         <MobileFact label={t("table.customerCode")}>{row.customerCode}</MobileFact>
         <MobileFact label={t("table.partCode")}>{row.partCode}</MobileFact>
-        <MobileFact label={t("table.nextTrial")}>{row.nextTrial}</MobileFact>
-        <MobileFact label={t("table.pm")}>{row.planningPm}</MobileFact>
+        <MobileFact label={t("table.nextTrial")}>{formatDashboardNextTrial(row.nextTrial, dictionary)}</MobileFact>
+        <MobileFact label={t("table.pm")}>{row.planningPm ?? t("common.unassigned")}</MobileFact>
         <MobileFact label={t("table.trialCount")}>
-          {translateTrialCountLabel(dictionary, row.trialCountLabel)}
+          {trialCountLabel(dictionary, row)}
         </MobileFact>
       </dl>
     </li>

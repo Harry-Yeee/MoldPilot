@@ -16,6 +16,8 @@ import {
 } from "@/domain/mold-trial/kpi-sort";
 import type { LeaderEntry, MonthlyScores } from "@/server/kpi-scores";
 import { setScoreboardEnabled } from "@/server/kpi-actions";
+import { createTranslator, dictionaries } from "@/i18n";
+import { translateSystemRole } from "@/i18n/display";
 
 /** How many audit item rows to show before collapsing the rest behind "+N more". */
 const ITEM_CAP = 6;
@@ -391,6 +393,8 @@ export function KpiScoresPanel({
   navigationBasePath = "/admin?tab=scores",
   showScoreboardControls = true
 }: KpiScoresPanelProps) {
+  const dictionary = locale === "ZH_CN" ? dictionaries["zh-CN"] : dictionaries.en;
+  const t = createTranslator(dictionary);
   const departmentByScope = new Map(scores.departments.map((department) => [department.roleScope, department]));
 
   // Sort params ride along with the month so switching months keeps the order.
@@ -405,7 +409,7 @@ export function KpiScoresPanel({
       return {
         user,
         name,
-        role: user.roleName,
+        role: translateSystemRole(dictionary, user.roleCode, user.roleName),
         applicable: card.applicable,
         onTime: card.onTime,
         percent: card.percent,
@@ -442,7 +446,7 @@ export function KpiScoresPanel({
         <strong>
           {pickLabel(kpiLabels.scoreboardVisibility, locale)}:{" "}
           <StatusBadge tone={scoreboardEnabled ? "completed" : "paused"}>
-            {scoreboardEnabled ? "On" : "Off"}
+            {scoreboardEnabled ? t("common.on") : t("common.off")}
           </StatusBadge>
         </strong>
         <span>
@@ -479,7 +483,7 @@ export function KpiScoresPanel({
           <SortHeader columnKey="bar" label={pickLabel(kpiLabels.verdict, locale)} sort={sort} month={scores.month} locale={locale} className="kpiColVerdict" navigationBasePath={navigationBasePath} />
           <SortHeader columnKey="points" label={pickLabel(kpiLabels.points, locale)} sort={sort} month={scores.month} locale={locale} className="kpiColNum" navigationBasePath={navigationBasePath} />
         </div>
-        {sortedUsers.map(({ user, name, hasData }) => {
+        {sortedUsers.map(({ user, name, role, hasData }) => {
           const card = user.scorecard;
           const department = user.roleScope == null ? null : departmentByScope.get(user.roleScope) ?? null;
           return (
@@ -488,8 +492,8 @@ export function KpiScoresPanel({
                 <span className="kpiSummaryName" title={name}>
                   {name}
                 </span>
-                <span className="kpiSummaryMuted" title={user.roleName}>
-                  {user.roleName}
+                <span className="kpiSummaryMuted" title={role}>
+                  {role}
                 </span>
                 {hasData ? (
                   <>

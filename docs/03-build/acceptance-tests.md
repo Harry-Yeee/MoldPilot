@@ -98,20 +98,24 @@ Steps:
 1. Open MoldPilot with no language preference.
 2. Confirm English UI is shown by default.
 3. Use the language switcher to select Simplified Chinese.
-4. Open `/me`, confirm its header includes Dashboard navigation and the shared Language Switcher, then inspect the mobile My Tasks panel embedded on the dashboard.
-5. In Chinese mode, inspect task section headings, trial/issue status and severity badges, missed-reason/responsible-area/issue-status options, design-change requester labels, countdown/date-confirmation labels, and a generated trial title such as `T0 试模`.
-6. Verify issue titles, client names, mold/project codes, notes, machine numbers/brands, and filenames remain exactly as entered.
-7. Switch back to English and confirm `/me` plus the dashboard-embedded task panel return to English.
-8. At 360 px and 430 px widths, confirm the `/me` Dashboard and language controls do not overlap and the page has no horizontal overflow.
+4. Visit Dashboard, project detail, Admin, Reports, Calendar, `/me`, Score, and the dashboard-embedded mobile My Tasks panel.
+5. In Chinese mode, inspect task section headings, trial/issue status and severity badges, priority and verification options, report owner-role/group filters, inactive-role suffixes, process-sheet trial status/default section names, dates/days-away/trial-count badges, planning/activity history, file/photo/lightbox/measurement-report/customer-file UI, empty/error states, and accessibility labels.
+6. Confirm generated trial titles use sequence naming, including sequence 4 as `T3` rather than `Extra`, and a task title such as `T0 试模`.
+7. Verify issue titles, client names, mold/project codes, notes, custom role/group/template names, machine numbers/brands, and filenames remain exactly as entered.
+8. Switch back to English and confirm every inspected surface returns to English.
+9. At desktop and 360 px/430 px widths, confirm headers, controls, tables/cards, and task panels do not overlap or create page-level horizontal overflow.
 
 Expected:
 
 - The selected language persists across reload/navigation.
-- Dashboard, project detail, trial panels, process-sheet controls, Admin tabs, `/me`, the dashboard-embedded My Tasks panel, common buttons, and enum/status display labels change language.
-- `/me` uses the `moldpilot_language` cookie/provider setting rather than the user's database locale.
+- Dashboard, project detail, trial panels, process-sheet controls, Admin, Reports, Calendar, `/me`, the dashboard-embedded My Tasks panel, Score, and shared attachment/media UI change language.
+- Every screen uses the `moldpilot_language` cookie/provider setting rather than the user's database locale.
 - My Tasks system labels, select options, generated trial titles, countdowns, date confirmations, and common action-success feedback are Chinese in Chinese mode and English after switching back.
+- Dashboard renders semantic next-trial and limit states from stable codes/sequence data; it does not parse English display sentences.
+- Dates, days-away text, trial-count warnings, default process-section names, system roles/groups, planning-history types, and known Activity Timeline actions follow the selected language.
+- Sequence 4 displays as T3 in Calendar, My Tasks, project detail, and exports; the `EXTRA` database value remains unchanged.
 - Stored enum values and server-action option values remain unchanged while their visible labels translate.
-- Stored business data such as mold code, client/project reference, client name, part code, issue title, notes, and machine brand does not get translated or mutated.
+- Stored business data and custom names such as mold code, client/project reference, client name, part code, issue title, notes, machine brand, custom role/group/template names, and filenames do not get translated or mutated.
 - Permission codes remain unchanged; only display labels translate.
 - At 360–430 px, `/me` header controls remain touch-friendly, non-overlapping, and free of horizontal scrolling.
 

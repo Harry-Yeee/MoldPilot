@@ -16,6 +16,7 @@ import process from "node:process";
 
 const DEFAULT_DATABASE_URL = "postgresql://moldpilot:moldpilot@localhost:5432/moldpilot?schema=public";
 const PROJECT_CODE = "MP-PILOT-001";
+const PILOT_MOLD_CODE = "M-PILOT-01";
 const SESSION_COOKIE_NAME = "moldpilot_session";
 const SESSION_VERSION = "v1";
 const args = new Set(process.argv.slice(2));
@@ -940,7 +941,7 @@ async function checkHttpSmoke({ required = true, userId = null } = {}) {
     const dashboardText = visibleText(dashboard.body);
     const detailText = visibleText(detail.body);
     const reportsText = visibleText(reports.body);
-    const dashboardOk = dashboard.response.status === 200 && dashboardText.includes(PROJECT_CODE);
+    const dashboardOk = dashboard.response.status === 200 && dashboardText.includes(PILOT_MOLD_CODE);
     const detailRequiredText = [
       "Trial Panel",
       "Digital Process Sheet",
@@ -960,7 +961,7 @@ async function checkHttpSmoke({ required = true, userId = null } = {}) {
       );
 
     if (!dashboardOk) {
-      fail("HTTP smoke", "`/` did not return 200 with MP-PILOT-001.");
+      fail("HTTP smoke", "`/` did not return 200 with the MP-PILOT-001 mold identifier.");
       return false;
     }
 

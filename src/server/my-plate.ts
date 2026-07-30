@@ -32,6 +32,7 @@ import {
 import type { KpiRuleCode } from "@/domain/mold-trial/kpi-rules";
 import type { ScoringRule } from "@/domain/mold-trial/kpi-scoring";
 import { compareInjectionMachineNo, formatInjectionMachineLabel } from "@/domain/mold-trial/process-sheet";
+import { trialStageLabel } from "@/domain/mold-trial/trial-panel";
 import { prisma } from "@/lib/prisma";
 import { applyAutoMissedTrialsForAllProjects } from "@/server/auto-missed-trials";
 import {
@@ -51,7 +52,6 @@ import {
   missedTrialReasonLabels,
   responsibleAreaLabels,
   severityLabels,
-  trialCodeLabels,
   trialStatusLabels
 } from "@/server/mold-trial-codecs";
 
@@ -419,6 +419,7 @@ export async function getMyPlateData(
       select: {
         id: true,
         trialCode: true,
+        sequenceNumber: true,
         status: true,
         plannedDate: true,
         dateConfirmationStatus: true,
@@ -553,6 +554,7 @@ export async function getMyPlateData(
 
   for (const trial of trials) {
     const project = trial.moldTrialProject;
+    const trialLabel = trialStageLabel(trial.sequenceNumber);
     const record: PlateTrialRecord = {
       status: trial.status,
       plannedDate: trial.plannedDate,
@@ -565,14 +567,14 @@ export async function getMyPlateData(
       projectCode: project.projectCode,
       customerShortName: project.customer.shortName,
       moldCode: project.moldCode,
-      title: `${trialCodeLabels[trial.trialCode]} trial`
+      title: `${trialLabel} trial`
     };
 
     if (belongsToNeedsReasonSection(viewer, record)) {
       needsReason.push({
         ...base,
         trialEventId: trial.id,
-        trialCode: trialCodeLabels[trial.trialCode],
+        trialCode: trialLabel,
         statusLabel: trialStatusLabels[trial.status],
         plannedDate: formatDate(trial.plannedDate),
         plannedDateInput: formatDate(trial.plannedDate),
@@ -585,7 +587,7 @@ export async function getMyPlateData(
       returnedDates.push({
         ...base,
         trialEventId: trial.id,
-        trialCode: trialCodeLabels[trial.trialCode],
+        trialCode: trialLabel,
         plannedDate: formatDate(trial.plannedDate),
         rejectReason: trial.rescheduleRejectReason,
         deadline: ruleCountdown("pm.returned_redate", anchorForReturnedRedate(trial), ruleByCode, now)
@@ -595,7 +597,7 @@ export async function getMyPlateData(
     if (belongsToComingUpSection(viewer, record, now, COMING_UP_WINDOW_DAYS)) {
       comingUp.push({
         ...base,
-        trialCode: trialCodeLabels[trial.trialCode],
+        trialCode: trialLabel,
         statusValue: trial.status as TrialStatusDbValue,
         statusLabel: trialStatusLabels[trial.status],
         plannedDate: formatDate(trial.plannedDate),
@@ -627,6 +629,7 @@ export async function getMyPlateData(
         select: {
           id: true,
           trialCode: true,
+          sequenceNumber: true,
           status: true,
           plannedDate: true,
           dateConfirmationStatus: true,
@@ -681,6 +684,7 @@ export async function getMyPlateData(
 
     for (const trial of confirmationTrials) {
       const project = trial.moldTrialProject;
+      const trialLabel = trialStageLabel(trial.sequenceNumber);
       const record: PlateTrialRecord = {
         status: trial.status,
         plannedDate: trial.plannedDate,
@@ -693,14 +697,14 @@ export async function getMyPlateData(
         projectCode: project.projectCode,
         customerShortName: project.customer.shortName,
         moldCode: project.moldCode,
-        title: `${trialCodeLabels[trial.trialCode]} trial`
+        title: `${trialLabel} trial`
       };
 
       if (belongsToConfirmTrialDatesSection(viewer, record)) {
         confirmTrialDates.push({
           ...base,
           trialEventId: trial.id,
-          trialCode: trialCodeLabels[trial.trialCode],
+          trialCode: trialLabel,
           statusValue: trial.status as TrialStatusDbValue,
           statusLabel: trialStatusLabels[trial.status],
           plannedDate: formatDate(trial.plannedDate),
@@ -713,7 +717,7 @@ export async function getMyPlateData(
         approveDateChanges.push({
           ...base,
           trialEventId: trial.id,
-          trialCode: trialCodeLabels[trial.trialCode],
+          trialCode: trialLabel,
           plannedDate: formatDate(trial.plannedDate),
           proposedDate: formatDate(trial.proposedDate),
           customerTargetDate: formatDate(project.customerTargetDate),
@@ -922,6 +926,7 @@ export async function getMyPlateData(
 
     for (const trial of completedTrials) {
       const project = trial.moldTrialProject;
+      const trialLabel = trialStageLabel(trial.sequenceNumber);
       const record: PlateTrialRecord = {
         status: trial.status,
         plannedDate: trial.plannedDate,
@@ -958,9 +963,9 @@ export async function getMyPlateData(
         projectCode: project.projectCode,
         customerShortName: project.customer.shortName,
         moldCode: project.moldCode,
-        title: `${trialCodeLabels[trial.trialCode]} trial`,
+        title: `${trialLabel} trial`,
         trialEventId: trial.id,
-        trialCode: trialCodeLabels[trial.trialCode],
+        trialCode: trialLabel,
         statusLabel: trialStatusLabels[trial.status],
         actualDate: formatDate(trial.actualDate),
         deadline: ruleCountdown(

@@ -9,8 +9,8 @@ import {
   type MonthMatrix
 } from "@/domain/mold-trial/calendar";
 import { compareInjectionMachineNo, formatInjectionMachineLabel } from "@/domain/mold-trial/process-sheet";
+import { trialStageLabel } from "@/domain/mold-trial/trial-panel";
 import { prisma } from "@/lib/prisma";
-import { trialCodeLabels } from "@/server/mold-trial-codecs";
 
 /**
  * Trial statuses that appear on the calendar. PLANNED / AT_RISK /
@@ -99,7 +99,7 @@ function machineLabelFor(row: {
 /** Prisma `select` shared by both the month query and the agenda query. */
 const calendarTrialSelect = {
   id: true,
-  trialCode: true,
+  sequenceNumber: true,
   plannedDate: true,
   injectionMachineId: true,
   machine: true,
@@ -118,7 +118,7 @@ const calendarTrialSelect = {
 
 type CalendarTrialQueryRow = {
   id: string;
-  trialCode: keyof typeof trialCodeLabels;
+  sequenceNumber: number;
   plannedDate: Date;
   injectionMachineId: string | null;
   machine: string | null;
@@ -141,7 +141,7 @@ function toTrialRow(row: CalendarTrialQueryRow): CalendarTrialRow {
     projectCode: project.projectCode,
     moldCode: project.moldCode,
     customerShortName: project.customer.shortName,
-    trialCode: trialCodeLabels[row.trialCode],
+    trialCode: trialStageLabel(row.sequenceNumber),
     plannedDate: row.plannedDate.toISOString().slice(0, 10),
     injectionMachineId: row.injectionMachineId,
     machineLabel: machineLabelFor(row),

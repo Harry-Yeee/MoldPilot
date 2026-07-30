@@ -16,7 +16,7 @@ export type DashboardSortKey =
   | "openIssueCount"
   | "criticalOpenIssueCount"
   | "lastTrialResult"
-  | "limitNote"
+  | "limitBasis"
   | "lastUpdate"
   | "warningState";
 
@@ -39,31 +39,31 @@ const warningStateRank: Record<MoldTrialDashboardRow["warningState"], number> = 
   "Over Limit": 3
 };
 
-const projectStatusUrgencyRank: Record<string, number> = {
-  Approved: 0,
-  Closed: 0,
-  Cancelled: 0,
-  Active: 1,
-  "Waiting Trial": 1,
-  Intake: 2,
-  "Waiting Verification": 2,
-  "In Correction": 3,
-  Paused: 4,
-  "Trial Delayed": 5,
-  Blocked: 5,
-  "Over Limit": 6
+const projectStatusUrgencyRank: Record<MoldTrialDashboardRow["statusCode"], number> = {
+  APPROVED: 0,
+  CLOSED: 0,
+  CANCELLED: 0,
+  ACTIVE: 1,
+  WAITING_TRIAL: 1,
+  INTAKE: 2,
+  WAITING_VERIFICATION: 2,
+  IN_CORRECTION: 3,
+  PAUSED: 4,
+  TRIAL_DELAYED: 5,
+  BLOCKED: 5,
+  OVER_LIMIT: 6
 };
 
 function directionMultiplier(direction: DashboardSortDirection): number {
   return direction === "asc" ? 1 : -1;
 }
 
-function compareText(left: string, right: string, direction: DashboardSortDirection): number {
-  return textCollator.compare(left, right) * directionMultiplier(direction);
+function compareText(left: string | null, right: string | null, direction: DashboardSortDirection): number {
+  return textCollator.compare(left ?? "", right ?? "") * directionMultiplier(direction);
 }
 
-function parseDateValue(value: string): number | null {
-  if (value === "Not planned") {
+function parseDateValue(value: string | null): number | null {
+  if (value == null) {
     return null;
   }
 
@@ -71,7 +71,7 @@ function parseDateValue(value: string): number | null {
   return Number.isNaN(time) ? null : time;
 }
 
-function compareDates(left: string, right: string, direction: DashboardSortDirection): number {
+function compareDates(left: string | null, right: string | null, direction: DashboardSortDirection): number {
   const leftTime = parseDateValue(left);
   const rightTime = parseDateValue(right);
 
@@ -113,6 +113,26 @@ function compareTrialCounts(left: string, right: string, direction: DashboardSor
   );
 }
 
+function compareNextTrials(
+  left: MoldTrialDashboardRow["nextTrial"],
+  right: MoldTrialDashboardRow["nextTrial"],
+  direction: DashboardSortDirection
+): number {
+  const kindRank = {
+    WAITING_T0_SCHEDULE: 0,
+    PLANNED: 1,
+    COMPLETED: 2,
+    NO_TRIAL_PLANNED: 3
+  } as const;
+  const leftSequence = left.sequenceNumber ?? Number.MAX_SAFE_INTEGER;
+  const rightSequence = right.sequenceNumber ?? Number.MAX_SAFE_INTEGER;
+
+  return (
+    compareRanks(kindRank[left.kind], kindRank[right.kind], direction) ||
+    compareNumbers(leftSequence, rightSequence, direction)
+  );
+}
+
 function compareRanks(leftRank: number, rightRank: number, direction: DashboardSortDirection): number {
   return (leftRank - rightRank) * directionMultiplier(direction);
 }
@@ -129,16 +149,19 @@ function projectCodeTieBreak(left: MoldTrialDashboardRow, right: MoldTrialDashbo
  * to the at-risk tone, and otherwise tier 2. Kept local (no cross-layer import)
  * so this stays a pure, dependency-free domain helper the tests can run directly.
  */
-const MISSED_STATUS_LABELS = new Set(["Trial Delayed", "Delayed", "Blocked", "Over Limit"]);
-const AT_RISK_STATUS_LABELS = new Set(["At Risk", "Auto Missed - Reason Required"]);
+const MISSED_STATUS_CODES = new Set<MoldTrialDashboardRow["statusCode"]>([
+  "TRIAL_DELAYED",
+  "BLOCKED",
+  "OVER_LIMIT"
+]);
 const MISSED_WARNING_STATES = new Set<MoldTrialDashboardRow["warningState"]>(["Over Limit"]);
 const AT_RISK_WARNING_STATES = new Set<MoldTrialDashboardRow["warningState"]>(["Near Limit", "At Limit"]);
 
 export function urgencyTier(row: MoldTrialDashboardRow): 0 | 1 | 2 {
-  if (MISSED_STATUS_LABELS.has(row.status) || MISSED_WARNING_STATES.has(row.warningState)) {
+  if (MISSED_STATUS_CODES.has(row.statusCode) || MISSED_WARNING_STATES.has(row.warningState)) {
     return 0;
   }
-  if (AT_RISK_STATUS_LABELS.has(row.status) || AT_RISK_WARNING_STATES.has(row.warningState)) {
+  if (AT_RISK_WARNING_STATES.has(row.warningState)) {
     return 1;
   }
   return 2;
@@ -172,17 +195,18 @@ function compareRows(
     case "customerCode":
     case "partCode":
     case "moldCode":
-    case "nextTrial":
     case "lastTrialResult":
-    case "limitNote":
+    case "limitBasis":
       return compareText(left[sort.key], right[sort.key], sort.direction);
+    case "nextTrial":
+      return compareNextTrials(left.nextTrial, right.nextTrial, sort.direction);
     case "status":
       return (
         compareRanks(
-          projectStatusUrgencyRank[left.status] ?? 1,
-          projectStatusUrgencyRank[right.status] ?? 1,
+          projectStatusUrgencyRank[left.statusCode],
+          projectStatusUrgencyRank[right.statusCode],
           sort.direction
-        ) || compareText(left.status, right.status, sort.direction)
+        ) || compareText(left.statusCode, right.statusCode, sort.direction)
       );
     case "nextPlannedDate":
     case "assemblyReadyDate":

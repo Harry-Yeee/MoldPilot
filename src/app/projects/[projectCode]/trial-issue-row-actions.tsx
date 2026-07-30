@@ -193,7 +193,7 @@ export function TrialIssueRowActions({
           </label>
           <div className="fullSpan grid gap-1">
             <span className="text-sm font-bold text-neutral-700">{pickLabel(issuePhotoLabels.addPhotos, locale)}</span>
-            <ImageCaptureField name="photos" locale={locale} />
+            <ImageCaptureField name="photos" />
           </div>
           <div className="formActions fullSpan">
             <button type="button" className="secondaryButton" onClick={() => closeDialog(editDialogRef)}>

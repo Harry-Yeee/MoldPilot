@@ -1,16 +1,15 @@
 import { evaluateTrialLimit } from "./trial-limit.ts";
 import { formatPartSummary } from "./parts.ts";
-import { formatMoldWorkingIdentifier, formatOptionalIdentifier } from "./identifiers.ts";
+import { formatMoldWorkingIdentifier } from "./identifiers.ts";
 import {
   canUploadMeasurementReport,
   newestMeasurementReport,
   type MeasurementReportAttachment
 } from "./measurement-report.ts";
-import { trialStageLabel } from "./trial-panel.ts";
 import type { TrialStatusDbValue } from "./my-plate.ts";
 import type { DesignChangeEvent, TrialEvent, TrialLimitState } from "./types.ts";
 
-type DatabaseProjectStatus =
+export type DatabaseProjectStatus =
   | "INTAKE"
   | "ACTIVE"
   | "WAITING_TRIAL"
@@ -24,7 +23,7 @@ type DatabaseProjectStatus =
   | "CANCELLED"
   | "CLOSED";
 
-type DatabasePriority = "NORMAL" | "HIGH" | "CRITICAL";
+export type DatabasePriority = "NORMAL" | "HIGH" | "CRITICAL";
 type DatabaseTrialCode = "T0" | "T1" | "T2" | "EXTRA" | "OTHER";
 type DatabaseTrialStatus =
   | "PLANNED"
@@ -36,7 +35,7 @@ type DatabaseTrialStatus =
   | "ABORTED"
   | "CANCELLED"
   | "SKIPPED";
-type DatabaseTrialResult =
+export type DatabaseTrialResult =
   | "APPROVED"
   | "NOT_APPROVED"
   | "CONDITIONAL"
@@ -128,24 +127,32 @@ export type MoldTrialDashboardProject = {
 export type MoldTrialDashboardRow = {
   projectCode: string;
   workingIdentifier: string;
-  clientProjectRef: string;
+  clientProjectRef: string | null;
   customerCode: string;
   partCode: string;
-  moldCode: string;
+  moldCode: string | null;
+  statusCode: DatabaseProjectStatus;
   status: string;
+  priorityCode: DatabasePriority;
   priority: string;
-  planningPm: string;
-  technicalPm: string;
-  nextTrial: string;
-  nextPlannedDate: string;
-  assemblyReadyDate: string;
+  planningPm: string | null;
+  technicalPm: string | null;
+  nextTrial:
+    | { kind: "WAITING_T0_SCHEDULE"; sequenceNumber: null }
+    | { kind: "NO_TRIAL_PLANNED"; sequenceNumber: null }
+    | { kind: "COMPLETED"; sequenceNumber: number }
+    | { kind: "PLANNED"; sequenceNumber: number };
+  nextPlannedDate: string | null;
+  assemblyReadyDate: string | null;
+  completedTrialCount: number;
+  currentTrialLimit: number;
   trialCountLabel: string;
   warningState: TrialLimitState;
   openIssueCount: number;
   criticalOpenIssueCount: number;
-  lastTrialResult: string;
-  lastUpdate: string;
-  limitNote: string;
+  lastTrialResult: DatabaseTrialResult | null;
+  lastUpdate: string | null;
+  limitBasis: "DEFAULT" | "CUSTOM_PM" | "DESIGN_CHANGE";
 };
 
 export type MoldTrialDashboardSummary = {
@@ -217,15 +224,15 @@ const trialResultLabels: Record<DatabaseTrialResult, string> = {
   INVALID_TRIAL: "Invalid Trial"
 };
 
-function formatDate(value: DateValue): string {
+function formatDate(value: DateValue): string | null {
   if (value == null) {
-    return "Not planned";
+    return null;
   }
 
   const date = value instanceof Date ? value : new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Not planned";
+    return null;
   }
 
   return date.toISOString().slice(0, 10);
@@ -301,11 +308,11 @@ export function buildMoldTrialDashboard(projects: readonly MoldTrialDashboardPro
     const lastCompletedTrial = project.trialEvents
       .filter((trial) => trial.status === "COMPLETED")
       .sort(compareCompletedTrials)[0];
-    const limitNote = project.customTrialLimit != null
-      ? "Custom PM Limit"
+    const limitBasis: MoldTrialDashboardRow["limitBasis"] = project.customTrialLimit != null
+      ? "CUSTOM_PM"
       : limit.designChangeExtraTrialCount > 0
-        ? "Design Change Allowance"
-        : "Default Limit";
+        ? "DESIGN_CHANGE"
+        : "DEFAULT";
     const assemblyReadyDate = project.trialIssues
       .filter((issue) => isOpenIssue(issue.status) && issue.pmReadyConfirmedAt == null)
       .map((issue) => issue.assemblyEstimatedFinishDate)
@@ -319,30 +326,34 @@ export function buildMoldTrialDashboard(projects: readonly MoldTrialDashboardPro
         clientProjectRef: project.clientProjectRef,
         moldCode: project.moldCode
       }),
-      clientProjectRef: formatOptionalIdentifier(project.clientProjectRef),
+      clientProjectRef: project.clientProjectRef,
       customerCode: project.customerCode,
       partCode: formatPartSummary(project.parts ?? [], project.partCode),
-      moldCode: formatOptionalIdentifier(project.moldCode),
+      moldCode: project.moldCode.trim().length === 0 ? null : project.moldCode,
+      statusCode: project.status,
       status: projectStatusLabels[project.status],
+      priorityCode: project.priority,
       priority: priorityLabels[project.priority],
-      planningPm: project.planningPm?.displayName ?? "Unassigned",
-      technicalPm: project.technicalPm?.displayName ?? "Unassigned",
+      planningPm: project.planningPm?.displayName ?? null,
+      technicalPm: project.technicalPm?.displayName ?? null,
       nextTrial: project.status === "INTAKE"
-        ? "Waiting T0 schedule"
+        ? { kind: "WAITING_T0_SCHEDULE" as const, sequenceNumber: null }
         : nextPlannedTrial == null
         ? lastCompletedTrial == null
-          ? "No trial planned"
-          : `${trialStageLabel(lastCompletedTrial.sequenceNumber)} completed`
-        : `${trialStageLabel(nextPlannedTrial.sequenceNumber)} planned`,
+          ? { kind: "NO_TRIAL_PLANNED" as const, sequenceNumber: null }
+          : { kind: "COMPLETED" as const, sequenceNumber: lastCompletedTrial.sequenceNumber }
+        : { kind: "PLANNED" as const, sequenceNumber: nextPlannedTrial.sequenceNumber },
       nextPlannedDate: formatDate(project.nextPlannedTrialDate ?? nextPlannedTrial?.plannedDate ?? null),
       assemblyReadyDate: formatDate(assemblyReadyDate),
+      completedTrialCount: limit.completedTrialCount,
+      currentTrialLimit: limit.currentTrialLimit,
       trialCountLabel: `${limit.completedTrialCount} / ${limit.currentTrialLimit}`,
       warningState: limit.warningState,
       openIssueCount,
       criticalOpenIssueCount,
-      lastTrialResult: lastCompletedTrial?.result == null ? "Not recorded" : trialResultLabels[lastCompletedTrial.result],
+      lastTrialResult: lastCompletedTrial?.result ?? null,
       lastUpdate: formatDate(project.updatedAt),
-      limitNote
+      limitBasis
     };
   });
 
@@ -351,7 +362,7 @@ export function buildMoldTrialDashboard(projects: readonly MoldTrialDashboardPro
     summary: {
       intakeProjectCount: projects.filter((project) => project.status === "INTAKE").length,
       activeMoldCount: projects.filter((project) => project.status !== "CANCELLED" && project.status !== "CLOSED").length,
-      upcomingTrialCount: rows.filter((row) => row.nextPlannedDate !== "Not planned").length,
+      upcomingTrialCount: rows.filter((row) => row.nextPlannedDate != null).length,
       delayedTrialCount: projects.filter((project) =>
         project.status === "TRIAL_DELAYED" ||
         project.missedTrialEvents.length > 0 ||

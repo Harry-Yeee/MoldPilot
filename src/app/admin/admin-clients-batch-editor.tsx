@@ -4,6 +4,8 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { batchUpdateCustomers, undoLastAdminAction, type AdminBatchActionState } from "@/server/admin-actions";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
+import { translateWorkflowMessage } from "@/i18n";
+import { useI18n } from "@/i18n/language-provider";
 
 type UserOption = {
   id: string;
@@ -69,6 +71,7 @@ function sameRow(left: ClientRow, right: ClientRow): boolean {
 
 export function AdminClientsBatchEditor({ clients, labels, ownerOptions, redirectTo }: Props) {
   const router = useRouter();
+  const { dictionary } = useI18n();
   const [baselineRows, setBaselineRows] = useState(clients);
   const [rows, setRows] = useState(clients);
   const [sourceClients, setSourceClients] = useState(clients);
@@ -251,7 +254,7 @@ export function AdminClientsBatchEditor({ clients, labels, ownerOptions, redirec
         <span>{labels.unsavedChanges.replace("{count}", String(changedCount))}</span>
         {state.message == null ? null : (
           <span className={state.ok ? "batchMessage batchMessageSuccess" : "batchMessage batchMessageError"}>
-            {state.message}
+            {translateWorkflowMessage(dictionary, state.message)}
           </span>
         )}
         <button type="submit" disabled={changedCount === 0}>

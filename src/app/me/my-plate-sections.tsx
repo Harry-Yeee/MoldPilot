@@ -750,7 +750,7 @@ function MyOpenIssueCard({
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={doneAction}
-        headerExtra={<IssuePhotoCountChip count={row.photoCount} locale={locale} />}
+        headerExtra={<IssuePhotoCountChip count={row.photoCount} />}
         details={
           <>
             {row.description == null ? null : (
@@ -759,7 +759,7 @@ function MyOpenIssueCard({
             {row.partCavity == null ? null : (
               <DetailLine term={label("partCavity", locale)}>{row.partCavity}</DetailLine>
             )}
-            {row.photos.length === 0 ? null : <IssuePhotoGallery photos={row.photos} locale={locale} />}
+            {row.photos.length === 0 ? null : <IssuePhotoGallery photos={row.photos} />}
             <div className="flex flex-wrap items-center gap-2">
               {doneAction}
               <Button type="button" variant="secondary" size="lg" onClick={() => setStatusOpen(true)}>
@@ -1284,7 +1284,6 @@ function QcReportToUploadCard({
       >
         <MeasurementReportUploadForm
           trialEventId={row.trialEventId}
-          locale={locale}
           onSuccess={() => setSheetOpen(false)}
         />
       </BottomSheet>

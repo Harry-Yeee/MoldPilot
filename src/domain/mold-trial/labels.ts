@@ -248,6 +248,94 @@ export const calendarLabels = {
   tomorrowTag: { en: "Tomorrow", zh: "明天" }
 } as const satisfies Record<string, BilingualLabel>;
 
+/**
+ * Admin-only backup health line (Backup v2). One compact light per app; the
+ * estate-wide roll-up across apps is a platform D3 concern, not this page.
+ */
+export const backupHealthLabels = {
+  title: { en: "Backup health", zh: "备份状态" },
+  levelGreen: { en: "Healthy", zh: "正常" },
+  levelAmber: { en: "Needs attention", zh: "需要关注" },
+  levelRed: { en: "Action required", zh: "需要处理" },
+  levelUnknown: { en: "No status yet", zh: "暂无状态" },
+  noStatusHint: {
+    en: "The backup job has not written a status file on this machine yet.",
+    zh: "本机的备份任务尚未写入状态文件。"
+  },
+  missingStatusHint: {
+    en: "No backup status file — this machine is configured to run backups. Check the LaunchAgents and the backup disk.",
+    zh: "找不到备份状态文件——本机已配置为运行备份。请检查 LaunchAgent 与备份磁盘。"
+  },
+  // The four legs of the chain, in the order the pipeline runs them.
+  localArchive: { en: "Local archive", zh: "本地备份" },
+  cloudUpload: { en: "Off-site copy", zh: "异地副本" },
+  nightlyVerify: { en: "Nightly restore proof", zh: "每夜恢复验证" },
+  cloudDrill: { en: "Cloud drill", zh: "云端演练" },
+  // Per-leg outcome words.
+  statusOk: { en: "OK", zh: "正常" },
+  statusFailed: { en: "Failed", zh: "失败" },
+  statusOffline: { en: "Offline", zh: "离线" },
+  statusSkipped: { en: "Skipped", zh: "已跳过" },
+  statusUnconfigured: { en: "Not configured", zh: "未配置" },
+  statusNever: { en: "Never run", zh: "尚未运行" },
+  hoursAgo: { en: "h ago", zh: "小时前" },
+  daysAgo: { en: "d ago", zh: "天前" },
+  justNow: { en: "just now", zh: "刚刚" },
+  neverSucceeded: { en: "no success recorded", zh: "无成功记录" }
+} as const satisfies Record<string, BilingualLabel>;
+
+/**
+ * One sentence per health finding. Keys match `BackupHealthFindingCode` in
+ * `@/domain/security/backup-status`, so a new finding cannot ship unlabelled.
+ */
+export const backupHealthFindingLabels = {
+  statusFileMissing: {
+    en: "The backup status file is missing on a machine where backups are expected.",
+    zh: "本机应运行备份，但备份状态文件缺失。"
+  },
+  localArchiveNever: {
+    en: "No local archive has been written yet.",
+    zh: "尚未生成本地备份。"
+  },
+  localArchiveFailed: { en: "The last local backup failed.", zh: "最近一次本地备份失败。" },
+  localArchiveStale: {
+    en: "The last local backup is more than 26 hours old.",
+    zh: "最近一次本地备份已超过 26 小时。"
+  },
+  cloudUploadUnconfigured: {
+    en: "The off-site copy is not configured yet.",
+    zh: "异地副本尚未配置。"
+  },
+  cloudUploadNever: {
+    en: "No archive has reached off-site storage yet.",
+    zh: "尚未有备份送达异地存储。"
+  },
+  cloudUploadStale: {
+    en: "The last off-site copy is more than 26 hours old.",
+    zh: "最近一次异地副本已超过 26 小时。"
+  },
+  cloudUploadFailureStreak: {
+    en: "The off-site copy has missed more than 3 runs in a row.",
+    zh: "异地副本已连续失败超过 3 次。"
+  },
+  cloudUploadRetrying: {
+    en: "The last off-site copy did not go through.",
+    zh: "最近一次异地副本未成功。"
+  },
+  verifyNever: { en: "The nightly restore proof has not run yet.", zh: "每夜恢复验证尚未运行。" },
+  verifyFailed: { en: "The nightly restore proof failed.", zh: "每夜恢复验证失败。" },
+  verifyStale: {
+    en: "The nightly restore proof has not passed in over a day.",
+    zh: "每夜恢复验证已超过一天未通过。"
+  },
+  drillNever: { en: "The cloud drill has not run yet.", zh: "云端演练尚未运行。" },
+  drillFailed: { en: "The last cloud drill failed.", zh: "最近一次云端演练失败。" },
+  drillStale: {
+    en: "The last cloud drill is more than 35 days old.",
+    zh: "最近一次云端演练已超过 35 天。"
+  }
+} as const satisfies Record<string, BilingualLabel>;
+
 /** Phone-first "My Plate" (/me) labels. */
 export const myPlateLabels = {
   pageTitle: { en: "My tasks", zh: "我的任务" },

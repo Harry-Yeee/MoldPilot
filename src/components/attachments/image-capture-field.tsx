@@ -11,12 +11,12 @@ import {
   scaledDimensions,
   type PendingPhoto
 } from "@/domain/mold-trial/issue-photos";
-import { issuePhotoLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { issuePhotoLabels, localeFromLanguage, pickLabel } from "@/domain/mold-trial/labels";
+import { useI18n } from "@/i18n/language-provider";
 
 export type ImageCaptureFieldProps = {
   /** Form field name the processed files are submitted under (e.g. "photos"). */
   name: string;
-  locale: Locale;
   /** Disables the picker + remove buttons (e.g. while the form is submitting). */
   disabled?: boolean;
 };
@@ -88,7 +88,9 @@ async function downscaleImage(file: File): Promise<File> {
  * action) as the issue fields — no separate upload request. A short busy state
  * covers the async downscale so a click never looks like it did nothing.
  */
-export function ImageCaptureField({ name, locale, disabled = false }: ImageCaptureFieldProps) {
+export function ImageCaptureField({ name, disabled = false }: ImageCaptureFieldProps) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const buttonId = useId();
   const [pending, setPending] = useState<PendingPhoto[]>([]);

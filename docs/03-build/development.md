@@ -39,6 +39,403 @@ Related Docs:
 
 ## Entries
 
+### 2026-07-30: Backup v2 Review Fixes — Codex Findings 1–8
+
+Context:
+
+Backup v2 shipped on 2026-07-29 (entry below). A second engineer — Codex —
+cross-reviewed the whole build against the code, not against the write-up, and
+came back with eight findings. Every one was independently verified in the
+source before this session started; none was a false positive. That review is
+the reason this entry exists, and it is the strongest argument in this log for
+having someone else read a "finished" system: five of the eight were places
+where the *documentation* and the *behaviour* had quietly diverged, which is
+precisely the class of bug the system itself cannot detect.
+
+Tried:
+
+- **F4 — the cloud drill could never fire (bug).** `backup-verify.sh` compared
+  `date -u +%d` with `BACKUP_DRILL_DAY`. The verify job runs at 03:30 Beijing
+  time, which is the *previous* day in UTC, so the calendar match was wrong by a
+  day — and if the mini was offline or asleep that one night, the drill skipped a
+  whole month. Replaced with age-based scheduling: `cloud_drill_due()` asks
+  `backup-status.mjs --drill-due` whether the last **successful** drill is older
+  than `BACKUP_DRILL_MAX_AGE_DAYS` (default 30, was never run counts as due),
+  and the answer is re-evaluated every night, so a failed or offline drill is
+  retried the next night instead of next month. `--cloud-drill` still forces it.
+  `BACKUP_DRILL_DAY` is gone from the script, the config and `.env.example`.
+- **F5 — a never-run leg stayed amber forever (honesty).** The old rule ("never
+  run = amber, so a fresh install is not red on day one") had no exit: a
+  production chain whose upload leg silently stopped writing its success record
+  would sit at amber. Introduced a **commissioning boundary**. A leg is
+  commissioned once it has ever succeeded; the file gains a sticky
+  `commissioned: true` marker the first time `localArchive`, `cloudUpload` and
+  `nightlyVerify` have each succeeded at least once. After that, absence,
+  staleness or failure on those legs is RED (`verify` stale >26h moved from
+  amber to red at the same time, matching the spec). The bootstrap paradox — the
+  marker lives inside the file, so a deleted file cannot be judged by it — is
+  solved outside the file: production `.env` sets `BACKUP_EXPECTED=1`, the server
+  reads it, and a missing or corrupt status file is then red. Dev machines leave
+  it unset and keep the calm "no status yet" line.
+- **F2 — the lifecycle rule expired nothing (docs).** Every archive is uniquely
+  named, so no object ever becomes noncurrent, so a noncurrent-only lifecycle
+  rule deletes nothing and the bucket grows forever. Runbook §7b A3 is now four
+  rules: current versions expire at 180 days (`BACKUP_CLOUD_RETENTION_DAYS`,
+  deliberately far longer than the 30-day WORM lock, because a lifecycle
+  deletion inside the retention window is refused and would never converge),
+  noncurrent at 30 days, expired delete markers cleaned, incomplete multipart
+  uploads aborted at 7 days. Corrected in the feature prompt (marked and dated)
+  and in deployment-checklist item 7.
+- **F1 — nobody had proven the WORM policy was LOCKED (docs).** G1 proves the
+  *key* cannot delete; it says nothing about the bucket. New **G0**, run from the
+  owner's laptop with the root/admin credential and never from the mini: confirm
+  versioning is on and `BucketWorm` state is `Locked` with the 30-day period,
+  with a console click-path and `ossutil` / `aliyun` commands (labelled
+  documented-not-executed) and an explicit warning that an `InProgress` policy
+  can still be deleted within its first 24 hours. G1's description now says what
+  it actually proves: the RAM policy, the first wall.
+- **F3 — "put-only" was not true (honesty).** The key also holds `GetObject`,
+  because the cloud drill downloads and restores an archive. Renamed everywhere
+  to "prefix-scoped, no-delete (Put/Get/List)" — runbook, checklist, prompt,
+  `.env.example`, and the script comments. Added an optional §7b B2 hardening
+  path (split upload/verify credentials) as a future step, and a new **G2** that
+  runs the exact three rclone operations the pipeline uses (`copy`, `lsf`,
+  `copyto`) against the real policy, with a short guide to reading each failure.
+- **F6 — the rehearsal wrote into the real home directory.** Codex ran it and hit
+  30 failures plus writes into `~/Library/Application Support`:
+  `BACKUP_LEGACY_STATUS_DIR` defaults there and the harness never overrode it.
+  It now redirects **every** writable path into its temp root — `HOME`, `TMPDIR`,
+  the legacy status dir, the rclone config, and `BACKUP_ENV_FILE` (new: the
+  scripts source `${BACKUP_ENV_FILE:-$PROJECT_ROOT/.env}` so a harness cannot be
+  overridden by the operator's real `.env`) — and the last scenario asserts that
+  nothing outside the temp root was created or modified. The legacy dir default
+  was investigated rather than moved: the platform repo's
+  `ops/docker/backup/native-inventory.sh` reads that exact path to compute backup
+  age, so it stays, now documented with the reader named.
+- **F7 — two writers could lose a stage update.** `backup.sh` and
+  `backup-verify.sh` both read-merge-rename the same file. Added a `mkdir` mutex
+  beside the status file (portable: macOS has no `flock`) with bounded backoff
+  (~10s), stale-lock breaking after 60s with a warning, and a deliberate
+  `proceedUnlocked` fallback so a lock problem can never abandon a good archive.
+  The retry/stale decision is a pure function with unit tests; the rehearsal runs
+  eight concurrent writer pairs and asserts every update survived.
+- **F8 — endpoint note.** Two lines in §7b C: on a mainland region with an
+  account created after 2025-03, an endpoint/domain error means the default
+  domain is restricted for API access — use the documented region endpoint. G2's
+  probe upload surfaces it before the first nightly run.
+
+Result:
+
+Rehearsal **93 passed / 0 failed** (was 71), including the four new drill-cadence
+cases (never → runs, fresh → skips, stale → runs, failed → retried the next
+night), the concurrent-writer test, the commissioning marker, and the
+hermeticity assertion. Unit tests: **888 tests, 865 pass, 0 fail** — the 22
+`cancelled` entries are the platform-production package suites, which cancel in a
+checkout without the sibling platform repo, unchanged from before this work.
+`npx tsc --noEmit` clean; `bash -n` clean on all 19 shell files.
+
+Why:
+
+Seven of the eight findings share one shape: the system was *honest about what
+it did* and *wrong about what it claimed*. A drill that cannot fire, a light that
+cannot go red, a lifecycle that deletes nothing, a key described as weaker than
+it is, a rehearsal that writes to the real disk — none of these throws an error.
+They are only visible to someone reading the code against the intent, which is
+what the cross-review did.
+
+Decision:
+
+The commissioning boundary is the general rule now: **calm before the first
+success, strict after it.** New monitoring in this codebase should follow it
+rather than inventing a third state. `BACKUP_EXPECTED=1` belongs in every
+production `.env`; leaving it out is what makes a laptop quiet, not a special
+case in the widget. G0–G5 (was G1–G4) remain unexecuted by any engineer — they
+need the real bucket — and manual USB rotation stays until the owner runs them.
+
+Verification:
+
+`pnpm backup:rehearse` (new script) → `passed 93 / failed 0`, temp root only.
+`node --test tests/domain/*.test.ts` → 865 pass / 0 fail / 22 cancelled (pre-
+existing). `npx tsc --noEmit` → clean. `bash -n` → clean, 19 files. New unit
+tests cover: commissioning transitions and stickiness, commissioned-stale = red,
+never-run-uncommissioned = amber, missing file with `BACKUP_EXPECTED` = red and
+without = unknown, all four drill-due branches, and the lock retry/stale/give-up
+decisions.
+
+Related Docs:
+
+- `docs/08-rollout/security-hardening-runbook.md` §7b (A3, B, B2, C, D, F, G0–G5)
+- `docs/08-rollout/deployment-checklist.md` item 7
+- `docs/05-feature-prompts/11-backup-v2-self-running.md` (corrected 2026-07-30)
+
+### 2026-07-30: Insert Types 嵌件 Captured At Intake (First Scalar-List Column)
+
+Context:
+
+Molds often shoot over inserts — a threaded nut, a magnet, a metal terminal, an
+IML label — and that changes who prepares what before T0. Nothing in the system
+recorded it, so it lived in memory and surfaced at the machine. Owner-approved
+feature: collect it at intake, show it on the project.
+
+Tried:
+
+- New pure domain module `src/domain/mold-trial/insert-types.ts`: the canonical
+  eight codes, a bilingual label map (labels.ts scaffolding, no dictionary
+  keys), `parseInsertTypes` (allowlist + dedupe + canonical order), and
+  `projectInsertTypes` for reading a row back. 10 node --test cases.
+- Schema: `MoldTrialProject.insertTypes String[] @default([]) @map("insert_types")`
+  — the first scalar-list column in this schema — with the hand-authored
+  migration `20260730120000_project_insert_types`
+  (`ALTER TABLE "mold_trial_projects" ADD COLUMN "insert_types" TEXT[] NOT NULL DEFAULT '{}'`).
+  A `text[]` beats an enum here: the vocabulary is shop-floor terminology that
+  keeps growing, and the allowlist that keeps the column honest lives in the
+  domain module, so adding an insert type is a code change, not a migration.
+- One shared server component `src/components/project/InsertTypesField.tsx`
+  (native checkboxes named `insertTypes`, no JS) plus `InsertTypeChips`. It
+  renders in the intake form's MAIN grid next to Parts/Cavities, in the project
+  Identifiers edit form, and as neutral chips after Parts in Project Overview.
+  Both languages print together, like the stage stepper — an operator and a PM
+  name these parts differently.
+- `createMoldTrialProject` and `updateMoldTrialProjectIdentifiers` read
+  `formData.getAll("insertTypes")` through `parseInsertTypes`, write it, and log
+  it in the existing ActivityLog before/after payloads.
+
+Result:
+
+`npx tsc --noEmit` is clean with ZERO stale-generated-client errors, which is
+new for a schema change here. Two seams did it: writes spread a typed
+`insertTypesWrite()` object into the `data` literal (every other field stays
+strictly checked), and reads go through `projectInsertTypes(project)`, whose
+parameter marks `insertTypes` optional. Both stay correct, unchanged, after
+regeneration. Domain tests: 874 total, 851 pass, 0 fail (the 22 cancellations
+are the pre-existing platform-package suite, which needs the `LJ_ERP/ops` tree).
+
+Why:
+
+Zero tsc errors is worth two documented seams. The old procedure — list the
+stale-client errors by name and wait — leaves the tree failing its own gate for
+however long the owner takes to migrate, and the 2026-07-11 rule (agents never
+touch the generated client) means an agent cannot verify anything past that
+point. Reads also genuinely benefit: `text[]` has no database-level constraint,
+so normalizing on read is correct behaviour, not a workaround.
+
+Decision:
+
+Harry runs these on the Mac, with the dev server stopped (the running server
+holds the old client):
+
+```bash
+cd ~/Documents/LJ_ERP/MoldPilot
+pnpm exec prisma validate
+pnpm prisma:migrate        # prisma migrate dev — applies 20260730120000 and regenerates
+pnpm prisma:generate       # only if migrate dev skipped generation
+# proof the client is fresh (pnpm keeps the generated client in the virtual store):
+grep -rl "insertTypes" node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/index.d.ts
+pnpm typecheck && pnpm test:domain
+pnpm dev                   # restart; the old server process keeps the stale client
+```
+
+Until that runs, creating a project on the Mac fails with a
+PrismaClientValidationError naming `insertTypes` — the documented stale-client
+tell, not a code bug. Production picks the column up through
+`prisma migrate deploy` in the next release; no backfill, no data migration.
+
+Verification:
+
+`npx tsc --noEmit` (also with `--incremental false`): 0 errors.
+`CI=true node --test tests/domain/*.test.ts`: 874 tests, 851 pass, 0 fail, 22
+pre-existing cancellations, 1 skipped. Dev-slice classification tests still
+pass: MoldTrialProject exports whole rows, so the new column rides along, and
+`insert_types` is not secret-looking, so the sanitization audit stays green.
+E2E smoke sentinels untouched. `npx eslint` clean on every touched file. The
+phone is byte-identical except where a project actually has inserts: the
+Identifiers checkbox group is `hidden md:block` (the boxes still POST their
+stored values, so a phone save cannot clear the list) and the Overview chips
+render only for a non-empty list.
+
+Not verified in the sandbox: `pnpm exec prisma validate` (the schema engine
+download is blocked there — 403 on binaries.prisma.sh) and the migration itself.
+Both run on the Mac as the first two commands above.
+
+Related Docs:
+
+- `docs/02-schema/schema-v0.md` MoldTrialProject (`insert_types` + its rule)
+- `docs/03-ui/phase-1-screen-specs.md` Screen 3 optional fields, Screen 4 header
+
+### 2026-07-30: Completed The Cookie-Language Audit Across Every Current Screen
+
+Context:
+
+MoldPilot already had English and Simplified Chinese dictionaries, but several
+screens mixed the active `moldpilot_language` cookie with `User.locale`, sent
+completed English dashboard sentences to client components, or rendered
+system-owned statuses, roles, groups, dates, placeholders, attachment controls,
+and activity labels without using the shared i18n layer.
+
+Tried:
+
+- Made `getCurrentLanguage()` / `getDictionary()` authoritative in server
+  components and `useI18n()` authoritative in client components. Project detail
+  no longer reads `currentUser.locale` for display.
+- Added pure display helpers for semantic dashboard next-trial states, limit
+  basis/warnings, localized dates and days-away text, trial-count badges,
+  recognized system roles/groups, default process-sheet sections, and known
+  ActivityLog entities/actions. Custom names and user-entered business content
+  remain untouched.
+- Changed dashboard rows to carry stable status kinds, sequence numbers, dates,
+  and limit-basis codes instead of completed English sentences. Calendar, My
+  Tasks, and score-event references now derive `T0`, `T1`, `T2`, `T3` from the
+  sequence number and never expose `EXTRA` as a user-facing stage.
+- Audited Dashboard, Project Detail, Admin, Reports, Calendar, My Tasks, Score,
+  attachments/lightbox, issue photos, measurement reports, customer files,
+  accessibility labels, dropdown options, and action feedback.
+- Updated the pilot HTTP assertion to look for the seeded Mold Code
+  `M-PILOT-01`, because Mold Code is now intentionally the visible primary
+  dashboard identifier while `MP-PILOT-001` remains the internal route/seed
+  identifier.
+
+Result:
+
+The first 28-case browser matrix found one shared mobile layout problem:
+Parts/Cavities editor columns forced Project Detail beyond the viewport in both
+languages. The editor now collapses to one bounded column below 840 px. The
+rerun passed all seven screens in English and Chinese at 1440x1000 and 390x844:
+28/28 HTTP 200, expected language text present, no runtime marker, no root
+horizontal overflow, no header control outside the viewport or overlapping,
+and zero browser console errors.
+
+Why:
+
+Language is UI state, not account data. Stable codes and structured values let
+the selected dictionary render the same workflow consistently without parsing
+English, while preserving customer data, codes, custom role/group/template
+names, and user-entered notes exactly.
+
+Decision:
+
+Keep `moldpilot_language` as the only UI-language source. Add future
+system-owned labels to both existing dictionaries by stable code, and keep
+custom/business values outside automatic translation. Browser checks must cover
+both languages and a phone viewport when a shared operational surface changes.
+
+Verification:
+
+`CI=true node --test tests/domain/*.test.ts` passed 864/864. The first two full
+runs exposed a test-only ClamAV local-command timeout at 1,005 ms under parallel
+suite contention; the same test passed 16/16 in isolation. Its fixture timeout
+was raised from one to five seconds without changing production scanner
+timeouts or fail-closed behavior, after which the exact full command passed.
+`pnpm exec prisma validate`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, and
+`pnpm pilot:check` passed. The build retains the unrelated backup-v2
+`backup-health.ts` Turbopack tracing warning and still completes successfully.
+Common project, upload, PDF-export, authentication, and Admin action feedback
+now passes through `translateWorkflowMessage()`. Uncommon low-level permission,
+validator, scanner, and repair-path details still use the server's sanitized
+English fallback until they receive stable message codes; raw stack traces are
+not exposed.
+
+Related Docs:
+
+- `docs/00-product/decision-log.md`
+- `docs/03-ui/phase-1-screen-specs.md`
+- `docs/03-build/acceptance-tests.md`
+
+### 2026-07-29: Backup v2 — Self-Running, Self-Verifying, Immutable
+
+> Superseded in part by "Backup v2 Review Fixes — Codex Findings 1–8"
+> (2026-07-30). Kept as written. The drill no longer fires on the 1st (it is
+> scheduled by age), the status writer now takes a lock, the acceptance series
+> is G0–G5, and the RAM key is described as prefix-scoped no-delete, not
+> put-only.
+
+Context:
+
+Backup v1 wrote a nightly encrypted archive to a mounted drive and stopped
+there. Everything after that was a human promise: rotate a USB drive, run a
+quarterly restore drill, notice if the LaunchAgent stopped firing. Promises like
+that survive a quiet month and fail in a busy one, and the failure is invisible
+until the day it matters. The owner picked the shape (2026-07-29): Aliyun OSS
+off-site leg, 30-day locked WORM, full restore verify nightly, rclone.
+
+Tried:
+
+- **A four-stage chain with one status file.** `scripts/backup.sh` gained a
+  cloud-upload step and writes a stage record after every leg;
+  `scripts/backup-verify.sh` (new) restores the newest archive into a scratch
+  database nightly and, on the 1st, repeats the proof against bytes pulled from
+  OSS. Both write `backup-status.json` through `scripts/backup-status.mjs`,
+  which merges ONE stage and replaces the file with a temp-file + rename, so
+  two independent scripts share the document without a lock and a reader never
+  sees a half-written JSON.
+- **Parameterisation before a second app exists.** `scripts/backup-app-config.sh`
+  holds the app identity (name, database, storage dir, OSS prefix, status path,
+  scratch DB name); `scripts/backup-lib.sh` holds the shared helpers. Neither
+  `backup.sh`, `backup-verify.sh` nor `backup-lib.sh` contains the string
+  "moldpilot" in any case — a unit test asserts that, so onboarding SupplyDesk
+  cannot quietly become "edit the logic".
+- **`rclone copy`, never `sync`.** Sync propagates a local deletion into the
+  off-site copy, which is the one thing an immutable backup must not do. The
+  choice is in a comment, in the runbook, and in an assertion that greps the
+  script with comment lines stripped.
+- **Two walls against deletion, neither of them on the mini.** The mini's RAM
+  key has `PutObject`/`GetObject`/`ListObjects` scoped to one prefix and no
+  `Delete*` at all; the bucket carries a locked 30-day compliance-retention
+  policy. Bucket, WORM and lifecycle are configured from the owner's laptop.
+- **A second age recipient for the nightly proof.** An unattended restore has to
+  decrypt something, and §7a is emphatic that the recovery identity is never on
+  the mini. So `backup.sh` encrypts to the escrowed recipient AND, when
+  configured, to a machine-resident verify recipient used only by the verify
+  script. Documented as an explicit trade-off, with the "leave it unset" path
+  spelled out.
+- **A rehearsal harness instead of a claim.** `scripts/backup-rehearsal.sh`
+  builds a throwaway temp tree with stand-in `rclone`/`age`/`pg_dump`/`psql`/
+  `pg_restore` binaries on PATH and runs the real scripts through eleven
+  scenarios.
+
+Result:
+
+71/71 rehearsal assertions pass: status transitions and exit codes for the happy
+path, offline (exit 0, recorded), a hard upload failure (exit 1, credential
+redacted out of the status detail), an unreachable destination, rclone absent,
+the nightly proof, the cloud drill, and a corrupt status file. The scratch-name
+guard refuses `moldpilot`, `moldpilot_production`, `postgres`, `template1`,
+`verify_moldpilot` and `moldpilot_verifyx` with exit 2 and — asserted — zero
+commands sent to any database.
+
+Why:
+
+The failure this build is really about is not "the disk died", it is "nobody
+noticed". So every leg that can go wrong writes what happened, the admin page
+turns that into one light with the spec's thresholds (local >26h, upload >26h or
+a streak above 3, verify failed, drill >35 days), and a leg that has never run is
+amber rather than red — an alarm that is on from day one is not an alarm.
+
+Decision:
+
+The four acceptance tests that need a real database, drive, network and bucket
+are **not** claimed as executed. They are written up as runnable procedures with
+exact commands and expected output in runbook §7b G1–G4, including the
+deliberate `rclone deletefile` that MUST fail. Manual USB rotation is retired
+only after G1–G4 pass and the first monthly cloud drill passes on schedule.
+
+Verification:
+
+`npx tsc --noEmit` clean. `node --test tests/domain/*.test.ts`: 853 tests, 830
+pass, 0 fail; the only two `not ok` entries remain the platform-production
+package suites, which cancel in a checkout without the sibling platform repo —
+unchanged from before this work. `bash -n` clean on all 22 shell files; both
+plists parse. 22 new unit tests in `tests/domain/backup-status.test.ts` cover the
+defensive parse, the redaction net, the stage merge, and every threshold in the
+status→verdict logic. Two assertions in `tests/domain/security-backup.test.ts`
+were rewritten from the hardcoded archive/recovery filenames to their
+parameterised form plus the config defaults, preserving the original intent.
+
+Related Docs:
+
+- `docs/08-rollout/security-hardening-runbook.md` §1, §7b
+- `docs/08-rollout/deployment-checklist.md` item 7
+- `docs/05-feature-prompts/11-backup-v2-self-running.md`
+
 ### 2026-07-28: Gave The Project Page A Spine (Rail, Stepper, Folded Trials) Without Touching The Phone
 
 Context:

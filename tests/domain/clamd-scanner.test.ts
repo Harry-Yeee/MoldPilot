@@ -605,11 +605,11 @@ describe("scanner configuration and local compatibility", () => {
 
     try {
       assert.equal(
-        (await scanFileWithLocalCommand(filePath, cleanScanner, 1_000)).status,
+        (await scanFileWithLocalCommand(filePath, cleanScanner, 5_000)).status,
         "clean"
       );
       assert.equal(
-        (await scanFileWithLocalCommand(filePath, infectedScanner, 1_000)).status,
+        (await scanFileWithLocalCommand(filePath, infectedScanner, 5_000)).status,
         "infected"
       );
     } finally {

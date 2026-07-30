@@ -1,9 +1,9 @@
 import { MessageBanner } from "@/components/ui";
 import Link from "next/link";
 import { formatMonthKey, parseMonthKey, shiftMonth } from "@/domain/mold-trial/calendar";
-import { calendarLabels, navLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
-import { createTranslator } from "@/i18n";
-import { getCurrentLanguage, getDictionary } from "@/i18n/server";
+import { calendarLabels, localeFromLanguage, navLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { createTranslator, dictionaries, translateWorkflowMessage } from "@/i18n";
+import { getCurrentLanguage } from "@/i18n/server";
 import { DayPanel } from "@/app/calendar/day-panel";
 import { MachineLoadLegend, MonthGrid } from "@/app/calendar/month-grid";
 import { TrialAgenda } from "@/app/calendar/trial-agenda";
@@ -61,8 +61,10 @@ export default async function CalendarPage({ searchParams }: PageProps) {
     dbRoleCode: currentUser.role.code
   });
 
-  const t = createTranslator(await getDictionary());
-  const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
+  const language = await getCurrentLanguage();
+  const dictionary = dictionaries[language];
+  const t = createTranslator(dictionary);
+  const locale: Locale = localeFromLanguage(language);
 
   // Resolve the requested month (default: current). A malformed ?month= falls
   // back to the current month rather than throwing a 500.
@@ -80,8 +82,8 @@ export default async function CalendarPage({ searchParams }: PageProps) {
   const dayParam = stringParam(params, "day");
   const selectedDay = dayParam != null && DAY_PATTERN.test(dayParam) ? dayParam : null;
 
-  const error = stringParam(params, "error");
-  const success = stringParam(params, "success");
+  const error = translateWorkflowMessage(dictionary, stringParam(params, "error"));
+  const success = translateWorkflowMessage(dictionary, stringParam(params, "success"));
 
   // One month query for the desktop grid; one 7-day query for the phone agenda.
   // Both are cheap and the route is force-dynamic, so fetch concurrently.

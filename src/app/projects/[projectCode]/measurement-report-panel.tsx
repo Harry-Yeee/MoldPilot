@@ -4,10 +4,12 @@ import { useState } from "react";
 import { Button, StatusBadge, BottomSheet } from "@/components/ui";
 import { MeasurementReportUploadForm } from "@/components/attachments/MeasurementReportUploadForm";
 import {
+  localeFromLanguage,
   measurementReportLabels,
-  pickLabel,
-  type Locale
+  pickLabel
 } from "@/domain/mold-trial/labels";
+import { formatLocalizedDate } from "@/i18n/display";
+import { useI18n } from "@/i18n/language-provider";
 
 export type MeasurementReportPanelState =
   | { kind: "MISSING" }
@@ -19,17 +21,10 @@ export type MeasurementReportPanelProps = {
   trialEventId: string;
   /** True when the viewer may upload (and, for an existing report, replace) it. */
   canUpload: boolean;
-  locale: Locale;
 };
 
-function label(key: keyof typeof measurementReportLabels, locale: Locale): string {
+function label(key: keyof typeof measurementReportLabels, locale: ReturnType<typeof localeFromLanguage>): string {
   return pickLabel(measurementReportLabels[key], locale);
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(
-    new Date(value)
-  );
 }
 
 /**
@@ -43,21 +38,22 @@ export function MeasurementReportPanel({
   state,
   trialLabel,
   trialEventId,
-  canUpload,
-  locale
+  canUpload
 }: MeasurementReportPanelProps) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   const [sheetOpen, setSheetOpen] = useState(false);
   const uploaded = state.kind === "UPLOADED";
 
   return (
-    <section className="panelActionBlock" aria-label={`${trialLabel} measurement report`}>
+    <section className="panelActionBlock" aria-label={`${trialLabel} ${label("title", locale)}`}>
       <h3>{label("title", locale)}</h3>
       <div className="flex flex-wrap items-center gap-3">
         {uploaded ? (
           <>
             <StatusBadge tone="completed">{label("uploaded", locale)}</StatusBadge>
             <span className="text-sm text-neutral-600">
-              {formatDate(state.uploadedAt)} · {state.uploadedBy}
+              {formatLocalizedDate(state.uploadedAt, language)} · {state.uploadedBy}
             </span>
             <a
               href={`/api/attachments/${state.attachmentId}`}
@@ -84,7 +80,6 @@ export function MeasurementReportPanel({
         >
           <MeasurementReportUploadForm
             trialEventId={trialEventId}
-            locale={locale}
             onSuccess={() => setSheetOpen(false)}
           />
         </BottomSheet>

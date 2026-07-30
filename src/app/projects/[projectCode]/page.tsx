@@ -9,6 +9,7 @@ import { ImageCaptureField } from "@/components/attachments/image-capture-field"
 import { IssuePhotoCountChip, IssuePhotoGallery, type IssuePhoto } from "@/components/attachments/issue-photo-gallery";
 import { StatusBadge, SubmitButton, sectionHueVars, statusToneClasses, toneForStatus } from "@/components/ui";
 import { ProjectSectionNav, type ProjectSectionNavItem } from "@/components/project/ProjectSectionNav";
+import { InsertTypeChips, InsertTypesField } from "@/components/project/InsertTypesField";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
 import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
@@ -17,11 +18,14 @@ import { ProcessSheetEditor } from "@/app/projects/[projectCode]/process-sheet-e
 import { TrialIssueRowActions } from "@/app/projects/[projectCode]/trial-issue-row-actions";
 import { formatPartSummary } from "@/domain/mold-trial/parts";
 import { formatMoldWorkingIdentifier } from "@/domain/mold-trial/identifiers";
-import { formatInjectionMachineLabel, isProcessSheetSummaryParameter } from "@/domain/mold-trial/process-sheet";
+import { insertTypeFieldLabels, projectInsertTypes } from "@/domain/mold-trial/insert-types";
+import {
+  DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
+  formatInjectionMachineLabel,
+  isProcessSheetSummaryParameter
+} from "@/domain/mold-trial/process-sheet";
 import {
   buildTrialPanels,
-  formatDaysAway,
-  formatTrialCountBadge,
   trialStageLabel,
   trialVerificationStatusOptions
 } from "@/domain/mold-trial/trial-panel";
@@ -32,6 +36,7 @@ import {
   issuePhotoLabels,
   measurementReportLabels,
   myPlateLabels,
+  localeFromLanguage,
   pickLabel,
   projectSectionLabels,
   type BilingualLabel,
@@ -48,8 +53,17 @@ import {
   participatesInDateConfirmation,
   type DateConfirmationStatus
 } from "@/domain/mold-trial/date-confirmation";
-import { createTranslator, translateLabel, type Dictionary } from "@/i18n";
-import { getDictionary } from "@/i18n/server";
+import { createTranslator, dictionaries, translateLabel, translateWorkflowMessage, type Dictionary, type Language } from "@/i18n";
+import {
+  formatLocalizedDate,
+  formatLocalizedDaysAway,
+  formatLocalizedTrialCountBadge,
+  translateActivityAction,
+  translateActivityEntity,
+  translateDefaultProcessSection,
+  translateSystemRole
+} from "@/i18n/display";
+import { getCurrentLanguage } from "@/i18n/server";
 import {
   createTrialIssue,
   recordCompletedTrial,
@@ -126,7 +140,7 @@ async function loadProjectDetail(projectCode: string, autoMissActorUserId: strin
 
     return {
       detail: null,
-      databaseError: error instanceof Error ? error.message : "Unable to load project detail records."
+      databaseError: "PROJECT_DETAIL_UNAVAILABLE"
     };
   }
 }
@@ -134,18 +148,6 @@ async function loadProjectDetail(projectCode: string, autoMissActorUserId: strin
 function messageValue(searchParams: Record<string, string | string[] | undefined>, key: string): string | null {
   const value = searchParams[key];
   return typeof value === "string" ? value : null;
-}
-
-function formatDate(value: Date | string | null | undefined): string {
-  if (value == null) {
-    return "Not set";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric"
-  }).format(new Date(value));
 }
 
 function inputDate(value: Date | string | null | undefined): string {
@@ -169,21 +171,21 @@ function labelFor<T extends string>(labels: Record<string, T>, value: string | n
  * muted dash instead of a bold dark "Not set". The "Not set / 未设置" meaning is
  * preserved as a hover tooltip on the dash.
  */
-function MissingDash() {
+function MissingDash({ title }: { title: string }) {
   return (
-    <span className="valueMissing" title="Not set / 未设置">
+    <span className="valueMissing" title={title}>
       —
     </span>
   );
 }
 
-function optionalText(value: string | null | undefined) {
+function optionalText(value: string | null | undefined, notSetLabel: string) {
   const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed.length === 0 ? <MissingDash /> : trimmed;
+  return trimmed.length === 0 ? <MissingDash title={notSetLabel} /> : trimmed;
 }
 
-function optionalDate(value: Date | string | null | undefined) {
-  return value == null ? <MissingDash /> : formatDate(value);
+function optionalDate(value: Date | string | null | undefined, language: Language, notSetLabel: string) {
+  return value == null ? <MissingDash title={notSetLabel} /> : formatLocalizedDate(value, language);
 }
 
 function labelForTranslated<T extends string>(
@@ -192,15 +194,10 @@ function labelForTranslated<T extends string>(
   labels: Record<string, T>,
   value: string | null | undefined
 ): string {
+  if (value == null) {
+    return createTranslator(dictionary)("common.notSet");
+  }
   return translateLabel(dictionary, group, labelFor(labels, value));
-}
-
-function formatActivityEntity(value: string): string {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2");
-}
-
-function formatActivityAction(value: string): string {
-  return value.replaceAll("_", " ");
 }
 
 function trialIssueRowStatusClass(status: string): string {
@@ -439,6 +436,7 @@ function TrialDateConfirmationBlock({
   canProposeChange,
   canRedate,
   injectionMachines,
+  language,
   locale,
   projectCode,
   redirectTo,
@@ -450,6 +448,7 @@ function TrialDateConfirmationBlock({
   canProposeChange: boolean;
   canRedate: boolean;
   injectionMachines: ProjectDetail["activeInjectionMachines"];
+  language: Language;
   locale: Locale;
   projectCode: string;
   redirectTo: string;
@@ -496,7 +495,7 @@ function TrialDateConfirmationBlock({
   const afterTarget = isProposedDateAfterTarget(trial.proposedDate, customerTargetDate);
 
   return (
-    <section className="panelActionBlock" aria-label="Trial date confirmation">
+    <section className="panelActionBlock" aria-label={cLabel("confirmTrialDates")}>
       <h3>{cLabel("confirmTrialDates")}</h3>
       <p className="m-0">
         <span
@@ -554,15 +553,15 @@ function TrialDateConfirmationBlock({
         <div className="trialPanelFacts">
           <span>
             {cLabel("currentPlannedDate")}
-            <strong>{formatDate(trial.plannedDate)}</strong>
+            <strong>{formatLocalizedDate(trial.plannedDate, language, "—")}</strong>
           </span>
           <span>
             {cLabel("proposedDate")}
-            <strong>{formatDate(trial.proposedDate)}</strong>
+            <strong>{formatLocalizedDate(trial.proposedDate, language, "—")}</strong>
           </span>
           <span>
             {cLabel("customerTargetDate")}
-            <strong>{formatDate(customerTargetDate)}</strong>
+            <strong>{formatLocalizedDate(customerTargetDate, language, "—")}</strong>
           </span>
           <span>
             {cLabel("targetGap")}
@@ -662,7 +661,7 @@ function TrialIssuePanelForm({
       </label>
       <div className="fullSpan grid gap-1">
         <span className="text-sm font-bold text-neutral-700">{pickLabel(issuePhotoLabels.photos, locale)}</span>
-        <ImageCaptureField name="photos" locale={locale} />
+        <ImageCaptureField name="photos" />
       </div>
       <details className="fullSpan issueMoreDetails">
         <summary>{pickLabel(issueFormLabels.moreDetails, locale)}</summary>
@@ -789,6 +788,7 @@ function ProcessSheetComparison({
   const template = project.processSheetTemplate;
   const trials = project.trialEvents;
   const editableTrial = trials.find((trial) => trial.id === currentEditableTrialId) ?? null;
+  const defaultTemplate = project.processSheetTemplateCode === DEFAULT_PROCESS_SHEET_TEMPLATE_CODE;
 
   return (
     <section
@@ -820,7 +820,7 @@ function ProcessSheetComparison({
           .filter((parameter) => !isProcessSheetSummaryParameter(parameter.parameterKey))
           .map((parameter) => ({
             id: parameter.id,
-            section: parameter.section,
+            section: translateDefaultProcessSection(dictionary, parameter.section, defaultTemplate),
             parameterKey: parameter.parameterKey,
             labelEn: parameter.labelEn,
             labelZh: parameter.labelZh,
@@ -833,7 +833,7 @@ function ProcessSheetComparison({
         trials={trials.map((trial) => ({
           id: trial.id,
           label: trialStageLabel(trial.sequenceNumber),
-          statusLabel: labelFor(trialStatusLabels, trial.status),
+          statusLabel: labelForTranslated(dictionary, "trialStatus", trialStatusLabels, trial.status),
           injectionMachineId: trial.injectionMachineId ?? ""
         }))}
         values={project.processValues.map((value) => ({
@@ -850,9 +850,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const { projectCode } = await params;
   const resolvedSearchParams = await searchParams;
   const currentUser = await getCurrentUser();
-  const dictionary = await getDictionary();
+  const language = await getCurrentLanguage();
+  const dictionary = dictionaries[language];
   const t = createTranslator(dictionary);
-  const { detail, databaseError } = await loadProjectDetail(projectCode, currentUser.id);
+  const { detail } = await loadProjectDetail(projectCode, currentUser.id);
   const activeUserOptions = detail == null ? [] : await getActiveUserOptions();
   const activePmUserOptions = activeUserOptions.filter((user) => user.role.code === "pm");
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
@@ -861,8 +862,14 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     roleCode: currentUser.roleCode,
     dbRoleCode: currentUser.role.code
   });
-  const error = resolvedSearchParams == null ? null : messageValue(resolvedSearchParams, "error");
-  const success = resolvedSearchParams == null ? null : messageValue(resolvedSearchParams, "success");
+  const error =
+    resolvedSearchParams == null
+      ? null
+      : translateWorkflowMessage(dictionary, messageValue(resolvedSearchParams, "error"));
+  const success =
+    resolvedSearchParams == null
+      ? null
+      : translateWorkflowMessage(dictionary, messageValue(resolvedSearchParams, "success"));
 
   if (detail == null) {
     return (
@@ -883,7 +890,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
 
         <section className="notice" role="status">
           <strong>{t("dashboard.databaseUnavailable")}</strong>
-          <span>{databaseError ?? "Unable to load project detail records."}</span>
+          <span>{t("project.loadFailed")}</span>
         </section>
       </main>
     );
@@ -929,6 +936,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     }));
   const activeParts = project.parts.filter((part) => part.active);
   const partSummary = formatPartSummary(project.parts, project.partCode);
+  const insertTypes = projectInsertTypes(project);
   const workingIdentifier = formatMoldWorkingIdentifier({
     projectCode: project.projectCode,
     clientProjectRef: project.clientProjectRef,
@@ -953,8 +961,15 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       return new Date(right.plannedDate).getTime() - new Date(left.plannedDate).getTime();
     })[0]?.id ?? null;
   const currentProcessSheetTrialId = defaultCurrentTrialId || latestProcessSheetTrialId;
-  const trialCountBadge = formatTrialCountBadge(limit);
-  const nextTrialDaysAway = formatDaysAway(project.nextPlannedTrialDate);
+  const requestNow = new Date();
+  const displayDate = (value: Date | string | null | undefined): string =>
+    formatLocalizedDate(value, language, t("common.notSet"));
+  const trialCountBadge = formatLocalizedTrialCountBadge(limit, dictionary);
+  const nextTrialDaysAway = formatLocalizedDaysAway(
+    defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate,
+    requestNow,
+    dictionary
+  );
   const moldCodeBlank = project.moldCode.trim().length === 0;
   const clientProjectRefBlank = project.clientProjectRef == null || project.clientProjectRef.trim().length === 0;
   const showInternalTrackingId = (moldCodeBlank && clientProjectRefBlank) || currentUser.roleCode === "ADMIN";
@@ -992,9 +1007,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       id: `missed-${event.id}`,
       sortDate: event.createdAt,
       date: event.createdAt,
-      type: "Missed Trial",
-      subject: `${formatDate(event.plannedDate)} -> ${formatDate(event.newPlannedDate)}`,
-      detail: `${labelFor(missedTrialReasonLabels, event.reasonCategory)} / ${labelFor(
+      type: t("project.history.missedTrial"),
+      subject: `${displayDate(event.plannedDate)} -> ${displayDate(event.newPlannedDate)}`,
+      detail: `${labelForTranslated(dictionary, "reason", missedTrialReasonLabels, event.reasonCategory)} / ${labelForTranslated(
+        dictionary,
+        "responsibleArea",
         responsibleAreaLabels,
         event.responsibleArea
       )}: ${event.explanation}`
@@ -1005,34 +1022,43 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         id: `trial-plan-${trial.id}`,
         sortDate: trial.createdAt,
         date: trial.createdAt,
-        type: "New Planned Trial",
-        subject: `${trialStageLabel(trial.sequenceNumber)} - ${formatDate(trial.plannedDate)}`,
+        type: t("project.history.newPlannedTrial"),
+        subject: `${trialStageLabel(trial.sequenceNumber)} - ${displayDate(trial.plannedDate)}`,
         detail:
           trial.planReasonCategory == null
-            ? trial.planReasonDetail ?? "No reason detail recorded"
-            : `${labelFor(newTrialReasonLabels, trial.planReasonCategory)}: ${
-                trial.planReasonDetail ?? "No reason detail recorded"
+            ? trial.planReasonDetail ?? t("project.history.noReason")
+            : `${labelForTranslated(dictionary, "newTrialReason", newTrialReasonLabels, trial.planReasonCategory)}: ${
+                trial.planReasonDetail ?? t("project.history.noReason")
               }`
       })),
     ...project.designChanges.map((change) => ({
       id: `design-${change.id}`,
       sortDate: change.changeDate,
       date: change.changeDate,
-      type: "Design Change",
+      type: t("project.history.designChange"),
       subject: change.title,
-      detail: `${labelFor(changeRequesterLabels, change.requestedBy)} / ${
-        change.grantsExtraTrial ? `+${change.extraTrialCount ?? 1} extra trial` : "No extra allowance"
+      detail: `${labelForTranslated(dictionary, "changeRequester", changeRequesterLabels, change.requestedBy)} / ${
+        change.grantsExtraTrial
+          ? t("project.history.extraTrial", { count: change.extraTrialCount ?? 1 })
+          : t("project.history.noExtraAllowance")
       } / ${change.approvalReason ?? change.description}`
     })),
     ...project.trialLimitAdjustments.map((adjustment) => ({
       id: `limit-${adjustment.id}`,
       sortDate: adjustment.createdAt,
       date: adjustment.createdAt,
-      type: "Limit Adjustment",
-      subject: labelFor(limitAdjustmentTypeLabels, adjustment.adjustmentType),
-      detail: `Delta ${adjustment.deltaTrials ?? "Not set"} / New limit ${adjustment.newLimit ?? "Not set"} / ${
-        adjustment.reason
-      }`
+      type: t("project.history.limitAdjustment"),
+      subject: labelForTranslated(
+        dictionary,
+        "limitAdjustmentType",
+        limitAdjustmentTypeLabels,
+        adjustment.adjustmentType
+      ),
+      detail: t("project.history.delta", {
+        delta: adjustment.deltaTrials ?? t("common.notSet"),
+        limit: adjustment.newLimit ?? t("common.notSet"),
+        reason: adjustment.reason
+      })
     }))
   ].sort((left, right) => new Date(right.sortDate).getTime() - new Date(left.sortDate).getTime());
   const canSetFirstT0 = hasPermissionCode(permissionCodes, "trial.schedule.first_t0");
@@ -1079,9 +1105,15 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   }));
   const issueActionUserOptions = activeUserOptions.map((user) => ({
     username: user.username,
-    label: formatIssueOwnerUserOption(user)
+    label: formatIssueOwnerUserOption({
+      displayName: user.displayName,
+      chineseName: user.chineseName,
+      role: {
+        name: translateSystemRole(dictionary, user.role.code, user.role.name)
+      }
+    })
   }));
-  const todayInputDate = inputDate(new Date());
+  const todayInputDate = inputDate(requestNow);
 
   /* -------------------------------------------------------------------------
    * Desktop orientation (lg+ rail, md+ stepper).
@@ -1092,7 +1124,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
    * sections this render actually produces (permission-gated ones included),
    * never from a hard-coded list that could drift.
    * ---------------------------------------------------------------------- */
-  const locale = currentUser.locale;
+  const locale = localeFromLanguage(language);
   const bilingual = (label: BilingualLabel) => ({ labelEn: label.en, labelZh: label.zh });
   const openProjectIssues = project.trialIssues.filter(
     (issue) => issue.status !== "CLOSED" && issue.status !== "VERIFIED"
@@ -1269,10 +1301,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           <div className="md:hidden">
             <AccountMenu currentUser={currentUser} />
           </div>
-          <div className="trialBadgeGroup" aria-label="Project trial status">
+          <div className="trialBadgeGroup" aria-label={t("project.trialStatusAria")}>
             <span className={`trialCountBadge state${limit.warningState.replaceAll(" ", "")}`}>{trialCountBadge}</span>
             <span className="nextTrialBadge">
-              {t("project.nextTrial")} {formatDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate)} ({nextTrialDaysAway})
+              {t("project.nextTrial")} {displayDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate)} ({nextTrialDaysAway})
             </span>
           </div>
         </div>
@@ -1281,7 +1313,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       <div
         className={`${statusToneClasses[projectStatusTone].pill} flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-bold`}
         role="status"
-        aria-label="Project status"
+        aria-label={t("project.statusAria")}
       >
         <span className="font-normal opacity-70">{t("field.status")}</span>
         <span>{projectStatusDisplay}</span>
@@ -1393,13 +1425,25 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               <dt>{t("project.parts")}</dt>
               <dd>{partSummary}</dd>
             </div>
+            {/* Inserts sit right after Parts — same question ("what is in this
+                mold?"), and only when the project actually carries inserts. No
+                inserts renders no row at all, so the overview keeps its density
+                for the projects this does not apply to. */}
+            {insertTypes.length === 0 ? null : (
+              <div>
+                <dt>{`${insertTypeFieldLabels.title.en} ${insertTypeFieldLabels.title.zh}`}</dt>
+                <dd>
+                  <InsertTypeChips codes={insertTypes} />
+                </dd>
+              </div>
+            )}
             <div>
               <dt>{t("field.moldCode")}</dt>
-              <dd>{optionalText(project.moldCode)}</dd>
+              <dd>{optionalText(project.moldCode, t("common.notSet"))}</dd>
             </div>
             <div>
               <dt>{t("project.clientProjectRef")}</dt>
-              <dd>{optionalText(project.clientProjectRef)}</dd>
+              <dd>{optionalText(project.clientProjectRef, t("common.notSet"))}</dd>
             </div>
             {showInternalTrackingId ? (
               <div>
@@ -1423,28 +1467,28 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             </div>
             <div>
               <dt>{t("project.firstPlannedTrial")}</dt>
-              <dd>{optionalDate(project.firstPlannedTrialDate)}</dd>
+              <dd>{optionalDate(project.firstPlannedTrialDate, language, t("common.notSet"))}</dd>
             </div>
             <div>
               <dt>{t("project.nextPlannedTrial")}</dt>
               <dd>
-                {formatDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate)} ({nextTrialDaysAway})
+                {displayDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate)} ({nextTrialDaysAway})
               </dd>
             </div>
             <div>
               <dt>{t("project.customerTargetDate")}</dt>
-              <dd>{optionalDate(project.customerTargetDate)}</dd>
+              <dd>{optionalDate(project.customerTargetDate, language, t("common.notSet"))}</dd>
             </div>
           </dl>
         </div>
         <div className="noteGrid">
           <div>
             <dt>{t("project.intakeNote")}</dt>
-            <dd>{optionalText(project.intakeNote)}</dd>
+            <dd>{optionalText(project.intakeNote, t("common.notSet"))}</dd>
           </div>
           <div>
             <dt>{t("project.initialCustomerNote")}</dt>
-            <dd>{optionalText(project.initialCustomerNote)}</dd>
+            <dd>{optionalText(project.initialCustomerNote, t("common.notSet"))}</dd>
           </div>
         </div>
       </section>
@@ -1470,6 +1514,14 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               {t("field.moldCode")}
               <input name="moldCode" defaultValue={project.moldCode} placeholder={t("common.optional")} />
             </label>
+            {/* The same intake checkbox group, so an intake omission is
+                correctable here. Desktop-only, exactly like intake: `hidden`
+                keeps the phone's Identifiers form pixel-identical, and the
+                boxes still POST their stored values, so a phone save can never
+                silently clear the list. */}
+            <div className="fullSpan hidden md:block">
+              <InsertTypesField selected={insertTypes} />
+            </div>
             <div className="formActions">
               {/* V5b: identifier edits are a secondary action, not the page's primary. */}
               <button type="submit" className="secondaryButton">{t("project.saveIdentifiers")}</button>
@@ -1593,7 +1645,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             <h2 id="trial-panel-heading">{t("project.trialPanel")}</h2>
             <p className="surfaceSubtext">
               {t("project.trialPanelNext", {
-                date: formatDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate),
+                date: displayDate(defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate),
                 days: nextTrialDaysAway
               })}
             </p>
@@ -1642,7 +1694,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                   <small>
                     {panel.trial == null
                       ? t("project.noTrialRecord")
-                      : `${translateLabel(dictionary, "trialStatus", panel.trial.status)} / ${formatDate(panel.trial.plannedDate)}`}
+                      : `${translateLabel(dictionary, "trialStatus", panel.trial.status)} / ${displayDate(panel.trial.plannedDate)}`}
                   </small>
                 </span>
                 {/* Desktop-only fold summary: what a folded trial must still say
@@ -1659,7 +1711,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                       </StatusBadge>
                     )}
                     <small className="text-neutral-600">
-                      {formatDate(panel.trial.actualDate ?? panel.trial.plannedDate)}
+                      {displayDate(panel.trial.actualDate ?? panel.trial.plannedDate)}
                     </small>
                     {(() => {
                       const machine = rawTrialEvent?.machineNoSnapshot ?? panel.trial.machine;
@@ -1681,11 +1733,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 <div className="trialPanelFacts">
                   <span>
                     {t("field.plannedDate")}
-                    <strong>{formatDate(panel.trial?.plannedDate)}</strong>
+                    <strong>{displayDate(panel.trial?.plannedDate)}</strong>
                   </span>
                   <span>
                     {t("field.actualDate")}
-                    <strong>{formatDate(panel.trial?.actualDate)}</strong>
+                    <strong>{displayDate(panel.trial?.actualDate)}</strong>
                   </span>
                   <span>
                     {t("field.result")}
@@ -1723,7 +1775,8 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                     canRedate={canRedateReturnedTrial}
                     customerTargetDate={project.customerTargetDate}
                     injectionMachines={detail.activeInjectionMachines}
-                    locale={currentUser.locale}
+                    language={language}
+                    locale={locale}
                     projectCode={project.projectCode}
                     redirectTo={redirectTo}
                     trial={rawTrialEvent}
@@ -1734,7 +1787,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 (panel.trial.status === "Planned" ||
                   panel.trial.status === "At Risk" ||
                   panel.trial.status === "Auto Missed - Reason Required") ? (
-                  <section className="panelActionBlock" aria-label={`${panel.title} result entry`}>
+                  <section
+                    className="panelActionBlock"
+                    aria-label={t("project.resultEntryAria", { trial: panel.title })}
+                  >
                     <h3>{t("project.recordResult")}</h3>
                     {canRecordCompletedTrial ? (
                       <RecordTrialResultForm
@@ -1762,7 +1818,6 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                       trialLabel={panel.title}
                       trialEventId={panel.trial.id}
                       canUpload={canUploadMeasurementReport}
-                      locale={currentUser.locale}
                     />
                   );
                 })()}
@@ -1801,11 +1856,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                               <td>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span>{issue.title}</span>
-                                  <IssuePhotoCountChip count={issuePhotos.length} locale={currentUser.locale} />
+                                  <IssuePhotoCountChip count={issuePhotos.length} />
                                 </div>
                                 {issuePhotos.length === 0 ? null : (
                                   <div className="pt-2">
-                                    <IssuePhotoGallery photos={issuePhotos} locale={currentUser.locale} />
+                                    <IssuePhotoGallery photos={issuePhotos} />
                                   </div>
                                 )}
                               </td>
@@ -1817,7 +1872,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                                 </span>
                               </td>
                               <td>{issue.ownerUser?.displayName ?? issue.ownerGroup?.name ?? t("common.unassigned")}</td>
-                              <td>{formatDate(issue.dueDate)}</td>
+                              <td>{displayDate(issue.dueDate)}</td>
                               <td>
                                 <TrialIssueRowActions
                                   activeParts={issueActionPartOptions}
@@ -1839,7 +1894,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                                   issueSourceOptions={issueSourceOptions}
                                   issueStatusOptions={issueEditStatusOptions}
                                   issueTypeOptions={issueTypeOptions}
-                                  locale={currentUser.locale}
+                                  locale={locale}
                                   projectCode={project.projectCode}
                                   redirectTo={redirectTo}
                                   requiresNonOwnerCloseReason={issue.ownerUserId !== currentUser.id}
@@ -1857,11 +1912,11 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                     {panel.canAddIssue && panel.trial?.id != null ? (
                       canCreateIssue ? (
                         <div className="panelInlineForm">
-                          <h3>Add Trial Issue</h3>
+                          <h3>{t("project.addTrialIssue")}</h3>
                           <TrialIssuePanelForm
                             activeParts={activeParts}
                             dictionary={dictionary}
-                            locale={currentUser.locale}
+                            locale={locale}
                             marketingIssueDefaults={marketingIssueDefaults}
                             projectCode={project.projectCode}
                             redirectTo={redirectTo}
@@ -1894,7 +1949,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                               <select defaultValue={verificationStatusForIssue(issue)} disabled>
                                 {trialVerificationStatusOptions.map((option) => (
                                   <option key={option} value={option}>
-                                    {option}
+                                    {translateLabel(dictionary, "verificationStatus", option)}
                                   </option>
                                 ))}
                               </select>
@@ -1945,9 +2000,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         <details>
           <summary className="surfaceHeader cursor-pointer list-none">
             <div>
-              <h2 id="files-heading">{pickLabel(attachmentLabels.filesTitle, currentUser.locale)}</h2>
+              <h2 id="files-heading">{pickLabel(attachmentLabels.filesTitle, locale)}</h2>
               <span>
-                {pickLabel(attachmentLabels.filesSubtitle, currentUser.locale)} ({projectAttachments.length})
+                {pickLabel(attachmentLabels.filesSubtitle, locale)} ({projectAttachments.length})
               </span>
             </div>
           </summary>
@@ -1957,14 +2012,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               currentUserId={currentUser.id}
               canAdminDelete={canAdminDeleteAttachment}
               redirectTo={redirectTo}
-              locale={currentUser.locale}
             />
             {canUploadAttachment ? (
               <AttachmentUploader
                 projectId={project.id}
                 entityType="MOLD_TRIAL_PROJECT"
                 entityId={project.id}
-                locale={currentUser.locale}
                 canChooseVisibility={canChooseAttachmentVisibility}
               />
             ) : null}
@@ -1982,7 +2035,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
             uploadedAt: attachment.uploadedAt,
             uploaderName: attachment.uploadedBy.displayName
           }))}
-          locale={currentUser.locale}
+          locale={locale}
           sectionId="section-customer-files"
           sectionClassName="sectionHue sectionAnchor"
           sectionStyle={sectionHueVars("in-correction")}
@@ -2018,7 +2071,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
               ) : (
                 planningHistory.map((history) => (
                   <tr key={history.id}>
-                    <td>{formatDate(history.date)}</td>
+                    <td>{displayDate(history.date)}</td>
                     <td>{history.type}</td>
                     <td>{history.subject}</td>
                     <td>{history.detail}</td>
@@ -2045,9 +2098,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           ) : (
             activityLogs.map((activity) => (
               <li key={activity.id}>
-                <span>{formatDate(activity.createdAt)}</span>
-                <span className="activityEntity">{formatActivityEntity(activity.entityType)}</span>
-                <strong>{formatActivityAction(activity.action)}</strong>
+                <span>{displayDate(activity.createdAt)}</span>
+                <span className="activityEntity">{translateActivityEntity(dictionary, activity.entityType)}</span>
+                <strong>{translateActivityAction(dictionary, activity.action)}</strong>
                 <small>{activity.actorUser.displayName}</small>
               </li>
             ))

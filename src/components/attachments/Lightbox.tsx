@@ -4,7 +4,9 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { nextImageIndex, prevImageIndex } from "@/domain/mold-trial/attachments";
-import { lightboxLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { lightboxLabels, localeFromLanguage, pickLabel } from "@/domain/mold-trial/labels";
+import { formatLocalizedDate } from "@/i18n/display";
+import { useI18n } from "@/i18n/language-provider";
 
 /** One image the lightbox can display. `src` is the streaming download route. */
 export type LightboxImage = {
@@ -22,14 +24,7 @@ export type LightboxProps = {
   onClose: () => void;
   /** Parent updates its open index; the lightbox never owns navigation state. */
   onNavigate: (index: number) => void;
-  locale: Locale;
 };
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(
-    new Date(value)
-  );
-}
 
 /**
  * Fullscreen, controlled photo viewer. The parent (`AttachmentList`) owns the
@@ -39,7 +34,9 @@ function formatDate(value: string): string {
  * the two adjacent images. Body scroll is locked and focus is trapped to the
  * dialog while open, restoring the previously focused element on close.
  */
-export function Lightbox({ images, openIndex, onClose, onNavigate, locale }: LightboxProps) {
+export function Lightbox({ images, openIndex, onClose, onNavigate }: LightboxProps) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocused = useRef<Element | null>(null);
   const isOpen = openIndex != null && openIndex >= 0 && openIndex < images.length;
@@ -160,7 +157,7 @@ export function Lightbox({ images, openIndex, onClose, onNavigate, locale }: Lig
           <span aria-hidden="true" className="text-white/50">·</span>
           <span className="text-white/80">{current.uploadedByName}</span>
           <span aria-hidden="true" className="text-white/50">·</span>
-          <span className="text-white/80">{formatDate(current.uploadedAt)}</span>
+          <span className="text-white/80">{formatLocalizedDate(current.uploadedAt, language)}</span>
           <span aria-hidden="true" className="text-white/50">·</span>
           <span className="font-bold tabular-nums">{counter}</span>
         </div>

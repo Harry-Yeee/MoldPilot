@@ -411,6 +411,7 @@ Allowed customer fields are the selected Customer reference and customer-code sn
 | customer_code | text | Snapshot copied from Customer.code at project creation for stable historical display/reporting. |
 | part_code | text | Legacy/primary display field for migration compatibility. It should mirror the first/primary active MoldTrialPart, not replace MoldTrialPart records. |
 | mold_code | text | Example: M-014-01. May be blank only while status is Intake/Draft. Required before active trial scheduling or trial activity. |
+| insert_types | text[] | Optional insert types 嵌件类型 the mold shoots over (IML, IMD, threaded nut, magnet, metal terminal, stamped metal, glass/lens, other). NOT NULL DEFAULT '{}'; empty means no inserts. Values are codes from the allowlist in `src/domain/mold-trial/insert-types.ts`, not free text. |
 | planning_pm_id | uuid | Optional until PM is assigned; references User. Field name may remain for migration compatibility, but UI copy should say PM. |
 | technical_pm_id | uuid | Optional, references User. |
 | status | enum | Intake, Active, Waiting Trial, Trial Delayed, In Correction, Waiting Verification, Approved, Over Limit, Blocked, Paused, Cancelled, Closed. |
@@ -456,6 +457,8 @@ Rule: A mold trial project is the mold-level trial-control record. Do not create
 Rule: Project intake should create at least one active MoldTrialPart before active trial tracking. The legacy project `part_code` may be kept for list display and migration safety, but MoldTrialPart is the source of truth for multi-part/multi-cavity support.
 
 Rule: Project creation snapshots the Customer default process-sheet template, or the global default if the Customer does not specify one. Template snapshot should not change historical process-sheet reports if Customer defaults are later edited.
+
+Rule: `insert_types` is optional and multi-select. Store only allowlisted codes, de-duplicated and in the canonical order defined by `insertTypeCodes`; adding a new insert type is a code change in `src/domain/mold-trial/insert-types.ts`, not a migration. Do not store customer-supplied insert part numbers or supplier names here.
 
 ## MoldTrialPart
 

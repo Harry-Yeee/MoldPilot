@@ -471,6 +471,118 @@ h2 {
   color: #6c4c07;
 }
 
+/* Backup v2 admin health line. One compact light per app; the estate-wide
+   roll-up across apps is a platform concern, not this page. */
+.backupHealth {
+  margin-bottom: 16px;
+  border: 1px solid #d6dde6;
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: white;
+  padding: 12px 16px;
+  color: #536579;
+  font-size: 0.875rem;
+}
+
+.backupHealthHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.backupHealthHead strong {
+  color: #182230;
+}
+
+.backupHealthVerdict {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.backupHealthDot {
+  align-self: center;
+  border-radius: 50%;
+  background: #98a2b3;
+  width: 10px;
+  height: 10px;
+}
+
+.backupHealth--green {
+  border-left-color: #2e9c62;
+}
+
+.backupHealth--green .backupHealthDot {
+  background: #2e9c62;
+}
+
+.backupHealth--green .backupHealthVerdict {
+  color: #165c37;
+}
+
+.backupHealth--amber {
+  border-left-color: #d99b20;
+}
+
+.backupHealth--amber .backupHealthDot {
+  background: #d99b20;
+}
+
+.backupHealth--amber .backupHealthVerdict {
+  color: #6c4c07;
+}
+
+.backupHealth--red {
+  border-left-color: #c73c3c;
+}
+
+.backupHealth--red .backupHealthDot {
+  background: #c73c3c;
+}
+
+.backupHealth--red .backupHealthVerdict {
+  color: #8f1f1f;
+}
+
+.backupHealthHint {
+  margin-top: 6px;
+}
+
+.backupHealthLegs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backupHealthLegs li {
+  display: grid;
+  gap: 2px;
+}
+
+.backupHealthLegName {
+  color: #667085;
+  font-size: 0.75rem;
+}
+
+.backupHealthLegValue {
+  color: #182230;
+}
+
+.backupHealthFindings {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.backupHealthFinding--red {
+  color: #8f1f1f;
+}
+
+.backupHealthFinding--amber {
+  color: #6c4c07;
+}
+
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3015,6 +3127,24 @@ th {
   .trialPanelFacts,
   .formGrid {
     grid-template-columns: 1fr;
+  }
+
+  .partsEditorHeader {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .partsEditorRows,
+  .partsEditorRow {
+    min-width: 0;
+  }
+
+  .partsEditorRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .partNotesField {
+    min-width: 0;
   }
 
   .machineGridHeader {

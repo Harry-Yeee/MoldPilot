@@ -5,6 +5,7 @@ import { CustomerSelector } from "@/app/customer-selector";
 import { MoldTrialListTable } from "@/app/mold-trial-list-table";
 import { MyPlateSections } from "@/app/me/my-plate-sections";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
+import { InsertTypesField } from "@/components/project/InsertTypesField";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
 import { EmptyState, HeadlineCard, MessageBanner, SectionHeading } from "@/components/ui";
 import { TrialAgenda } from "@/app/calendar/trial-agenda";
@@ -19,7 +20,7 @@ import {
 } from "@/domain/mold-trial/labels";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
 import { buildNavVisibility } from "@/server/nav";
-import { createTranslator, dictionaries, translateWorkflowMessage } from "@/i18n";
+import { createTranslator, dictionaries, translateLabel, translateWorkflowMessage } from "@/i18n";
 import { getCurrentLanguage } from "@/i18n/server";
 import { createMoldTrialProject } from "@/server/mold-trial-actions";
 import { getMoldTrialDashboardData } from "@/server/mold-trial-dashboard";
@@ -78,9 +79,9 @@ async function loadDashboard(now: Date): Promise<{
     now
   )
     .then((myPlate) => ({ myPlate, myPlateError: null }))
-    .catch((error: unknown) => ({
+    .catch(() => ({
       myPlate: emptyPlate(),
-      myPlateError: error instanceof Error ? error.message : "Unable to load your tasks."
+      myPlateError: "TASKS_UNAVAILABLE"
     }));
 
   // The mobile "This week's trials" agenda is non-critical: a failure resolves to
@@ -104,7 +105,7 @@ async function loadDashboard(now: Date): Promise<{
       myPlateError: myPlateResult.myPlateError,
       agenda
     };
-  } catch (error) {
+  } catch {
     const [myPlateResult, agenda] = await Promise.all([myPlatePromise, agendaPromise]);
 
     return {
@@ -127,7 +128,7 @@ async function loadDashboard(now: Date): Promise<{
           completedTrialsMissingReportCount: 0
         }
       },
-      databaseError: error instanceof Error ? error.message : "Unable to load database records.",
+      databaseError: "DATABASE_UNAVAILABLE",
       myPlate: myPlateResult.myPlate,
       myPlateError: myPlateResult.myPlateError,
       agenda
@@ -222,7 +223,7 @@ export default async function Home({ searchParams }: PageProps) {
       {databaseError == null ? null : (
         <div className="mb-4">
           <MessageBanner variant="info" title={t("dashboard.databaseUnavailable")}>
-            {databaseError}
+            {databaseError === "DATABASE_UNAVAILABLE" ? t("dashboard.loadRecordsFailed") : databaseError}
           </MessageBanner>
         </div>
       )}
@@ -288,7 +289,7 @@ export default async function Home({ searchParams }: PageProps) {
         </SectionHeading>
         {myPlateError == null ? null : (
           <MessageBanner variant="info" title={t("dashboard.databaseUnavailable")}>
-            {myPlateError}
+            {myPlateError === "TASKS_UNAVAILABLE" ? t("dashboard.loadTasksFailed") : myPlateError}
           </MessageBanner>
         )}
         {myPlateError == null && myPlate.totalCount === 0 ? (
@@ -355,6 +356,10 @@ export default async function Home({ searchParams }: PageProps) {
               <input name="clientProjectRef" placeholder={t("common.optional")} />
             </label>
             <PartsCavitiesEditor />
+            {/* Inserts sit in the main grid, next to Parts/Cavities: whether the
+                mold shoots over inserts changes who prepares what before T0, so
+                it must be visible at intake, not folded away. */}
+            <InsertTypesField />
             <label>
               {t("field.assignedPm")}
               <select name="planningPmUsername" defaultValue="">
@@ -381,7 +386,7 @@ export default async function Home({ searchParams }: PageProps) {
               <select name="priority" defaultValue="NORMAL">
                 {priorityOptions.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {translateLabel(dictionary, "priority", option.label)}
                   </option>
                 ))}
               </select>

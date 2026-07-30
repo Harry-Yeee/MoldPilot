@@ -9,6 +9,7 @@ import { localeFromLanguage, navLabels, pickLabel } from "@/domain/mold-trial/la
 import { logout } from "@/server/auth-actions";
 import type { CurrentUser } from "@/server/current-user";
 import type { NavCurrent, NavVisibility } from "@/server/nav";
+import { translateSystemRole } from "@/i18n/display";
 
 /**
  * Desktop-only app shell (Bundle D). A slim brand-coloured bar that gives every
@@ -49,7 +50,8 @@ export async function AppHeader({
   currentUser: NonNullable<CurrentUser>;
 }) {
   const locale = localeFromLanguage(await getCurrentLanguage());
-  const t = createTranslator(await getDictionary());
+  const dictionary = await getDictionary();
+  const t = createTranslator(dictionary);
 
   return (
     <header
@@ -103,7 +105,7 @@ export async function AppHeader({
             {formatAccountIdentityLine({
               displayName: currentUser.displayName,
               username: currentUser.username,
-              roleName: currentUser.role.name
+              roleName: translateSystemRole(dictionary, currentUser.role.code, currentUser.role.name)
             })}
           </span>
         </div>

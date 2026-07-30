@@ -9,20 +9,24 @@ const baseRow = {
   customerCode: "C-001",
   partCode: "P-001",
   moldCode: "M-001",
+  statusCode: "WAITING_TRIAL",
   status: "Waiting Trial",
+  priorityCode: "NORMAL",
   priority: "Normal",
   planningPm: "Planning PM",
   technicalPm: "Technical PM",
-  nextTrial: "T0 planned",
+  nextTrial: { kind: "PLANNED", sequenceNumber: 1 },
   nextPlannedDate: "2026-07-01",
-  assemblyReadyDate: "Not planned",
+  assemblyReadyDate: null,
+  completedTrialCount: 0,
+  currentTrialLimit: 3,
   trialCountLabel: "0 / 3",
   warningState: "Healthy",
   openIssueCount: 0,
   criticalOpenIssueCount: 0,
-  lastTrialResult: "Not recorded",
+  lastTrialResult: null,
   lastUpdate: "2026-06-24",
-  limitNote: "Default Limit"
+  limitBasis: "DEFAULT"
 } satisfies Omit<MoldTrialDashboardRow, "projectCode">;
 
 function row(

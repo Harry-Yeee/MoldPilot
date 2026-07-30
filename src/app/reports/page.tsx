@@ -33,6 +33,7 @@ import {
 } from "@/server/management-reports";
 import { getEffectivePermissionCodes } from "@/server/permissions";
 import { getNavVisibility } from "@/server/nav";
+import { translateSystemGroup, translateSystemRole } from "@/i18n/display";
 
 export const dynamic = "force-dynamic";
 
@@ -112,17 +113,24 @@ function issueTypeLabel(value: string, dictionary: Dictionary): string {
   return translateLabel(dictionary, "issueType", issueTypeLabels[value] ?? value);
 }
 
-function fixOwnerLabel(issue: ManagementIssueRow, t: ReturnType<typeof createTranslator>): string {
+function fixOwnerLabel(
+  issue: ManagementIssueRow,
+  dictionary: Dictionary,
+  t: ReturnType<typeof createTranslator>
+): string {
   if (issue.ownerUser != null) {
     return formatIssueOwnerUserOption({
       displayName: issue.ownerUser.displayName,
       chineseName: issue.ownerUser.chineseName,
-      role: { name: issue.ownerUser.roleName }
+      role: {
+        name: translateSystemRole(dictionary, issue.ownerUser.roleCode, issue.ownerUser.roleName)
+      }
     });
   }
   if (issue.ownerGroup != null) {
     const suffix = t("reports.ownerGroupSuffix");
-    return suffix === "组" ? `${issue.ownerGroup.name}${suffix}` : `${issue.ownerGroup.name} ${suffix}`;
+    const groupName = translateSystemGroup(dictionary, issue.ownerGroup.code, issue.ownerGroup.name);
+    return suffix === "组" ? `${groupName}${suffix}` : `${groupName} ${suffix}`;
   }
   return t("common.unassigned");
 }
@@ -434,13 +442,21 @@ function IssuesTable({
           <label>{t("reports.ownerRole")}
             <select name="ownerRole" defaultValue={selected("ownerRole")}>
               <option value="">{t("reports.all")}</option>
-              {data.issueFilterOptions.ownerRoles.map((value) => <option value={value.code} key={value.code}>{value.name}</option>)}
+              {data.issueFilterOptions.ownerRoles.map((value) => (
+                <option value={value.code} key={value.code}>
+                  {translateSystemRole(dictionary, value.code, value.name)}
+                </option>
+              ))}
             </select>
           </label>
           <label>{t("reports.ownerGroup")}
             <select name="ownerGroup" defaultValue={selected("ownerGroup")}>
               <option value="">{t("reports.all")}</option>
-              {data.issueFilterOptions.ownerGroups.map((value) => <option value={value.code} key={value.code}>{value.name}</option>)}
+              {data.issueFilterOptions.ownerGroups.map((value) => (
+                <option value={value.code} key={value.code}>
+                  {translateSystemGroup(dictionary, value.code, value.name)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="reportBacklogToggle">
@@ -476,7 +492,7 @@ function IssuesTable({
                     <td><SourceIdentity projectCode={row.projectCode} moldCode={row.moldCode} trialLabel={row.trialLabel} /></td>
                     <td><strong>{row.title}</strong><small>{issueTypeLabel(row.issueType, dictionary)}</small></td>
                     <td><StatusBadge tone={row.severity === "CRITICAL" || row.severity === "HIGH" ? "at-risk" : "paused"}>{severityLabel(row.severity, dictionary)}</StatusBadge><small>{statusLabel(row.status, dictionary)}</small></td>
-                    <td>{fixOwnerLabel(row, t)}</td>
+                    <td>{fixOwnerLabel(row, dictionary, t)}</td>
                     <td>{formatDateOnly(row.dueDate, language)}{row.overdue ? <strong className="reportOverdue">{t("reports.overdue")}</strong> : null}<small>{t("reports.daysOpen", { days: row.ageDays })}</small></td>
                     <td>{row.status === "CLOSED" || row.status === "VERIFIED" ? <>{row.fixSummary ?? "-"}{row.fixTimeMinutes == null ? null : <small>{t("reports.fixTime", { minutes: row.fixTimeMinutes })}</small>}</> : <span className="reportUnresolved">{t("reports.notResolved")}</span>}</td>
                     <td>{row.closedAt == null ? "-" : <>{formatTimestamp(row.closedAt, language)}{row.closedByName == null ? null : <small>{t("reports.closedBy")}: {row.closedByName}</small>}{row.verificationResult == null ? null : <small>{t("reports.verification")}: {row.verificationResult}</small>}</>}</td>
@@ -538,8 +554,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   let loadError: string | null = null;
   try {
     data = await getManagementReportData(currentUser.id, { month, asOf: now, issueFilters });
-  } catch (error) {
-    loadError = error instanceof Error ? error.message : t("reports.loadFailed");
+  } catch {
+    loadError = t("reports.loadFailed");
   }
 
   const scoresSort = parseKpiSortState(parameter(params, "scoreSort"), parameter(params, "scoreDir"));
@@ -547,8 +563,8 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   if (tab === "scorecards" && canViewScorecards) {
     try {
       scorecards = await getManagementReportScorecards(currentUser.id, { month, asOf: now });
-    } catch (error) {
-      loadError ??= error instanceof Error ? error.message : t("reports.loadFailed");
+    } catch {
+      loadError ??= t("reports.loadFailed");
     }
   }
 

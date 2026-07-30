@@ -3,6 +3,7 @@ import { AccountMenu } from "@/app/account-menu";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AdminClientsBatchEditor } from "@/app/admin/admin-clients-batch-editor";
 import { AdminUsersBatchEditor } from "@/app/admin/admin-users-batch-editor";
+import { BackupHealthPanel } from "@/app/admin/backup-health-panel";
 import { KpiRulesPanel } from "@/app/admin/kpi-rules-panel";
 import { KpiScoresPanel } from "@/app/admin/kpi-scores-panel";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
@@ -18,6 +19,7 @@ import { compareInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
 import {
   createTranslator,
+  translateWorkflowMessage,
   translatePermissionGroup,
   translatePermissionName
 } from "@/i18n";
@@ -36,6 +38,7 @@ import {
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes, requireAnyPermission } from "@/server/permissions";
 import { getNavVisibility } from "@/server/nav";
+import { translateSystemRole } from "@/i18n/display";
 
 export const dynamic = "force-dynamic";
 
@@ -122,10 +125,12 @@ function decimalDisplay(value: unknown): string {
 
 export default async function AdminPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const error = params == null ? null : messageValue(params, "error");
-  const success = params == null ? null : messageValue(params, "success");
+  const rawError = params == null ? null : messageValue(params, "error");
+  const rawSuccess = params == null ? null : messageValue(params, "success");
   const dictionary = await getDictionary();
   const t = createTranslator(dictionary);
+  const error = translateWorkflowMessage(dictionary, rawError);
+  const success = translateWorkflowMessage(dictionary, rawSuccess);
   const requestedTabValue = params == null ? null : messageValue(params, "tab");
   const requestedTab =
     requestedTabValue === "roles" ||
@@ -156,7 +161,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
       throw error;
     }
 
-    loadError = error instanceof Error ? error.message : "Admin data unavailable.";
+    loadError = t("admin.loadFailed");
   }
 
   const groupedPermissionCodes = permissionDefinitions.reduce<
@@ -235,6 +240,8 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const activeUserRoleOptions = sortedRoles.filter((role) => role.active || role.code === protectedAdminRoleCode);
   const activeUsers = (data?.users ?? []).filter((user) => user.status === "ACTIVE");
   const activeClientOwnerOptions = activeUsers;
+  const roleDisplayName = (role: { code: string; name: string }): string =>
+    translateSystemRole(dictionary, role.code, role.name);
 
   // KPI tabs load their own data lazily (scores are expensive to compute).
   const now = new Date();
@@ -300,7 +307,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
             <Link className="backLink" href="/">
             {t("common.backToDashboard")}
           </Link>
-          <p className="eyebrow">MoldPilot Admin</p>
+          <p className="eyebrow">{t("admin.eyebrow")}</p>
           <h1>{t("admin.accountsPermissions")}</h1>
         </div>
         {data == null ? null : (
@@ -327,10 +334,14 @@ export default async function AdminPage({ searchParams }: PageProps) {
       {data == null ? (
         <section className="notice noticeError" role="alert">
           <strong>{t("admin.adminUnavailable")}</strong>
-          <span>{loadError ?? "You need admin permission to manage users and roles."}</span>
+          <span>{loadError ?? t("admin.permissionRequired")}</span>
         </section>
       ) : (
         <>
+          {/* Backup v2 health light. Reads one JSON file written by the backup
+              pipeline — no query, and a missing/corrupt file renders calmly. */}
+          <BackupHealthPanel locale={locale} />
+
           <nav className="adminTabs" aria-label={t("admin.accountsPermissions")}>
             {canManageUsers ? (
               <Link className={activeTab === "users" ? "adminTab adminTabActive" : "adminTab"} href={usersRedirectTo}>
@@ -394,18 +405,18 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 </label>
                 <label>
                   {t("field.displayName")}
-                  <input name="displayName" placeholder="Planning PM" required />
+                  <input name="displayName" placeholder={t("admin.planningPmPlaceholder")} required />
                 </label>
                 <label>
                   {t("field.chineseName")}
-                  <input name="chineseName" placeholder="Optional" />
+                  <input name="chineseName" placeholder={t("admin.optionalPlaceholder")} />
                 </label>
                 <label>
                   {t("field.role")}
                   <select name="roleId" required>
                     {activeUserRoleOptions.map((role) => (
                       <option key={role.id} value={role.id}>
-                        {role.name}
+                        {roleDisplayName(role)}
                       </option>
                     ))}
                   </select>
@@ -433,6 +444,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 discardChanges: t("common.discardChanges"),
                 displayName: t("field.displayName"),
                 forcePasswordChange: t("admin.passwordMustChange"),
+                inactiveSuffix: t("admin.inactiveSuffix"),
                 noActiveUsers: t("admin.noActiveUsers"),
                 noArchivedUsers: t("admin.noArchivedUsers"),
                 passwordSet: t("admin.passwordSet"),
@@ -449,7 +461,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
               redirectTo={usersRedirectTo}
               roles={sortedRoles.map((role) => ({
                 id: role.id,
-                name: role.name,
+                name: roleDisplayName(role),
                 active: role.active
               }))}
               users={(data?.users ?? []).map((user) => ({
@@ -458,7 +470,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 displayName: user.displayName,
                 chineseName: user.chineseName,
                 roleId: user.roleId,
-                roleName: user.role.name,
+                roleName: roleDisplayName(user.role),
                 status: user.status,
                 forcePasswordChange: user.forcePasswordChange
               }))}
@@ -613,7 +625,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
                         defaultValue={machine.machineNo}
                         inputMode="numeric"
                         pattern="[0-9]+"
-                        aria-label="Machine No."
+                        aria-label={t("field.machineNo")}
                         required
                       />
                       <input
@@ -789,7 +801,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
                         <th scope="col">{t("admin.subtaskPermission")}</th>
                         {activeMatrixRoles.map((role) => (
                           <th key={role.id} scope="col" className={role.code === protectedAdminRoleCode ? "protectedRoleColumn" : ""}>
-                            <span>{role.name}</span>
+                            <span>{roleDisplayName(role)}</span>
                             <small>{role.code === protectedAdminRoleCode ? t("admin.protected") : role.code}</small>
                           </th>
                         ))}
@@ -827,13 +839,13 @@ export default async function AdminPage({ searchParams }: PageProps) {
                                   <input
                                     className="matrixPermissionCheckbox"
                                     data-permission-code={permissionDefinition.code}
-                                    data-role-name={role.name}
+                                    data-role-name={roleDisplayName(role)}
                                     disabled={protectedPermission}
                                     name={`permissionCode:${role.id}`}
                                     type="checkbox"
                                     value={permissionDefinition.code}
                                     defaultChecked={checked}
-                                    aria-label={`${role.name}: ${translatePermissionName(
+                                    aria-label={`${roleDisplayName(role)}: ${translatePermissionName(
                                       dictionary,
                                       permissionDefinition.code,
                                       permissionDefinition.name

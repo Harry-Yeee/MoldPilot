@@ -180,6 +180,7 @@ model MoldTrialProject {
   customerCode            String                 @map("customer_code")
   partCode                String                 @map("part_code")
   moldCode                String                 @map("mold_code")
+  insertTypes             String[]               @default([]) @map("insert_types")
   planningPmId            String?                @map("planning_pm_id") @db.Uuid
   technicalPmId           String?                @map("technical_pm_id") @db.Uuid
   status                  MoldTrialProjectStatus @default(ACTIVE)

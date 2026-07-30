@@ -18,6 +18,7 @@
     "test": "node --test tests/domain/*.test.ts",
     "test:domain": "node --test tests/domain/*.test.ts",
     "e2e:smoke": "node scripts/e2e-smoke.mjs",
+    "backup:rehearse": "bash scripts/backup-rehearsal.sh",
     "offline:cache": "bash scripts/create-offline-cache.sh",
     "offline:install": "bash scripts/install-offline-deps.sh",
     "server:first-deploy": "bash scripts/server-first-deploy-macos.sh",

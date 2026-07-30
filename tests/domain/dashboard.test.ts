@@ -131,7 +131,10 @@ describe("dashboard summary", () => {
     assert.equal(data.summary.overLimitCount, 1);
     assert.equal(data.summary.openCriticalIssueCount, 1);
     assert.equal(data.summary.pendingFollowUpCount, 1);
-    assert.equal(data.rows.find((row) => row.projectCode === "MP-INTAKE-001")?.nextTrial, "Waiting T0 schedule");
+    assert.deepEqual(data.rows.find((row) => row.projectCode === "MP-INTAKE-001")?.nextTrial, {
+      kind: "WAITING_T0_SCHEDULE",
+      sequenceNumber: null
+    });
     assert.equal(data.rows.find((row) => row.projectCode === "MP-SEED-005")?.trialCountLabel, "1 / 3");
     assert.equal(data.rows.find((row) => row.projectCode === "MP-SEED-008")?.assemblyReadyDate, "2026-06-16");
   });
@@ -244,8 +247,8 @@ describe("dashboard summary", () => {
     ]);
 
     assert.equal(data.rows[0].workingIdentifier, "MP-TRK-20260701-ABC123");
-    assert.equal(data.rows[0].moldCode, "Not set");
-    assert.equal(data.rows[0].clientProjectRef, "Not set");
+    assert.equal(data.rows[0].moldCode, null);
+    assert.equal(data.rows[0].clientProjectRef, null);
     assert.equal(data.rows[1].workingIdentifier, "M-CLIENT-42");
     assert.equal(data.rows[1].clientProjectRef, "CLIENT-42");
   });

@@ -8,6 +8,8 @@ import {
   nextProcessSheetInputIndex
 } from "@/domain/mold-trial/process-sheet";
 import { useI18n } from "@/i18n/language-provider";
+import { formatLocalizedTime } from "@/i18n/display";
+import type { Language } from "@/i18n";
 import { saveTrialProcessSheetValues, type ProcessSheetSaveState } from "@/server/mold-trial-actions";
 
 type ProcessSheetParameterInput = {
@@ -78,16 +80,8 @@ function displayValue(value: string | undefined): string {
   return value == null || value.trim().length === 0 ? "-" : value;
 }
 
-function savedAtLabel(value: string | null): string | null {
-  if (value == null) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(value));
+function savedAtLabel(value: string | null, language: Language): string | null {
+  return formatLocalizedTime(value, language);
 }
 
 function SaveButton({ changedCount }: { changedCount: number }) {
@@ -111,7 +105,7 @@ export function ProcessSheetEditor({
   values,
   machines
 }: ProcessSheetEditorProps) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [state, formAction, pending] = useActionState(saveTrialProcessSheetValues, initialSaveState);
   const editableTrial = trials.find((trial) => trial.id === currentEditableTrialId) ?? null;
   const editableTrialIndex = editableTrial == null ? -1 : trials.findIndex((trial) => trial.id === editableTrial.id);
@@ -213,7 +207,7 @@ export function ProcessSheetEditor({
   const changedFieldCount =
     visibleParameters.filter((parameter) => (currentValues[parameter.id] ?? "") !== (baselineValues[parameter.id] ?? "")).length +
     (machineId !== baselineMachineId ? 1 : 0);
-  const savedAt = savedAtLabel(state.savedAt);
+  const savedAt = savedAtLabel(state.savedAt, language);
 
   function handleInputKeyDown(index: number, event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") {

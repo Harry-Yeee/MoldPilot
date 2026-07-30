@@ -5,7 +5,9 @@
 import { useState } from "react";
 import { Lightbox, type LightboxImage } from "@/components/attachments/Lightbox";
 import { sanitizeFileName } from "@/domain/mold-trial/attachments";
-import { issuePhotoLabels, lightboxLabels, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { issuePhotoLabels, lightboxLabels, localeFromLanguage, pickLabel } from "@/domain/mold-trial/labels";
+import { formatLocalizedDate } from "@/i18n/display";
+import { useI18n } from "@/i18n/language-provider";
 
 /** One issue photo, already display-shaped by the server query. */
 export type IssuePhoto = {
@@ -17,15 +19,10 @@ export type IssuePhoto = {
 
 export type IssuePhotoGalleryProps = {
   photos: readonly IssuePhoto[];
-  locale: Locale;
 };
 
 function attachmentSrc(id: string): string {
   return `/api/attachments/${id}`;
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(new Date(value));
 }
 
 /**
@@ -36,7 +33,9 @@ function formatDate(value: string): string {
  * Lightbox open index locally so each gallery is independent. Images stream lazily
  * from the permission-checked download route (inline disposition).
  */
-export function IssuePhotoGallery({ photos, locale }: IssuePhotoGalleryProps) {
+export function IssuePhotoGallery({ photos }: IssuePhotoGalleryProps) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   if (photos.length === 0) {
@@ -74,9 +73,9 @@ export function IssuePhotoGallery({ photos, locale }: IssuePhotoGalleryProps) {
               </button>
               <span
                 className="truncate text-[0.6875rem] leading-tight text-neutral-500"
-                title={`${photo.uploaderName} · ${formatDate(photo.uploadedAt)}`}
+                title={`${photo.uploaderName} · ${formatLocalizedDate(photo.uploadedAt, language)}`}
               >
-                {photo.uploaderName} · {formatDate(photo.uploadedAt)}
+                {photo.uploaderName} · {formatLocalizedDate(photo.uploadedAt, language)}
               </span>
             </li>
           );
@@ -88,7 +87,6 @@ export function IssuePhotoGallery({ photos, locale }: IssuePhotoGalleryProps) {
         openIndex={openIndex}
         onClose={() => setOpenIndex(null)}
         onNavigate={setOpenIndex}
-        locale={locale}
       />
     </div>
   );
@@ -98,7 +96,9 @@ export function IssuePhotoGallery({ photos, locale }: IssuePhotoGalleryProps) {
  * Small photo-count chip for an issue row/header when photos exist. Pure display;
  * renders nothing at zero so callers can drop it in unconditionally.
  */
-export function IssuePhotoCountChip({ count, locale }: { count: number; locale: Locale }) {
+export function IssuePhotoCountChip({ count }: { count: number }) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   if (count <= 0) {
     return null;
   }

@@ -19,8 +19,10 @@ import {
   formatFileSize,
   lightboxLabels,
   pickLabel,
-  type Locale
+  localeFromLanguage
 } from "@/domain/mold-trial/labels";
+import { formatLocalizedDate } from "@/i18n/display";
+import { useI18n } from "@/i18n/language-provider";
 import { deleteAttachment } from "@/server/attachment-actions";
 
 export type AttachmentListProps = {
@@ -30,20 +32,17 @@ export type AttachmentListProps = {
   /** True when the viewer holds attachment.delete (admin-style delete). */
   canAdminDelete: boolean;
   redirectTo: string;
-  locale: Locale;
 };
 
 function attachmentSrc(id: string): string {
   return `/api/attachments/${id}`;
 }
 
-function formatDate(value: Date | string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(
-    new Date(value)
-  );
-}
-
-function labelOrCode(labels: Record<string, { en: string; zh: string }>, code: string, locale: Locale): string {
+function labelOrCode(
+  labels: Record<string, { en: string; zh: string }>,
+  code: string,
+  locale: ReturnType<typeof localeFromLanguage>
+): string {
   const label = labels[code];
   return label == null ? code.replaceAll("_", " ") : pickLabel(label, locale);
 }
@@ -61,9 +60,10 @@ export function AttachmentList({
   attachments,
   currentUserId,
   canAdminDelete,
-  redirectTo,
-  locale
+  redirectTo
 }: AttachmentListProps) {
+  const { language } = useI18n();
+  const locale = localeFromLanguage(language);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   // Ids of video rows whose inline player is currently expanded.
   const [playingIds, setPlayingIds] = useState<ReadonlySet<string>>(new Set());
@@ -152,9 +152,9 @@ export function AttachmentList({
                 </div>
                 <p
                   className="m-0 truncate text-[0.75rem] leading-tight text-neutral-500"
-                  title={`${attachment.fileName} — ${attachment.uploaderName} · ${formatDate(attachment.uploadedAt)}`}
+                  title={`${attachment.fileName} — ${attachment.uploaderName} · ${formatLocalizedDate(attachment.uploadedAt, language)}`}
                 >
-                  {attachment.uploaderName} · {formatDate(attachment.uploadedAt)}
+                  {attachment.uploaderName} · {formatLocalizedDate(attachment.uploadedAt, language)}
                 </p>
               </li>
             );
@@ -192,7 +192,7 @@ export function AttachmentList({
                       </StatusBadge>
                     </div>
                     <p className="m-0 text-[0.8125rem] text-neutral-500">
-                      {attachment.uploaderName} · {formatDate(attachment.uploadedAt)} ·{" "}
+                      {attachment.uploaderName} · {formatLocalizedDate(attachment.uploadedAt, language)} ·{" "}
                       {formatFileSize(attachment.sizeBytes)}
                     </p>
                   </div>
@@ -247,7 +247,6 @@ export function AttachmentList({
         openIndex={openIndex}
         onClose={() => setOpenIndex(null)}
         onNavigate={setOpenIndex}
-        locale={locale}
       />
     </div>
   );

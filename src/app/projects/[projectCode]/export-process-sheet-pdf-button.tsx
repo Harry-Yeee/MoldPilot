@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { validateProcessSheetPdfDownload } from "@/domain/mold-trial/process-sheet-export";
+import { translateWorkflowMessage } from "@/i18n";
 import { useI18n } from "@/i18n/language-provider";
 import {
   exportProcessSheetPdf,
@@ -20,7 +21,7 @@ const initialExportState: ProcessSheetPdfExportState = {
 type ExportPhase = "idle" | "exporting" | "downloading" | "downloaded" | "error";
 
 export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: string }) {
-  const { t } = useI18n();
+  const { dictionary, t } = useI18n();
   const router = useRouter();
   const [state, formAction, pending] = useActionState(exportProcessSheetPdf, initialExportState);
   const [phase, setPhase] = useState<ExportPhase>("idle");
@@ -81,7 +82,8 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
         }
       } catch (error) {
         if (active) {
-          setDownloadError(error instanceof Error ? error.message : t("project.customerPdfDownloadFailed"));
+          const message = error instanceof Error ? error.message : t("project.customerPdfDownloadFailed");
+          setDownloadError(translateWorkflowMessage(dictionary, message) ?? message);
           setPhase("error");
         }
       }
@@ -92,7 +94,7 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
     return () => {
       active = false;
     };
-  }, [router, state, t]);
+  }, [dictionary, router, state, t]);
 
   const visiblePhase = state.error != null && !pending ? "error" : phase;
   const busy =
@@ -104,7 +106,9 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
       : busy
         ? t("project.exportingCustomerPdf")
         : t("project.exportCustomerPdf");
-  const errorMessage = downloadError ?? state.error;
+  const errorMessage =
+    downloadError ??
+    (state.error == null ? null : (translateWorkflowMessage(dictionary, state.error) ?? state.error));
 
   return (
     <form

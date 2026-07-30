@@ -1,7 +1,7 @@
 import { login } from "@/server/auth-actions";
 import { getOptionalCurrentUser } from "@/server/current-user";
 import { FormField, MessageBanner, SubmitButton, TextInput } from "@/components/ui";
-import { createTranslator } from "@/i18n";
+import { createTranslator, translateWorkflowMessage } from "@/i18n";
 import { LanguageSwitcher } from "@/i18n/language-switcher";
 import { getDictionary } from "@/i18n/server";
 import { redirect } from "next/navigation";
@@ -31,9 +31,10 @@ export default async function LoginPage({ searchParams }: PageProps) {
     redirect("/");
   }
 
-  const error = messageValue(params, "error");
-  const success = messageValue(params, "success");
-  const t = createTranslator(await getDictionary());
+  const dictionary = await getDictionary();
+  const error = translateWorkflowMessage(dictionary, messageValue(params, "error"));
+  const success = translateWorkflowMessage(dictionary, messageValue(params, "success"));
+  const t = createTranslator(dictionary);
 
   return (
     <main className="authShell">

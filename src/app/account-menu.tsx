@@ -5,19 +5,21 @@ import { getDictionary } from "@/i18n/server";
 import { formatAccountIdentityLine } from "@/domain/mold-trial/users";
 import { logout } from "@/server/auth-actions";
 import type { CurrentUser } from "@/server/current-user";
+import { translateSystemRole } from "@/i18n/display";
 
 export async function AccountMenu({ currentUser }: { currentUser: NonNullable<CurrentUser> }) {
-  const t = createTranslator(await getDictionary());
+  const dictionary = await getDictionary();
+  const t = createTranslator(dictionary);
 
   return (
-    <div className="accountMenu" aria-label="Current account">
+    <div className="accountMenu" aria-label={t("common.currentAccount")}>
       <div>
         <strong>{currentUser.displayName}</strong>
         <span>
           {formatAccountIdentityLine({
             displayName: currentUser.displayName,
             username: currentUser.username,
-            roleName: currentUser.role.name
+            roleName: translateSystemRole(dictionary, currentUser.role.code, currentUser.role.name)
           })}
         </span>
       </div>

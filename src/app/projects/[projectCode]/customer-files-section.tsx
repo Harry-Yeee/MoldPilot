@@ -34,8 +34,12 @@ function label(key: keyof typeof measurementReportLabels, locale: Locale): strin
   return pickLabel(measurementReportLabels[key], locale);
 }
 
-function formatDate(value: Date | string): string {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric" }).format(
+function formatDate(value: Date | string, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale === "ZH_CN" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric"
+  }).format(
     new Date(value)
   );
 }
@@ -100,7 +104,7 @@ export function CustomerFilesSection({
                       <StatusBadge tone="planned">{labelOrCode(fileTypeLabels, file.fileType, locale)}</StatusBadge>
                     </div>
                     <p className="m-0 text-[0.8125rem] text-neutral-500">
-                      {file.uploaderName} · {formatDate(file.uploadedAt)} · {formatFileSize(file.sizeBytes)}
+                      {file.uploaderName} · {formatDate(file.uploadedAt, locale)} · {formatFileSize(file.sizeBytes)}
                     </p>
                   </div>
                   <a

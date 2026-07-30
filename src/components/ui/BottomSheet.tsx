@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, type ReactNode } from "react";
+import { useI18n } from "@/i18n/language-provider";
 
 export type BottomSheetProps = {
   open: boolean;
@@ -16,6 +17,7 @@ export type BottomSheetProps = {
  */
 export function BottomSheet({ open, onClose, title, children }: BottomSheetProps) {
   const titleId = useId();
+  const { t } = useI18n();
 
   useEffect(() => {
     if (!open) {
@@ -65,7 +67,7 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
           </h3>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t("common.close")}
             onClick={onClose}
             className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-neutral-400 bg-white font-bold text-brand-600 hover:bg-neutral-100"
           >

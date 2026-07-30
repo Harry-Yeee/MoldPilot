@@ -3,7 +3,9 @@ import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { barHitPercent, isScoredRole, kpiLabels } from "@/domain/mold-trial/kpi-rules";
 import { missBufferAtBar, onTimeNeededForBar } from "@/domain/mold-trial/kpi-scoring";
-import { type BilingualLabel, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { localeFromLanguage, type BilingualLabel, pickLabel, type Locale } from "@/domain/mold-trial/labels";
+import { createTranslator, dictionaries, translateLabel } from "@/i18n";
+import { translateSystemRole } from "@/i18n/display";
 import { getCurrentLanguage } from "@/i18n/server";
 import { prisma } from "@/lib/prisma";
 import { computeMonthlyScores, type ScoredUser } from "@/server/kpi-scores";
@@ -11,6 +13,7 @@ import { isScoreboardEnabled } from "@/server/kpi-settings";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes } from "@/server/permissions";
 import { buildNavVisibility } from "@/server/nav";
+import { severityLabels } from "@/server/mold-trial-codecs";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +35,10 @@ function currentMonth(now: Date): string {
 
 export default async function ScorePage() {
   const currentUser = await getCurrentUser();
-  const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
+  const language = await getCurrentLanguage();
+  const locale: Locale = localeFromLanguage(language);
+  const dictionary = dictionaries[language];
+  const t = createTranslator(dictionary);
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
   const isAdmin = permissionCodes.has("kpi.scores.view_all");
   const enabled = await isScoreboardEnabled();
@@ -100,8 +106,8 @@ export default async function ScorePage() {
     if (scored?.roleScope != null) {
       departmentPercent = scores.departments.find((d) => d.roleScope === scored?.roleScope)?.percent ?? null;
     }
-  } catch (loadError) {
-    error = loadError instanceof Error ? loadError.message : "Unable to load your score.";
+  } catch {
+    error = t("score.loadFailed");
   }
 
   const ruleLabels: Record<string, { en: string; zh: string }> = Object.fromEntries(
@@ -170,7 +176,13 @@ export default async function ScorePage() {
         <div className="flex items-center justify-between bg-blue-900 px-4 py-3 text-white">
           <div className="text-lg font-bold">
             {name}
-            <span className="ml-3 text-sm font-normal opacity-90">{scored?.roleName ?? currentUser.roleCode}</span>
+            <span className="ml-3 text-sm font-normal opacity-90">
+              {translateSystemRole(
+                dictionary,
+                scored?.roleCode ?? currentUser.role.code,
+                scored?.roleName ?? currentUser.role.name
+              )}
+            </span>
           </div>
           <div
             className={`rounded-full px-4 py-1 text-sm font-extrabold ${barHit ? "bg-emerald-700" : "bg-amber-700"}`}
@@ -284,7 +296,7 @@ export default async function ScorePage() {
                         )}
                       </td>
                       <td className="py-1.5 text-right">
-                        {line.severity} {line.weight}
+                        {translateLabel(dictionary, "severity", severityLabels[line.severity] ?? line.severity)} {line.weight}
                       </td>
                       <td className={`py-1.5 text-right ${line.verified ? "text-emerald-700" : "text-amber-700"}`}>
                         {line.verified ? line.counted : pickLabel(kpiLabels.provisionalZero, locale)}

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.moldpilot.backup-verify</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__PROJECT_ROOT__/scripts/backup-verify.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_ROOT__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BACKUP_DIR</key>
+    <string>__BACKUP_DIR__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/opt/postgresql@16/bin:/usr/local/bin:/usr/local/opt/postgresql@16/bin:/usr/bin:/bin</string>
+  </dict>
+  <!-- 03:30, one hour after com.moldpilot.backup: the archive it proves must
+       already exist. The same run also performs the cloud drill whenever the
+       last successful drill is older than BACKUP_DRILL_MAX_AGE_DAYS (default
+       30) or has never run — never on a fixed calendar day, which at 03:30
+       Beijing time is read as the previous day in UTC. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/backup-verify.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/backup-verify-error.log</string>
+</dict>
+</plist>

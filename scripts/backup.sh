@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 #
-# Encrypted, versioned MoldPilot backup.
+# Backup v2 — encrypted local archive + immutable off-site copy.
 #
 # Required:
-#   BACKUP_DIR=/Volumes/FactoryBackup/MoldPilot
+#   BACKUP_DIR=/Volumes/FactoryBackup/<app>
 #   BACKUP_AGE_RECIPIENT=age1...
+#
+# Optional cloud leg (security-hardening-runbook.md §7b):
+#   BACKUP_OSS_REMOTE / BACKUP_OSS_BUCKET / BACKUP_OSS_PREFIX / BACKUP_RCLONE_CONFIG
+# Optional nightly self-verify (§7b):
+#   BACKUP_VERIFY_RECIPIENT=age1...   second age recipient whose identity lives
+#                                     on this machine so backup-verify.sh can
+#                                     restore last night's archive unattended.
 #
 # The age recipient is public. Keep the private recovery identity offline and
 # outside the application account. BACKUP_DIR must be a mounted NAS/external
-# volume in production. Existing archives are never overwritten.
+# volume in production. Existing archives are never overwritten, locally or in
+# the bucket.
+#
+# ESTATE RULE: this file names no application. Identity comes from
+# scripts/backup-app-config.sh; shared helpers from scripts/backup-lib.sh.
 
 set -euo pipefail
 umask 077
@@ -16,23 +27,38 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-STATUS_DIR="$HOME/Library/Application Support/MoldPilot/backup-status"
 
-fail() {
-  printf '[backup FAIL] %s\n' "$*" >&2
-  exit 1
-}
+# Which stage a failure belongs to, so `fail` records it against the right leg.
+CURRENT_STAGE="localArchive"
 
 note() {
   printf '[backup] %s\n' "$*"
 }
 
-if [ -f "$PROJECT_ROOT/.env" ]; then
+# The server environment. Overridable so a harness (scripts/backup-rehearsal.sh)
+# can point it at an empty file: sourcing the operator's real .env would
+# override the harness's exported BACKUP_* values and could aim a rehearsal at
+# the production backup disk.
+BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-$PROJECT_ROOT/.env}"
+if [ -f "$BACKUP_ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1091
-  source "$PROJECT_ROOT/.env"
+  source "$BACKUP_ENV_FILE"
   set +a
 fi
+
+# shellcheck source=scripts/backup-app-config.sh
+. "$SCRIPT_DIR/backup-app-config.sh"
+# shellcheck source=scripts/backup-lib.sh
+. "$SCRIPT_DIR/backup-lib.sh"
+
+fail() {
+  printf '[backup FAIL] %s\n' "$*" >&2
+  record_status "$CURRENT_STAGE" failed "$*"
+  exit 1
+}
+
+STATUS_DIR="$BACKUP_LEGACY_STATUS_DIR"
 
 [ -n "${BACKUP_DIR:-}" ] ||
   fail "BACKUP_DIR is required and must point to a mounted NAS or external disk."
@@ -40,9 +66,11 @@ fi
   fail "BACKUP_AGE_RECIPIENT is required. Keep its private identity offline."
 command -v age >/dev/null 2>&1 || fail "age is not installed or not on PATH."
 
-mkdir -p "$BACKUP_DIR"
-RESOLVED_BACKUP="$(cd "$BACKUP_DIR" && pwd -P)"
-if [ "${MOLDPILOT_ALLOW_LOCAL_BACKUP:-}" != "1" ]; then
+mkdir -p "$BACKUP_DIR" 2>/dev/null ||
+  fail "BACKUP_DIR could not be created — is the backup volume mounted?"
+RESOLVED_BACKUP="$(cd "$BACKUP_DIR" && pwd -P)" ||
+  fail "BACKUP_DIR is not reachable — is the backup volume mounted?"
+if [ "${BACKUP_ALLOW_LOCAL:-}" != "1" ]; then
   case "$RESOLVED_BACKUP" in
     /Volumes/*) ;;
     *) fail "BACKUP_DIR must resolve under /Volumes for production off-machine backup." ;;
@@ -54,16 +82,16 @@ if [ "${MOLDPILOT_ALLOW_LOCAL_BACKUP:-}" != "1" ]; then
 fi
 
 case "$RESOLVED_BACKUP" in
-  "$PROJECT_ROOT"|"$PROJECT_ROOT"/*)
+  "$PROJECT_ROOT" | "$PROJECT_ROOT"/*)
     fail "BACKUP_DIR resolves inside the project folder."
     ;;
 esac
 
 [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is missing."
 PG_DATABASE_URL="${DATABASE_URL%%\?*}"
-UPLOADS_SRC="${MOLDPILOT_STORAGE_DIR:-$PROJECT_ROOT/storage/uploads}"
+UPLOADS_SRC="$BACKUP_APP_STORAGE_DIR"
 
-STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/moldpilot-backup.XXXXXX")"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/backup-staging.XXXXXX")"
 ENCRYPTED_TEMP="$STAGING_DIR/encrypted-backup.age"
 cleanup() {
   rm -rf "$STAGING_DIR"
@@ -93,7 +121,8 @@ elif command -v docker >/dev/null 2>&1 &&
     grep -q postgres; then
   note "creating PostgreSQL dump through Docker"
   docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T postgres \
-    pg_dump --format=custom --no-owner --no-privileges -U moldpilot moldpilot > "$DB_OUT"
+    pg_dump --format=custom --no-owner --no-privileges \
+    -U "$BACKUP_APP_DB_USER" "$BACKUP_APP_DB_NAME" > "$DB_OUT"
 else
   fail "No pg_dump executable or running Docker PostgreSQL service is available."
 fi
@@ -106,16 +135,16 @@ mkdir -p "$STAGING_DIR/uploads" "$STAGING_DIR/recovery"
 if [ -d "$UPLOADS_SRC" ]; then
   rsync -a --exclude '.DS_Store' "$UPLOADS_SRC/" "$STAGING_DIR/uploads/"
 fi
-if [ -f "$PROJECT_ROOT/.env" ]; then
-  install -m 600 "$PROJECT_ROOT/.env" "$STAGING_DIR/recovery/moldpilot.env"
+if [ -f "$BACKUP_ENV_FILE" ]; then
+  install -m 600 "$BACKUP_ENV_FILE" "$STAGING_DIR/recovery/${BACKUP_APP_NAME}.env"
 fi
 
 cat > "$STAGING_DIR/backup-info.txt" <<EOF
-format=moldpilot-encrypted-backup-v1
+format=${BACKUP_APP_NAME}-encrypted-backup-v1
 createdAt=$STAMP
 databaseFormat=postgresql-custom
 uploadsIncluded=true
-recoveryConfigIncluded=$([ -f "$PROJECT_ROOT/.env" ] && printf true || printf false)
+recoveryConfigIncluded=$([ -f "$BACKUP_ENV_FILE" ] && printf true || printf false)
 EOF
 
 (
@@ -128,15 +157,24 @@ EOF
 )
 
 note "encrypting backup archive"
+AGE_RECIPIENT_ARGS=(--recipient "$BACKUP_AGE_RECIPIENT")
+if [ -n "${BACKUP_VERIFY_RECIPIENT:-}" ]; then
+  # Second reader, used only by the unattended nightly verify. Its identity
+  # lives on this machine at mode 0600; the escrowed recovery identity never
+  # does. Documented trade-off in runbook §7b.
+  AGE_RECIPIENT_ARGS=("${AGE_RECIPIENT_ARGS[@]}" --recipient "$BACKUP_VERIFY_RECIPIENT")
+fi
+
 tar -C "$STAGING_DIR" \
   -cf - database.dump uploads recovery backup-info.txt manifest.sha256 |
-  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$ENCRYPTED_TEMP"
+  age "${AGE_RECIPIENT_ARGS[@]}" --output "$ENCRYPTED_TEMP"
 
 ENCRYPTED_BYTES="$(wc -c < "$ENCRYPTED_TEMP" | tr -d ' ')"
 [ "$ENCRYPTED_BYTES" -gt "$DB_BYTES" ] ||
   fail "Encrypted archive is unexpectedly small."
 
-DESTINATION="$RESOLVED_BACKUP/moldpilot-backup-$STAMP.tar.age"
+ARCHIVE_NAME="${BACKUP_ARCHIVE_PREFIX}${STAMP}${BACKUP_ARCHIVE_SUFFIX}"
+DESTINATION="$RESOLVED_BACKUP/$ARCHIVE_NAME"
 [ ! -e "$DESTINATION" ] || fail "Refusing to overwrite existing archive: $DESTINATION"
 PARTIAL="$DESTINATION.partial.$$"
 install -m 600 "$ENCRYPTED_TEMP" "$PARTIAL"
@@ -151,12 +189,80 @@ sizeBytes=$ENCRYPTED_BYTES
 EOF
 chmod 600 "$STATUS_DIR/last-success"
 
+record_status localArchive ok "" \
+  "archiveName=$ARCHIVE_NAME" \
+  "sizeBytes=$ENCRYPTED_BYTES" \
+  "verifyReaderEnrolled=$([ -n "${BACKUP_VERIFY_RECIPIENT:-}" ] && printf yes || printf no)"
+
+note "encrypted backup complete: $DESTINATION ($ENCRYPTED_BYTES bytes)"
+
+# ── Cloud leg — immutable off-site copy ──────────────────────────────────────
+# ALWAYS `rclone copy`, NEVER `rclone sync`: sync propagates local deletions to
+# the bucket, which is exactly what an immutable off-site copy must not do. The
+# uploading key is prefix-scoped and no-delete (Put/Get/List only) and the bucket
+# carries a locked 30-day WORM policy, so a mistake here cannot destroy history —
+# but the command still must be right.
+CURRENT_STAGE="cloudUpload"
+UPLOAD_EXIT=0
+
+if [ "${BACKUP_OSS_ENABLED:-1}" != "1" ]; then
+  note "cloud leg disabled by configuration; local archive only."
+  record_status cloudUpload skipped "cloud leg disabled by configuration" \
+    "archiveName=$ARCHIVE_NAME"
+elif [ -z "${BACKUP_OSS_REMOTE:-}" ] || [ -z "${BACKUP_OSS_BUCKET:-}" ] || [ -z "${BACKUP_OSS_PREFIX:-}" ]; then
+  note "cloud leg not configured (remote/bucket/prefix); see runbook 7b."
+  record_status cloudUpload unconfigured "OSS remote, bucket or prefix is not configured" \
+    "archiveName=$ARCHIVE_NAME"
+elif ! command -v rclone > /dev/null 2>&1; then
+  note "rclone is not installed; the off-site copy did not run. See runbook 7b."
+  record_status cloudUpload unconfigured "rclone is not installed on this machine" \
+    "archiveName=$ARCHIVE_NAME"
+else
+  RCLONE_ARGS=(copy "$DESTINATION" "$BACKUP_OSS_DESTINATION/" --immutable --no-traverse --checksum)
+  if [ -n "${BACKUP_RCLONE_CONFIG:-}" ]; then
+    RCLONE_ARGS=(--config "$BACKUP_RCLONE_CONFIG" "${RCLONE_ARGS[@]}")
+  fi
+
+  UPLOAD_LOG="$STAGING_DIR/rclone-upload.log"
+  note "copying archive to $BACKUP_OSS_BUCKET/$BACKUP_OSS_PREFIX/"
+  if rclone "${RCLONE_ARGS[@]}" > "$UPLOAD_LOG" 2>&1; then
+    record_status cloudUpload ok "" \
+      "archiveName=$ARCHIVE_NAME" \
+      "sizeBytes=$ENCRYPTED_BYTES" \
+      "destination=$BACKUP_OSS_BUCKET/$BACKUP_OSS_PREFIX"
+    note "off-site copy complete: $BACKUP_OSS_BUCKET/$BACKUP_OSS_PREFIX/$ARCHIVE_NAME"
+  else
+    UPLOAD_ERROR="$(tail -n 5 "$UPLOAD_LOG" 2>/dev/null | tr '\n' ' ')"
+    if is_offline_error "$UPLOAD_ERROR"; then
+      # Tolerated: the mini is offline. The archive is safe on the mounted disk
+      # and the next run retries. The 26h upload threshold turns the admin
+      # light red if this keeps happening, so silence is not possible.
+      note "off-site copy skipped: this machine appears to be offline."
+      record_status cloudUpload offline "$UPLOAD_ERROR" \
+        "archiveName=$ARCHIVE_NAME" \
+        "destination=$BACKUP_OSS_BUCKET/$BACKUP_OSS_PREFIX"
+    else
+      printf '[backup FAIL] off-site copy failed: %s\n' "$UPLOAD_ERROR" >&2
+      record_status cloudUpload failed "$UPLOAD_ERROR" \
+        "archiveName=$ARCHIVE_NAME" \
+        "destination=$BACKUP_OSS_BUCKET/$BACKUP_OSS_PREFIX"
+      UPLOAD_EXIT=1
+    fi
+  fi
+fi
+
 if [ "${BACKUP_MANAGE_RETENTION:-}" = "1" ]; then
+  # Local pruning only. The bucket's history is governed by its lifecycle rule,
+  # set once from the owner's laptop — the mini has no delete rights at all.
   RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
   [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || fail "BACKUP_RETENTION_DAYS must be numeric."
   find "$RESOLVED_BACKUP" -maxdepth 1 -type f \
-    -name 'moldpilot-backup-*.tar.age' -mtime +"$RETENTION_DAYS" -delete
+    -name "$BACKUP_ARCHIVE_GLOB" -mtime +"$RETENTION_DAYS" -delete
 fi
 
-note "encrypted backup complete: $DESTINATION ($ENCRYPTED_BYTES bytes)"
+if [ "$UPLOAD_EXIT" -ne 0 ]; then
+  note "local archive is intact; the off-site copy needs attention."
+  exit "$UPLOAD_EXIT"
+fi
+
 note "A backup is not accepted until a separate scratch restore succeeds."

@@ -16,6 +16,7 @@
 import { computeDeadline } from "@/domain/mold-trial/deadline-countdown";
 import { defaultKpiRules, isKpiRuleCode, type KpiRuleCode } from "@/domain/mold-trial/kpi-rules";
 import type { KpiHabitEvent, KpiPointsEvent, ScoringRule } from "@/domain/mold-trial/kpi-scoring";
+import { trialStageLabel } from "@/domain/mold-trial/trial-panel";
 import { prisma } from "@/lib/prisma";
 
 /** A rule's editable hours window, keyed by code (null => boolean rule). */
@@ -275,7 +276,7 @@ export async function extractKpiEvents(
   for (const trial of trials) {
     const projectCode = trial.moldTrialProject.projectCode;
     const pmId = trial.moldTrialProject.planningPmId ?? trial.moldTrialProject.technicalPmId ?? null;
-    const ref = `${projectCode} · ${trial.trialCode}`;
+    const ref = `${projectCode} · ${trialStageLabel(trial.sequenceNumber)}`;
 
     // pm.missed_reason: autoMissedAt (clock start) -> autoMissedResolvedAt.
     // Attribute to the resolver, else the project PM.
@@ -421,7 +422,7 @@ export async function extractKpiEvents(
     habitEvents.push({
       ruleCode: "mkt.date_decision",
       userId: deciderId,
-      ref: `${trial.moldTrialProject.projectCode} · ${trial.trialCode}`,
+      ref: `${trial.moldTrialProject.projectCode} · ${trialStageLabel(trial.sequenceNumber)}`,
       dueAt: addHours(proposalAt, hoursFor(ruleHours, "mkt.date_decision", 24)),
       doneAt: trial.rescheduleDecisionAt ?? null
     });
