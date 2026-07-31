@@ -39,6 +39,17 @@ describe("production network containment", () => {
     );
   });
 
+  it("holds a macOS system-sleep assertion for the lifetime of production", () => {
+    const runner = source("scripts/run-production-macos.sh");
+
+    assert.match(runner, /CAFFEINATE_BIN="\/usr\/bin\/caffeinate"/);
+    assert.match(
+      runner,
+      /exec "\$CAFFEINATE_BIN" -s "\$NODE_BIN\/node" "\$STANDALONE_SERVER"/
+    );
+    assert.doesNotMatch(runner, /"\$CAFFEINATE_BIN"\s+-d/);
+  });
+
   it("provides a host-pinned TLS proxy with a trusted-network gate", () => {
     const caddy = source("scripts/Caddyfile.moldpilot.template");
     assert.match(caddy, /^https:\/\/__MOLDPILOT_HOST__ \{/m);

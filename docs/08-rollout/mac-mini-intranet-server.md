@@ -46,7 +46,9 @@ approved for production cutover**. See `docker-d1-runtime-foundation.md`,
   private quarantine until validation and scanning return an explicit clean
   result.
 - A per-user launchd agent keeps MoldPilot running after login and restarts it
-  after a process failure.
+  after a process failure. Its production runner holds a `caffeinate -s`
+  assertion while MoldPilot runs, preventing system sleep without keeping the
+  display awake.
 - Released uploads and quarantined bytes live outside Git in separate private
   directories under `~/MoldPilotData`.
 - Versioned `age`-encrypted database, upload, and recovery-config archives go
@@ -59,6 +61,12 @@ approved for production cutover**. See `docker-d1-runtime-foundation.md`,
 The launch agent is a user service. The dedicated server account must remain
 logged in, although the screen can stay locked. After a restart or power loss,
 log that account in so Homebrew PostgreSQL and MoldPilot start.
+
+The Energy setting remains the machine-level first line of defense. The
+service-scoped `caffeinate -s` assertion is the second line and exists because
+sleep can otherwise make a healthy listener appear offline until network
+traffic wakes the Mac. Do not replace it with `caffeinate -d`; the server does
+not need to keep its display awake.
 
 ## 1. Prepare The Mac Mini
 

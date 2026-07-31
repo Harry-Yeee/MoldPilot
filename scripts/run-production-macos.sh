@@ -15,8 +15,14 @@ else
 fi
 
 NODE_BIN="$("$BREW_BIN" --prefix node@24)/bin"
+CAFFEINATE_BIN="/usr/bin/caffeinate"
 export PATH="$NODE_BIN:$("$BREW_BIN" --prefix)/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export NODE_ENV=production
+
+[ -x "$CAFFEINATE_BIN" ] || {
+  echo "macOS caffeinate is unavailable; refusing to start without the production sleep guard." >&2
+  exit 1
+}
 
 cd "$PROJECT_ROOT"
 [ -f .env ] || {
@@ -57,4 +63,4 @@ STANDALONE_STATIC="$PROJECT_ROOT/.next/standalone/.next/static"
 
 export HOSTNAME="$LISTEN_HOST"
 export PORT="${PORT:-3000}"
-exec "$NODE_BIN/node" "$STANDALONE_SERVER"
+exec "$CAFFEINATE_BIN" -s "$NODE_BIN/node" "$STANDALONE_SERVER"

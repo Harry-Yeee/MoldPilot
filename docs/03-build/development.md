@@ -4413,3 +4413,18 @@ Related Docs:
   application health used `/usr/bin/test`, which does not exist on macOS, while
   the startup shell check still passed. Replaced the subprocess with
   `fs.promises.access(..., X_OK)` and added executable-scanner coverage.
+
+## 2026-07-31 - Mac mini sleep-resilience repair
+
+- Investigated a second report that `http://192.168.0.11:3000/login` was down.
+  The launchd service, Node listener, local login route, liveness route, and
+  readiness route were all healthy.
+- The Mac mini power log showed repeated `Maintenance Sleep` transitions at the
+  exact time remote requests timed out. SSH/network traffic woke the machine,
+  after which the same browser-facing route immediately returned `200`.
+- Changed the canonical local production runner to execute the standalone Node
+  server under `/usr/bin/caffeinate -s`. The sleep assertion lasts only for the
+  managed MoldPilot process and does not keep the display awake.
+- Added regression coverage and updated the deployment checklist and Mac mini
+  runbook. The System Settings energy option remains required as the
+  machine-level first line of defense.

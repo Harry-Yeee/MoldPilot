@@ -90,9 +90,12 @@ a launch week.
 10. **Storage paths.** Set absolute, separate
    `MOLDPILOT_STORAGE_DIR` and `MOLDPILOT_QUARANTINE_DIR` paths outside Git
    with mode `0700`.
-11. **launchd + stable LAN address.** Bootstrap installs `com.moldpilot.app` with KeepAlive. Use
-    wired Ethernet plus a router DHCP reservation, keep NTP on, prevent automatic sleep, and keep
-    the dedicated server account logged in because Homebrew services and the app are user agents.
+11. **launchd + stable LAN address.** Bootstrap installs `com.moldpilot.app` with KeepAlive. The
+    production runner holds a macOS `caffeinate -s` assertion for the service lifetime so the
+    display may sleep without the server entering system sleep. Use wired Ethernet plus a router
+    DHCP reservation, keep NTP on, and keep the dedicated server account logged in because
+    Homebrew services and the app are user agents. Keep **Prevent automatic sleeping when the
+    display is off** enabled as the machine-level first line of defense.
 12. **Fresh database for go-live.** Baseline month must not contain MP-SIM-*/MP-SEED-* simulator
     rows. Use `pnpm prisma:bootstrap` only on a fresh database; it installs the
     reviewed factory roster and production master data without demo projects or

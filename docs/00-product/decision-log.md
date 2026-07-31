@@ -980,6 +980,33 @@ Impact:
   revision/hash, tests, and a decision/development-log update. Never silently
   edit a deployed production roster through seed.
 
+### 2026-07-31: Native Production Must Hold A Service-Scoped Sleep Assertion
+
+Decision:
+
+- Keep the Mac mini Energy setting **Prevent automatic sleeping when the display
+  is off** enabled.
+- In addition, run the native MoldPilot production process under macOS
+  `/usr/bin/caffeinate -s` for the lifetime of the launchd service.
+- Allow the display to sleep; do not use a display-sleep assertion.
+
+Reason:
+
+The production process and its health endpoints remained healthy while macOS
+repeatedly entered maintenance sleep. From another workstation this looked
+identical to an application outage until SSH traffic woke the Mac. A
+service-scoped assertion directly couples server availability to the managed
+service instead of relying only on a workstation preference.
+
+Impact:
+
+- `scripts/run-production-macos.sh` owns the assertion, so bootstrap and every
+  guarded redeployment receive the behavior automatically.
+- launchd still owns restart behavior, and the dedicated server account must
+  remain logged in.
+- This changes native Mac operation only; it does not authorize the future
+  Docker cutover.
+
 ## Conflict Resolution Rule
 
 When docs conflict, prefer this order:
