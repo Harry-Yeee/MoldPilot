@@ -4409,3 +4409,7 @@ Related Docs:
   successful or failed production build does not poison the next clean-check.
 - Added regression coverage for the runner, asset assembly order, and network
   binding contract.
+- The post-deploy readiness probe then exposed a pre-existing macOS path bug:
+  application health used `/usr/bin/test`, which does not exist on macOS, while
+  the startup shell check still passed. Replaced the subprocess with
+  `fs.promises.access(..., X_OK)` and added executable-scanner coverage.

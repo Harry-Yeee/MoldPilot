@@ -34,7 +34,10 @@ import {
   pingClamd,
   scanFileWithClamd
 } from "../../src/server/clamd-client.ts";
-import { scanFileWithLocalCommand } from "../../src/server/local-malware-scanner.ts";
+import {
+  configuredScannerCommand,
+  scanFileWithLocalCommand
+} from "../../src/server/local-malware-scanner.ts";
 
 class FakeBackpressureWriter extends EventEmitter implements BackpressureWriter {
   readonly writes: Uint8Array[] = [];
@@ -613,6 +616,26 @@ describe("scanner configuration and local compatibility", () => {
         "infected"
       );
     } finally {
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("recognizes an executable configured scanner without a platform-specific test binary", async () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "moldpilot-scanner-command-"));
+    const scanner = path.join(temporaryRoot, "scanner");
+    const previous = process.env.MOLDPILOT_SCANNER_COMMAND;
+    writeFileSync(scanner, "#!/bin/sh\nexit 0\n");
+    chmodSync(scanner, 0o755);
+    process.env.MOLDPILOT_SCANNER_COMMAND = scanner;
+
+    try {
+      assert.equal(await configuredScannerCommand(), scanner);
+    } finally {
+      if (previous == null) {
+        delete process.env.MOLDPILOT_SCANNER_COMMAND;
+      } else {
+        process.env.MOLDPILOT_SCANNER_COMMAND = previous;
+      }
       rmSync(temporaryRoot, { force: true, recursive: true });
     }
   });

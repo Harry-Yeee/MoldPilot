@@ -78,7 +78,8 @@ describe("production network containment", () => {
     assert.match(scannerCheck, /--no-summary/);
     assert.match(scannerCheck, /Upload release remains fail-closed/);
     assert.match(scanner, /path\.isAbsolute\(configured\)/);
-    assert.match(scanner, /spawn\("\/usr\/bin\/test", \["-x", pathname\]/);
+    assert.match(scanner, /access\(pathname, constants\.X_OK\)/);
+    assert.doesNotMatch(scanner, /\/usr\/bin\/test/);
     assert.match(scanner, /spawn\("\/usr\/bin\/env", \[scanner, "--no-summary", filePath\]/);
     assert.doesNotMatch(scanner, /spawn\(scanner,/);
     assert.match(backend, /resolveScannerMode\(\) === "local"/);
