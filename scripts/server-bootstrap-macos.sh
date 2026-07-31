@@ -8,6 +8,18 @@ set -euo pipefail
 umask 077
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ "$(uname -s)" = "Darwin" ] &&
+  [ "${MOLDPILOT_MACOS_SLEEP_GUARD_ACTIVE:-0}" != "1" ]; then
+  [ -x /usr/bin/caffeinate ] || {
+    echo "[MoldPilot ERROR] macOS caffeinate is unavailable." >&2
+    exit 1
+  }
+  export MOLDPILOT_MACOS_SLEEP_GUARD_ACTIVE=1
+  exec /usr/bin/caffeinate -s /bin/bash \
+    "$PROJECT_ROOT/scripts/server-bootstrap-macos.sh" "$@"
+fi
+
 SERVICE_LABEL="com.moldpilot.app"
 PLIST_PATH="$HOME/Library/LaunchAgents/$SERVICE_LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/MoldPilot"

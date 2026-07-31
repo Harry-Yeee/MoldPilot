@@ -988,6 +988,8 @@ Decision:
   is off** enabled.
 - In addition, run the native MoldPilot production process under macOS
   `/usr/bin/caffeinate -s` for the lifetime of the launchd service.
+- Hold the same assertion for the lifetime of first-deploy, bootstrap, and
+  repeatable-deploy maintenance commands.
 - Allow the display to sleep; do not use a display-sleep assertion.
 
 Reason:
@@ -1002,6 +1004,9 @@ Impact:
 
 - `scripts/run-production-macos.sh` owns the assertion, so bootstrap and every
   guarded redeployment receive the behavior automatically.
+- Mac deployment entrypoints own a temporary assertion while the old service is
+  stopped, dependencies are installed, migrations and tests run, and the new
+  service starts.
 - launchd still owns restart behavior, and the dedicated server account must
   remain logged in.
 - This changes native Mac operation only; it does not authorize the future

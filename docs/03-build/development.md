@@ -4425,6 +4425,11 @@ Related Docs:
 - Changed the canonical local production runner to execute the standalone Node
   server under `/usr/bin/caffeinate -s`. The sleep assertion lasts only for the
   managed MoldPilot process and does not keep the display awake.
+- The first guarded rollout then proved that the deployment process itself also
+  needs coverage: once the old app stopped, the Mac entered maintenance sleep
+  during `pnpm install`. Added the same self-scoped assertion to first deploy,
+  bootstrap, and repeatable deploy so maintenance cannot strand the server
+  between releases.
 - Added regression coverage and updated the deployment checklist and Mac mini
   runbook. The System Settings energy option remains required as the
   machine-level first line of defense.

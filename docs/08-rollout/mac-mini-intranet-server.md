@@ -68,6 +68,10 @@ sleep can otherwise make a healthy listener appear offline until network
 traffic wakes the Mac. Do not replace it with `caffeinate -d`; the server does
 not need to keep its display awake.
 
+The first-deploy, bootstrap, and repeatable-deploy scripts also hold a temporary
+`caffeinate -s` assertion. This covers the maintenance interval after the old
+application is stopped and before the newly built service starts.
+
 ## 1. Prepare The Mac Mini
 
 1. Connect the Mac mini to the factory router or managed switch with Ethernet.

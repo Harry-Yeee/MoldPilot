@@ -50,6 +50,19 @@ describe("production network containment", () => {
     assert.doesNotMatch(runner, /"\$CAFFEINATE_BIN"\s+-d/);
   });
 
+  it("holds a macOS system-sleep assertion throughout maintenance scripts", () => {
+    for (const scriptPath of [
+      "scripts/server-first-deploy-macos.sh",
+      "scripts/server-bootstrap-macos.sh",
+      "scripts/server-deploy-macos.sh"
+    ]) {
+      const script = source(scriptPath);
+      assert.match(script, /MOLDPILOT_MACOS_SLEEP_GUARD_ACTIVE/);
+      assert.match(script, /exec \/usr\/bin\/caffeinate -s \/bin\/bash/);
+      assert.doesNotMatch(script, /\/usr\/bin\/caffeinate\s+-d/);
+    }
+  });
+
   it("provides a host-pinned TLS proxy with a trusted-network gate", () => {
     const caddy = source("scripts/Caddyfile.moldpilot.template");
     assert.match(caddy, /^https:\/\/__MOLDPILOT_HOST__ \{/m);

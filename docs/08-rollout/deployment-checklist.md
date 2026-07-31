@@ -81,10 +81,13 @@ a launch week.
    bootstrap and accepts the origin/CIDR plus an optional hash-verified
    encrypted clean-database restore. Use `scripts/server-deploy-macos.sh` for
    later releases. They validate deployment mode, base URL, and cookie security
-   before stopping/restarting the service. Both now preflight the platform
-   checkout first; on skew, `git pull` the parent LJ_ERP repo and re-run. HTTPS
-   runs Next on `127.0.0.1:3000` behind approved Caddy; temporary HTTP binds the
-   exact configured LAN address. Never use `pnpm dev` for workshop users.
+   before stopping/restarting the service. The first-deploy, bootstrap, and
+   repeatable-deploy entrypoints hold their own `caffeinate -s` assertion so
+   the Mac cannot sleep while the application is stopped for maintenance. Both
+   release entrypoints preflight the platform checkout first; on skew,
+   `git pull` the parent LJ_ERP repo and re-run. HTTPS runs Next on
+   `127.0.0.1:3000` behind approved Caddy; temporary HTTP binds the exact
+   configured LAN address. Never use `pnpm dev` for workshop users.
 9. **Migrations in prod:** use `pnpm exec prisma migrate deploy` (never `migrate dev` / `reset` on
    the production DB). The step-0 history repair in `migrate-and-verify.py` applies to dev only.
 10. **Storage paths.** Set absolute, separate
