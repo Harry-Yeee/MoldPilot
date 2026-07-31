@@ -366,8 +366,11 @@ The protected `.env` must contain `BACKUP_DIR` and
 `main` with fast-forward-only, requires a successful encrypted off-machine
 backup, validates deployment mode/base URL/cookie security before stopping the
 app, verifies scanner settings, replaces `.next`, installs locked dependencies,
-deploys migrations, verifies, builds, restarts, and checks `/login` at the
-configured mode's health URL. It never seeds or resets production data.
+deploys migrations, verifies, builds, assembles the supported Next standalone
+runtime with its static and public assets, restarts, and checks `/login` at the
+configured mode's health URL. It also restores Next's generated
+`next-env.d.ts` rewrite after success or failure so the production checkout
+remains clean. It never seeds or resets production data.
 
 Seed user upserts are credential-preserving as defense in depth: an existing
 user keeps `passwordHash`, `forcePasswordChange`, `passwordUpdatedAt`, and

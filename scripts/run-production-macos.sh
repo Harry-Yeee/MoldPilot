@@ -44,6 +44,17 @@ if [[ "$MOLDPILOT_BASE_URL" == http://* ]]; then
   )"
 fi
 
-exec "$NODE_BIN/node" "$PROJECT_ROOT/node_modules/next/dist/bin/next" start \
-  --hostname "$LISTEN_HOST" \
-  --port "${PORT:-3000}"
+STANDALONE_SERVER="$PROJECT_ROOT/.next/standalone/server.js"
+STANDALONE_STATIC="$PROJECT_ROOT/.next/standalone/.next/static"
+[ -f "$STANDALONE_SERVER" ] || {
+  echo "Standalone production server is missing. Run scripts/server-deploy-macos.sh." >&2
+  exit 1
+}
+[ -d "$STANDALONE_STATIC" ] || {
+  echo "Standalone static assets are missing. Run scripts/server-deploy-macos.sh." >&2
+  exit 1
+}
+
+export HOSTNAME="$LISTEN_HOST"
+export PORT="${PORT:-3000}"
+exec "$NODE_BIN/node" "$STANDALONE_SERVER"

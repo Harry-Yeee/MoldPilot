@@ -11,8 +11,32 @@ describe("production network containment", () => {
     const runner = source("scripts/run-production-macos.sh");
     assert.match(runner, /LISTEN_HOST="127\.0\.0\.1"/);
     assert.match(runner, /new URL\(process\.env\.MOLDPILOT_BASE_URL\)\.hostname/);
-    assert.match(runner, /--hostname "\$LISTEN_HOST"/);
+    assert.match(runner, /export HOSTNAME="\$LISTEN_HOST"/);
     assert.doesNotMatch(runner, /--hostname 0\.0\.0\.0/);
+  });
+
+  it("runs the supported standalone server with packaged static assets", () => {
+    const runner = source("scripts/run-production-macos.sh");
+    const deploy = source("scripts/server-deploy-macos.sh");
+
+    assert.match(runner, /\.next\/standalone\/server\.js/);
+    assert.match(runner, /\.next\/standalone\/\.next\/static/);
+    assert.doesNotMatch(runner, /node_modules\/next\/dist\/bin\/next"\s+start/);
+    assert.match(deploy, /Assembling the standalone production runtime/);
+    assert.match(deploy, /ditto "\$PROJECT_ROOT\/\.next\/static"/);
+    assert.match(deploy, /ditto "\$PROJECT_ROOT\/public"/);
+    assert.match(deploy, /NEXT_ENV_SNAPSHOT=/);
+    assert.match(deploy, /restore_next_env/);
+    assert.ok(
+      deploy.indexOf("Assembling the standalone production runtime") <
+        deploy.indexOf("Restarting MoldPilot")
+    );
+    assert.ok(
+      deploy.indexOf("pnpm build") <
+        deploy.lastIndexOf("restore_next_env") &&
+        deploy.lastIndexOf("restore_next_env") <
+        deploy.indexOf('note "Assembling the standalone production runtime"')
+    );
   });
 
   it("provides a host-pinned TLS proxy with a trusted-network gate", () => {

@@ -94,8 +94,17 @@ mkdir -p "$(dirname "$LOCK_DIR")"
 mkdir "$LOCK_DIR" 2>/dev/null || fail "Another deployment appears to be running: $LOCK_DIR"
 
 SERVICE_STOPPED=false
+NEXT_ENV_SNAPSHOT=""
+restore_next_env() {
+  if [ -n "$NEXT_ENV_SNAPSHOT" ] && [ -f "$NEXT_ENV_SNAPSHOT" ]; then
+    cp "$NEXT_ENV_SNAPSHOT" "$PROJECT_ROOT/next-env.d.ts"
+    rm -f "$NEXT_ENV_SNAPSHOT"
+    NEXT_ENV_SNAPSHOT=""
+  fi
+}
 cleanup() {
   status=$?
+  restore_next_env || status=1
   rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
   if [ "$status" -ne 0 ] && [ "$SERVICE_STOPPED" = true ]; then
     launchctl bootstrap "gui/$UID" "$PLIST_PATH" >/dev/null 2>&1 || true
@@ -146,6 +155,9 @@ pnpm exec prisma generate
 note "Applying pending production migrations"
 pnpm exec prisma migrate deploy
 
+NEXT_ENV_SNAPSHOT="$(mktemp "$HOME/Library/Caches/MoldPilot/next-env.deploy.XXXXXX")"
+cp "$PROJECT_ROOT/next-env.d.ts" "$NEXT_ENV_SNAPSHOT"
+
 if [ "$RUN_TESTS" = true ]; then
   note "Running typecheck and domain tests"
   pnpm typecheck
@@ -154,6 +166,19 @@ fi
 
 note "Building the production application"
 pnpm build
+restore_next_env
+
+STANDALONE_ROOT="$PROJECT_ROOT/.next/standalone"
+[ -f "$STANDALONE_ROOT/server.js" ] ||
+  fail "Next standalone server was not generated."
+[ -d "$PROJECT_ROOT/.next/static" ] ||
+  fail "Next static assets were not generated."
+[ -d "$PROJECT_ROOT/public" ] ||
+  fail "Public assets are missing."
+note "Assembling the standalone production runtime"
+mkdir -p "$STANDALONE_ROOT/.next"
+ditto "$PROJECT_ROOT/.next/static" "$STANDALONE_ROOT/.next/static"
+ditto "$PROJECT_ROOT/public" "$STANDALONE_ROOT/public"
 
 note "Restarting MoldPilot"
 launchctl bootstrap "gui/$UID" "$PLIST_PATH"

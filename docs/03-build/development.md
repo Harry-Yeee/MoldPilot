@@ -4392,3 +4392,20 @@ Related Docs:
 
 - `docs/00-product/decision-log.md`
 - `docs/04-agents/skills-list.md`
+
+## 2026-07-31 - Mac mini standalone runtime repair
+
+- Investigated an unavailable `http://192.168.0.11:3000/login` report through
+  SSH. The service had recovered and returned `200`, but the persisted error log
+  showed missing client-reference manifests and `/500` assets.
+- Found that the native Mac runner still invoked `next start` while
+  `next.config.mjs` declares `output: "standalone"`. Next explicitly warned that
+  this runtime combination is unsupported.
+- Changed the native runner to execute `.next/standalone/server.js`, preserving
+  the existing loopback-versus-LAN host containment through `HOSTNAME`.
+- Changed guarded deployment to copy `.next/static` and `public` into the
+  standalone runtime before launchd restarts MoldPilot.
+- Preserved and restored `next-env.d.ts` around type generation and builds so a
+  successful or failed production build does not poison the next clean-check.
+- Added regression coverage for the runner, asset assembly order, and network
+  binding contract.
