@@ -1073,7 +1073,8 @@ async function main() {
     console.log(`${u.padEnd(7)} ${group.padEnd(20)} ${members.padEnd(7)} ${ratio.padEnd(8)} ${pct.padEnd(6)} ${verdict.padEnd(16)} ${prize}`);
   }
   console.log("");
-  console.log("Assembly is split: zhong=assembly-a (钟组), pei=assembly-b (裴组) — separate bars.");
+  console.log("Assembly is split: zhong=assembly-a, pei=assembly-b — separate bars. Group names are");
+  console.log("derived from the leader by the seed, so they follow whatever roster was loaded.");
   console.log("PMs (bill/jun/cheng) are award-tier individuals: the pm group has no leader.");
   console.log("");
   console.log("Admin has ZERO KPI events (excluded from scoring; no issues created by admin).");

@@ -27,6 +27,10 @@ import {
   validateFactoryUserRoster
 } from "../src/domain/mold-trial/factory-user-roster.ts";
 import {
+  type AssemblyGroupLeader,
+  assemblyGroupDisplayName
+} from "../src/domain/mold-trial/assembly-groups.ts";
+import {
   seedManagedUserUpdate,
   seededUserCreateCredentials
 } from "../src/domain/security/seed-user-policy.ts";
@@ -390,10 +394,40 @@ async function seedFactoryUsers(
 }
 
 /**
+ * Upsert one assembly working GROUP child from the roster that owns it: the
+ * leader designation AND the display name both come from the leader, never from
+ * a literal in this file (2026-08-06 — hardcoded 钟组 / 裴组 survived every
+ * roster change and shipped dev-era names to the factory). `code` is the stable
+ * identity routing and membership key on; the name is cosmetic and derived.
+ */
+async function upsertAssemblyChildGroup(
+  code: string,
+  parentGroupId: string,
+  leader: (AssemblyGroupLeader & { id: string }) | null
+) {
+  const data = {
+    name: assemblyGroupDisplayName(code, leader),
+    groupType: "GROUP" as const,
+    parentGroupId,
+    kpiLeaderId: leader?.id ?? null
+  };
+
+  return prisma.departmentGroup.upsert({
+    where: { code },
+    update: { ...data, active: true },
+    create: { code, ...data }
+  });
+}
+
+/**
  * KPI leader-designation layer: split the assembly department into two GROUP
- * children (钟组 / 裴组) so Zhong and Pei each get a SEPARATE leader bar, designate
- * the leader on every group whose bar is its aggregate, and assign every scored
- * user to exactly one KPI group via departmentGroupId.
+ * children so each assembly leader gets a SEPARATE leader bar, designate the
+ * leader on every group whose bar is its aggregate, and assign every scored user
+ * to exactly one KPI group via departmentGroupId.
+ *
+ * The children's names come from `assemblyGroupDisplayName`, exactly like the
+ * production bootstrap — this DEV roster carries no Chinese names, so the pair
+ * reads Zhong组 / Pei组 here where the factory reads 江组 / 刘组.
  *
  * Runs AFTER seedUsers (which resets departmentGroupId to null) and reuses the
  * existing DEPARTMENT groups as parents — issue routing keys on the parent codes
@@ -406,16 +440,8 @@ async function seedKpiGroupsAndMembership(
   groups: Awaited<ReturnType<typeof seedDepartmentGroups>>,
   users: Awaited<ReturnType<typeof seedUsers>>
 ) {
-  const assemblyA = await prisma.departmentGroup.upsert({
-    where: { code: "assembly-a" },
-    update: { name: "钟组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.zhong.id, active: true },
-    create: { code: "assembly-a", name: "钟组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.zhong.id }
-  });
-  const assemblyB = await prisma.departmentGroup.upsert({
-    where: { code: "assembly-b" },
-    update: { name: "裴组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.pei.id, active: true },
-    create: { code: "assembly-b", name: "裴组", groupType: "GROUP", parentGroupId: groups.assembly.id, kpiLeaderId: users.pei.id }
-  });
+  const assemblyA = await upsertAssemblyChildGroup("assembly-a", groups.assembly.id, users.zhong);
+  const assemblyB = await upsertAssemblyChildGroup("assembly-b", groups.assembly.id, users.pei);
 
   // Single-leader groups: the leader's bar is this group's aggregate scorecard.
   await Promise.all([
@@ -452,51 +478,45 @@ async function seedKpiGroupsAndMembership(
   );
 }
 
+/**
+ * Production bootstrap version of {@link seedKpiGroupsAndMembership}: every
+ * leader designation, membership AND assembly group NAME comes from the reviewed
+ * roster fixture. The names are derived (江组 / 刘组 for the 2026-07-27 roster),
+ * never literals — see `assemblyGroupDisplayName`.
+ */
 async function seedFactoryKpiGroupsAndMembership(
   groups: Awaited<ReturnType<typeof seedDepartmentGroups>>,
   users: Awaited<ReturnType<typeof seedUsers>>,
   roster: FactoryUserRoster
 ) {
-  const leaders = Object.fromEntries(
+  const leaderPeople = new Map(
     roster.people
       .filter((person) => person.teamLeader && person.kpiTeamCode != null)
-      .map((person) => [person.kpiTeamCode, users[person.username]])
+      .map((person) => [person.kpiTeamCode as string, person])
   );
+  const leaders = Object.fromEntries(
+    [...leaderPeople].map(([teamCode, person]) => [teamCode, users[person.username]])
+  );
+  const assemblyLeader = (code: string): (AssemblyGroupLeader & { id: string }) | null => {
+    const person = leaderPeople.get(code);
+    const user = person == null ? null : users[person.username];
+    if (person == null || user == null) {
+      return null;
+    }
 
-  const assemblyA = await prisma.departmentGroup.upsert({
-    where: { code: "assembly-a" },
-    update: {
-      name: "钟组",
-      groupType: "GROUP",
-      parentGroupId: groups.assembly.id,
-      kpiLeaderId: leaders["assembly-a"].id,
-      active: true
-    },
-    create: {
-      code: "assembly-a",
-      name: "钟组",
-      groupType: "GROUP",
-      parentGroupId: groups.assembly.id,
-      kpiLeaderId: leaders["assembly-a"].id
-    }
-  });
-  const assemblyB = await prisma.departmentGroup.upsert({
-    where: { code: "assembly-b" },
-    update: {
-      name: "裴组",
-      groupType: "GROUP",
-      parentGroupId: groups.assembly.id,
-      kpiLeaderId: leaders["assembly-b"].id,
-      active: true
-    },
-    create: {
-      code: "assembly-b",
-      name: "裴组",
-      groupType: "GROUP",
-      parentGroupId: groups.assembly.id,
-      kpiLeaderId: leaders["assembly-b"].id
-    }
-  });
+    return { id: user.id, displayName: person.displayName, chineseName: person.chineseName };
+  };
+
+  const assemblyA = await upsertAssemblyChildGroup(
+    "assembly-a",
+    groups.assembly.id,
+    assemblyLeader("assembly-a")
+  );
+  const assemblyB = await upsertAssemblyChildGroup(
+    "assembly-b",
+    groups.assembly.id,
+    assemblyLeader("assembly-b")
+  );
 
   await Promise.all([
     prisma.departmentGroup.update({

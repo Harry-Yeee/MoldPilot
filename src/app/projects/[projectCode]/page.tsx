@@ -111,7 +111,7 @@ import {
 import { getCurrentUser } from "@/server/current-user";
 import {
   activeAssemblyGroupOptions,
-  assemblyGroupName,
+  assemblyGroupLabel,
   getAssemblyGroupOptions
 } from "@/server/department-group-options";
 import { getEffectivePermissionCodes } from "@/server/permissions";
@@ -952,7 +952,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   // Material / colour / trial quantity / assembly group, read through the
   // stale-client seam (the columns arrive with the 2026-08-05 migration).
   const intakeDetails = projectIntakeDetails(project);
-  const assignedAssemblyGroupName = assemblyGroupName(assemblyGroupOptions, intakeDetails.assignedAssemblyGroupId);
+  // "<leader> · <group>" — the chip names the crew by the person leading it,
+  // the same label the intake/edit select offers.
+  const assignedAssemblyGroupName = assemblyGroupLabel(
+    assemblyGroupOptions,
+    intakeDetails.assignedAssemblyGroupId
+  );
   const workingIdentifier = formatMoldWorkingIdentifier({
     projectCode: project.projectCode,
     clientProjectRef: project.clientProjectRef,

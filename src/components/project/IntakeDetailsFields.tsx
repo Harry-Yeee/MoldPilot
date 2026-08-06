@@ -1,3 +1,4 @@
+import { formatAssemblyGroupOption } from "@/domain/mold-trial/assembly-groups";
 import {
   commonMaterialCodes,
   intakeDetailLabels,
@@ -16,8 +17,10 @@ import type { BilingualLabel } from "@/domain/mold-trial/labels";
  * No client JavaScript. Material uses a native `<datalist>`, so the nine common
  * materials are one tap away on a phone while any other grade still types
  * through — a suggestion list, never a constraint. The assembly-group select
- * lists the ACTIVE children of the `assembly` parent (钟组 / 裴组); leaving it on
- * "未指定" keeps today's shared-queue routing.
+ * lists the ACTIVE children of the `assembly` parent and names them by the
+ * PERSON who leads each crew ("Zhong · 江组"), because that is who the shop
+ * floor is actually choosing between; leaving it on "未指定" keeps today's
+ * shared-queue routing.
  */
 
 const MATERIAL_DATALIST_ID = "moldpilot-common-materials";
@@ -29,6 +32,8 @@ function fieldLabel(label: BilingualLabel): string {
 export type AssemblyGroupChoice = {
   id: string;
   name: string;
+  /** Live leader display name; null/omitted renders the group name alone. */
+  leaderName?: string | null;
 };
 
 export type IntakeDetailsFieldsProps = {
@@ -89,7 +94,7 @@ export function IntakeDetailsFields({
           <option value="">{fieldLabel(intakeDetailLabels.unassignedGroup)}</option>
           {assemblyGroups.map((group) => (
             <option key={group.id} value={group.id}>
-              {group.name}
+              {formatAssemblyGroupOption(group)}
             </option>
           ))}
         </select>
@@ -99,7 +104,10 @@ export function IntakeDetailsFields({
 }
 
 export type AssemblyGroupChipProps = {
-  /** The assigned group's display name, or null when unassigned. */
+  /**
+   * The assigned group's label — "<leader> · <group>" from
+   * `assemblyGroupLabel`, or null when unassigned.
+   */
   name: string | null;
 };
 

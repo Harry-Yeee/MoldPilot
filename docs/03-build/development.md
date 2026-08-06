@@ -39,6 +39,109 @@ Related Docs:
 
 ## Entries
 
+### 2026-08-06: Assembly-Group Picker Shows Real People (Stale 钟组 / 裴组 Removed)
+
+Context:
+
+Production's intake/edit 装配组 select and the Project Overview chip offered
+**钟组 / 裴组** — names invented for the DEV roster in 2026-07-11 and typed as
+string literals into `prisma/seed.ts`. Root cause, confirmed: the production
+bootstrap path (`seedFactoryKpiGroupsAndMembership`) already derived
+`kpiLeaderId` from `prisma/fixtures/factory-users-2026-07-27.json`
+(`kpiTeamCode` `assembly-a`/`assembly-b` + `teamLeader`), but the group **name**
+was hardcoded and never followed the roster. So the live database has the RIGHT
+leaders (江忠 / 刘振培) under the WRONG, retired names (whose characters are not
+even those leaders' surnames — 钟/裴 came from the dev usernames `zhong`/`pei`).
+Nothing downstream reads the name: routing, my-plate visibility and the KPI bars
+all key on `code` / `kpiLeaderId`, which is why it went unnoticed for a month.
+Owner's ask: make the picker USER-BASED — show the actual person.
+
+Tried:
+
+- **New pure module `src/domain/mold-trial/assembly-groups.ts`** (no Prisma, no
+  I/O): `assemblyGroupDisplayName(code, leader)`,
+  `neutralAssemblyGroupName(code)`, `assemblyGroupLeaderName(leader)`,
+  `formatAssemblyGroupOption({ name, leaderName })`.
+- **Naming convention (documented choice): `<leader surname>组`** — the FIRST
+  character of the leader's `chineseName` plus 组, because the roster stores full
+  names (姓+名) and a shop floor names a crew by the surname: 江忠 → **江组**,
+  刘振培 → **刘组**. Leader with no Chinese name (the legacy dev roster) →
+  `<displayName>组`, so dev now reads Zhong组 / Pei组; no leader at all →
+  neutral 装配A组 / 装配B组, derived from the code's own suffix so a future
+  `assembly-c` needs no code change. Accepted limits: a compound surname (欧阳)
+  clips to one character and two leaders sharing a surname would collide — both
+  harmless because every option and chip prints the leader's own name in front.
+- **Seed/bootstrap:** one `upsertAssemblyChildGroup(code, parentGroupId, leader)`
+  helper now serves BOTH paths; the dev roster and the reviewed fixture go
+  through the same naming function. No literal group name survives in `seed.ts`
+  (a unit test asserts that).
+- **Picker + display:** `getAssemblyGroupOptions` gained one join
+  (`kpiLeader: { displayName, status }`) and returns `leaderName` — live DB, not
+  a seed constant. Options and the Overview chip render
+  `<leader> · <group>` ("Zhong · 江组"); an unset or archived leader degrades to
+  the group name alone. `assemblyGroupName` → `assemblyGroupLabel` (one caller).
+- **`scripts/sync-assembly-group-names.mjs` + `pnpm prisma:sync-assembly-groups`:**
+  the narrow counterpart to bootstrap for a LIVE database (see Decision).
+
+Result:
+
+`npx tsc --noEmit` clean (no stale-client seam needed: `kpiLeaderId`/`kpiLeader`
+have been in the generated client since the 2026-07-11 migration — verified in
+the generated `.prisma/client/index.d.ts`, which still predates the 2026-08-05
+columns). `node --test tests/domain/*.test.ts`: 942 tests, 919 pass, **0 fail**,
+22 cancelled (all `platform-production-package.test.ts`, which needs the LJ_ERP
+platform checkout — identical to the pre-change baseline), 1 skipped. Nine new
+tests in `tests/domain/assembly-groups.test.ts` cover leader→name, the dev
+fallback, the neutral fallback, the real fixture (江组 / 刘组), option formatting
+with a present / absent / archived leader, and the no-hardcoded-name sentinel.
+
+Why:
+
+Storage stays GROUP-based on purpose. `MoldTrialProject.assignedAssemblyGroupId`
+→ `DepartmentGroup`, issue routing on the child code, my-plate lineage
+visibility and the KPI leader bars all depend on the group row; a "pick a user"
+column would have to re-derive the group anyway, and would break the moment a
+leader changes. Only the LABEL becomes user-based, which is exactly what the
+owner asked to see. No schema change, no migration, no routing/KPI/my-plate
+change.
+
+Decision:
+
+**What Harry must run.** `pnpm prisma:bootstrap` REFUSES a live database by
+contract (`assertFreshProductionBootstrap`: users, projects and activity logs
+must all be 0 — it will not overwrite live credentials), and
+`server-bootstrap-macos.sh` skips it whenever users exist. So on the mini, after
+the normal deploy (`git pull` + `bash scripts/server-deploy-macos.sh`), run the
+narrow master-data sync from the app checkout:
+
+```bash
+pnpm prisma:sync-assembly-groups --dry-run   # preview: assembly-a: 钟组 -> 江组
+pnpm prisma:sync-assembly-groups             # apply
+```
+
+It rewrites `name` + `kpiLeaderId` on the `assembly-*` children ONLY, derived
+from the reviewed fixture through the same helper; it creates nothing, touches
+no user/project/issue/activity row, is idempotent, and fails loudly if a group
+is missing (never bootstrapped) or a roster leader is missing/archived. No
+restart is needed — the picker reads the database per request. On dev:
+`bash scripts/dev-refresh.sh` (its seed step rewrites both children to
+Zhong组 / Pei组).
+
+Still stale, deliberately out of scope: `kpiLeaderGroupLabels` in
+`src/domain/mold-trial/kpi-rules.ts` still labels the admin Scores tab
+"装配 · 钟组" / "装配 · 裴组" from a static code→label map. That is KPI display,
+not the picker, and this change was scoped to leave KPI logic untouched — fix it
+the same way (derive from the group row) when the Scores tab is next opened.
+
+Verification:
+
+`npx tsc --noEmit`; `node --test tests/domain/*.test.ts` (counts above);
+`pnpm prisma:sync-assembly-groups --dry-run` on the mini before applying.
+
+Related Docs: docs/03-ui/phase-1-screen-specs.md (intake fields),
+docs/02-schema/schema-v0.md (parent/child groups vs routing),
+docs/06-kpi/kpi-system-design.md (leader bars), docs/08-rollout/deployment-checklist.md (§12 fresh-database rule).
+
 ### 2026-08-05: Pilot Feedback — Intake Details + Per-Mold Assembly Routing + Trial-Deadline Chips
 
 Context:

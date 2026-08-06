@@ -42,6 +42,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:bootstrap": "MOLDPILOT_SEED_MODE=production prisma db seed && node scripts/verify-production-bootstrap.mjs",
     "prisma:verify-production": "node scripts/verify-production-bootstrap.mjs",
+    "prisma:sync-assembly-groups": "node scripts/sync-assembly-group-names.mjs",
     "prisma:seed": "prisma db seed && node scripts/pilot-preflight.mjs --check-seed",
     "prisma:studio": "prisma studio"
   },
