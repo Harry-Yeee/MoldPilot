@@ -138,6 +138,141 @@ Verification:
 `npx tsc --noEmit`; `node --test tests/domain/*.test.ts` (counts above);
 `pnpm prisma:sync-assembly-groups --dry-run` on the mini before applying.
 
+Follow-up, same day — the sync script had no visible effect on the mini, and
+could not say why:
+
+*Incident.* After the deploy above, the production picker rendered the leader
+join correctly (the `kpiLeader` name shows) but STILL printed the retired
+**钟组 / 裴组**. So the new app code was live and the `department_groups.name`
+column was not. `pnpm prisma:sync-assembly-groups` had been run. We could not see
+the mini, and the script printed nothing that distinguished "it wrote to another
+database", "the rows are not there to write", "the groups are deactivated" or
+"it was never really run" — its entire output was per-group lines and a count.
+That absence of evidence, not the rename, is what cost the day.
+
+*Env-loading finding — state it plainly: a real bug, and not proven to be THE
+bug.* The script obtained its connection through `import "dotenv/config"`, which
+(1) resolves `.env` from **`process.cwd()`**, not from the repo the script lives
+in, and (2) **never overrides** a `DATABASE_URL` already present in
+`process.env`. Everything else that runs on the mini does the exact opposite:
+`backup.sh` and `backup-verify.sh` (`BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-$PROJECT_ROOT/.env}"`
+then `set -a; source …; set +a`), `run-production-macos.sh`,
+`server-bootstrap-macos.sh` and `server-deploy-macos.sh` (`cd "$PROJECT_ROOT"`,
+`set -a; source .env; set +a`) all anchor the file to the PROJECT ROOT and let
+the protected file WIN over the shell. So the sync script really could connect to
+a database other than the mini's `.env` one — a stale exported `DATABASE_URL`
+silently beat the file — and it printed nothing that would reveal it. What it
+never did was invent a URL: unlike `run-kpi-snapshot.mjs`, `export-slice.mjs`,
+`import-slice.mjs` and `debug-my-plate.mjs`, it had no
+`?? "postgresql://…localhost…/moldpilot"` fallback, so a *missing* DATABASE_URL
+was already loud. Whether the wrong-database path is what actually fired on
+2026-08-06 cannot be decided from the repository — it needs the mini's terminal —
+which is precisely why the fix is "make one command answer it" rather than "guess
+and patch".
+
+*Fix.* `scripts/sync-assembly-group-names.mjs` now follows the established mini
+pattern: `<repo>/.env` (resolved from `import.meta.url`, never from `cwd`;
+override with `MOLDPILOT_ENV_FILE`, the `BACKUP_ENV_FILE` idiom) is
+authoritative, parsed with the existing pure `environmentFileValue` helper from
+`src/domain/security/deployment-mode.ts`. An inherited `DATABASE_URL` that
+disagrees is printed and IGNORED. The fixture path is anchored to the repo too,
+so the script can no longer read one checkout's roster into another checkout's
+database. Every run now opens with:
+
+```text
+[sync-assembly-groups] repo      : /Users/…/LJ_ERP/MoldPilot
+[sync-assembly-groups] env file  : /Users/…/LJ_ERP/MoldPilot/.env
+[sync-assembly-groups] database  : 127.0.0.1:5432/moldpilot  (DATABASE_URL from the env file)
+[sync-assembly-groups] fixture   : …/prisma/fixtures/factory-users-2026-07-27.json
+[sync-assembly-groups] leaders   : 2 assembly team leader(s) in the fixture
+```
+
+`host:port/database` only — the credentials are dropped by
+`describeDatabaseTarget` and a test asserts the password never reaches stdout.
+
+*`--diagnose` workflow (read-only, the one command to run first).* It prints a
+width-aware table — CJK counts as two cells, so it stays aligned — with one row
+per `assembly-*` code, the union of the fixture's codes and the database's
+children of the `assembly` parent:
+
+```text
+  CODE        DB NAME             DB LEADER                  FIXTURE NAME  FIXTURE LEADER        VERDICT
+  ----------  ------------------  -------------------------  ------------  --------------------  ---------------
+  assembly-a  钟组                jiang.zhong (江忠) ACTIVE  江组          jiang.zhong (江忠)    NEEDS RENAME
+  assembly-b  裴组                (none)                     刘组          liu.zhenpei (刘振培)  NEEDS LEADER
+  assembly-c  装配C组 [inactive]  (none)                     -             -                     FIXTURE MISSING
+
+  assembly-a: name 钟组 -> 江组
+  assembly-b: leader (none) -> liu.zhenpei (刘振培)
+  assembly-c: group is INACTIVE — the intake picker will not offer it
+
+[sync-assembly-groups] [deltas] 2 of 3 group(s) on 127.0.0.1:5432/moldpilot differ …
+```
+
+Five verdicts in precedence order — **GROUP MISSING** (no row, or the row hangs
+off the wrong parent: never bootstrapped), **FIXTURE MISSING** (a real group the
+roster designates no leader for; reported, never written), **NEEDS LEADER**
+(absent / archived / different `kpiLeaderId`), **NEEDS RENAME** (right leader,
+retired name — the 钟组 case), **MATCHES**. A row wrong in two ways reports the
+blocking state and still lists both deltas. Exit **0** when everything matches,
+**3** when deltas exist; `--dry-run` renders the identical report but always
+exits 0, because it is documented as a preview and a non-zero preview reads as a
+failure. Neither mode can write: one `modeWrites(mode)` gate guards the only
+update path.
+
+*Apply hardening.* Per change it prints `name <before> -> <after>; leader
+<before> -> <after>`; it refuses with exit 1 and writes NOTHING if any row is
+blocked; it says "already match the reviewed roster; nothing to do" when there is
+no delta; a fixture with zero assembly leaders now exits **2** with an explicit
+"there is nothing this script could sync" instead of a generic throw. After
+writing it **re-reads and re-diagnoses**, and fails if anything still differs —
+because the whole incident is that "it ran" and "the database changed" were never
+the same statement. Exit codes: 0 ok, 1 refused/verification failed,
+2 misconfigured, 3 diagnose deltas.
+
+*Confirmed again: there is NO production-mode refusal in this script, and it must
+never gain one* — it is the only supported way to fix these rows on the mini,
+where `pnpm prisma:bootstrap` and `scripts/dev-refresh.sh` both refuse by
+contract. It imports exactly one symbol from `deployment-mode.ts`, the pure
+`.env` text parser, and calls none of that module's `assert*DeploymentAllowed`
+guards. A header comment now says so, so a future hardening pass does not "fix"
+it by adding one.
+
+*What Harry runs on the mini* (supersedes the two-line block under Decision):
+
+```bash
+cd ~/LJ_ERP/MoldPilot
+git pull --ff-only origin main
+bash scripts/server-deploy-macos.sh
+
+pnpm prisma:sync-assembly-groups --diagnose   # read-only; prints the DB + the table
+pnpm prisma:sync-assembly-groups              # apply, re-read, verify
+pnpm prisma:sync-assembly-groups --diagnose   # confirm: all MATCHES, exit 0
+```
+
+If the `database :` line is not the mini's own, that IS the answer and nothing
+was written; if every row already says MATCHES while the browser still shows
+钟组, the database is right and the problem is downstream (start with a hard
+reload — the picker itself reads the database per request, so no restart is
+needed). Copy the whole `--diagnose` output into the chat; it is now sufficient
+to diagnose the failure without seeing the machine.
+
+*Verification of the follow-up.* `npx tsc --noEmit` clean. `node --test
+tests/domain/*.test.ts`: 962 tests, 939 pass, **0 fail**, 22 cancelled (the same
+`platform-production-package.test.ts` that needs the LJ_ERP platform checkout),
+1 skipped — i.e. +20 tests, no new failures. `node --check` on the script.
+`tests/domain/assembly-group-sync.test.ts` covers the verdict machine (all five
+row states, including a row wrong in two ways, an inactive group, and the
+blocked-never-guess cases), the summary arithmetic, argument parsing / the
+read-only gate, the CJK column widths, and connection resolution (file beats
+shell, fallback, nothing-anywhere, credentials never printed). It reuses
+`assemblyGroupDisplayName` and asserts nothing about naming rules, which are
+unchanged and still owned by `tests/domain/assembly-groups.test.ts`. It imports
+the `.mjs` through a runtime URL because the repo compiles with
+`allowJs: false`; the module's shape is declared locally, so the test stays
+typed, and the script's I/O lives behind a `main()` that only runs on direct
+invocation, so importing it opens no connection.
+
 Related Docs: docs/03-ui/phase-1-screen-specs.md (intake fields),
 docs/02-schema/schema-v0.md (parent/child groups vs routing),
 docs/06-kpi/kpi-system-design.md (leader bars), docs/08-rollout/deployment-checklist.md (§12 fresh-database rule).
