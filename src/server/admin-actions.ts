@@ -18,11 +18,19 @@ import {
 import { evaluatePermission } from "@/domain/mold-trial/permission-evaluator";
 import { isPermissionCode, permissionDefinitions, type PermissionCode } from "@/domain/mold-trial/permission-policy";
 import { isNumericInjectionMachineNo, normalizeInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
+import {
+  archivedCodeMarker,
+  isProjectArchived,
+  nextArchivedProjectCode,
+  originalProjectCode,
+  parseArchiveReason
+} from "@/domain/mold-trial/project-archive";
 import { prisma } from "@/lib/prisma";
 import { setSessionCookie } from "@/server/auth-session";
 import { getCurrentUser } from "@/server/current-user";
 import { hashPassword } from "@/server/passwords";
 import { requirePermission } from "@/server/permissions";
+import { archiveStampWrite } from "@/server/project-archive-filters";
 
 function value(formData: FormData, key: string): string {
   const raw = formData.get(key);
@@ -1422,6 +1430,125 @@ export async function restoreCustomer(formData: FormData) {
     }
 
     redirectWithMessage(fallback, "error", error instanceof Error ? error.message : "Unable to restore client.");
+  }
+}
+
+/**
+ * Archive a mis-entered mold trial project (ADMIN only, soft, never deleted).
+ *
+ * Three things happen in ONE transaction:
+ *   1. the project is stamped `archivedAt` / `archivedById` / `archiveReason`;
+ *   2. its `projectCode` — the only UNIQUE-constrained code on the table, and
+ *      also the internal tracking id — is renamed to `<original>-ARCHIVED-<n>`
+ *      so the real code is immediately free for the corrected re-entry;
+ *   3. an ActivityLog entry records the BEFORE codes and the AFTER codes, so the
+ *      original identifiers survive the rename in the audit trail.
+ *
+ * `moldCode` and `clientProjectRef` are indexed but NOT unique, so they are left
+ * exactly as typed — renaming them would destroy the very identifiers that make
+ * the archived row findable, and nothing collides.
+ *
+ * There is no restore action, deliberately: the rename releases the original
+ * code the moment this commits, so a restore could hand back a code that already
+ * belongs to the replacement project. The supported path is to re-create.
+ */
+export async function archiveMoldTrialProject(formData: FormData) {
+  const fallback = redirectPath(formData);
+
+  try {
+    const actor = await getCurrentUser();
+    await requirePermission(actor.id, "admin.archive_projects");
+
+    const projectCode = value(formData, "projectCode");
+    const reason = parseArchiveReason(value(formData, "archiveReason"));
+
+    if (projectCode.length === 0) {
+      redirectWithMessage(fallback, "error", "Project is required.");
+    }
+
+    if (reason == null) {
+      redirectWithMessage(fallback, "error", "An archive reason is required.");
+    }
+
+    // The confirm box is a real field, not decoration: the same POST arriving
+    // without it (stale tab, hand-built request) is refused server-side.
+    if (value(formData, "confirmArchive") !== "yes") {
+      redirectWithMessage(fallback, "error", "Confirm the archive before submitting.");
+    }
+
+    const archived = await prisma.$transaction(async (tx) => {
+      const before = await tx.moldTrialProject.findUnique({ where: { projectCode } });
+
+      if (before == null) {
+        throw new Error("Project was not found.");
+      }
+
+      if (isProjectArchived(before)) {
+        throw new Error("Project is already archived.");
+      }
+
+      // Only codes that share the original prefix can collide with the rename,
+      // including a project archived earlier under the very same code.
+      const neighbours = await tx.moldTrialProject.findMany({
+        where: { projectCode: { startsWith: `${originalProjectCode(before.projectCode)}${archivedCodeMarker}` } },
+        select: { projectCode: true }
+      });
+      const archivedCode = nextArchivedProjectCode(
+        before.projectCode,
+        neighbours.map((row) => row.projectCode)
+      );
+
+      const project = await tx.moldTrialProject.update({
+        where: { id: before.id },
+        data: {
+          projectCode: archivedCode,
+          ...archiveStampWrite({ archivedAt: new Date(), archivedById: actor.id, archiveReason: reason })
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          actorUserId: actor.id,
+          entityType: "MoldTrialProject",
+          entityId: project.id,
+          action: "admin_archived_project",
+          // The ONLY record of the original identifiers after the rename.
+          beforeJson: {
+            projectCode: before.projectCode,
+            moldCode: before.moldCode,
+            clientProjectRef: before.clientProjectRef,
+            customerCode: before.customerCode,
+            status: before.status
+          },
+          afterJson: {
+            projectCode: project.projectCode,
+            moldCode: project.moldCode,
+            clientProjectRef: project.clientProjectRef,
+            customerCode: project.customerCode,
+            status: project.status,
+            archiveReason: reason
+          },
+          note: reason
+        }
+      });
+
+      return { project, originalCode: before.projectCode };
+    });
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    revalidatePath("/calendar");
+    redirectWithMessage(
+      fallback,
+      "success",
+      `Archived project ${archived.originalCode} as ${archived.project.projectCode}.`
+    );
+  } catch (error) {
+    if (isRedirectSignal(error)) {
+      throw error;
+    }
+
+    redirectWithMessage(fallback, "error", error instanceof Error ? error.message : "Unable to archive project.");
   }
 }
 

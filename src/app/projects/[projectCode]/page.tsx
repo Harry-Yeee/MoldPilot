@@ -13,6 +13,7 @@ import { InsertTypeChips, InsertTypesField } from "@/components/project/InsertTy
 import { AssemblyGroupChip, IntakeDetailsFields } from "@/components/project/IntakeDetailsFields";
 import { IssueTrialDeadlineChip } from "@/components/project/TrialDeadlineChip";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
+import { ClientNotesSection } from "@/app/projects/[projectCode]/client-notes-section";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
 import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
 import { MeasurementReportPanel } from "@/app/projects/[projectCode]/measurement-report-panel";
@@ -22,6 +23,13 @@ import { formatPartSummary } from "@/domain/mold-trial/parts";
 import { formatMoldWorkingIdentifier } from "@/domain/mold-trial/identifiers";
 import { insertTypeFieldLabels, projectInsertTypes } from "@/domain/mold-trial/insert-types";
 import { intakeDetailLabels, projectIntakeDetails } from "@/domain/mold-trial/intake-details";
+import {
+  archiveReasonMaxLength,
+  isProjectArchived,
+  projectArchiveLabels,
+  projectArchiveState
+} from "@/domain/mold-trial/project-archive";
+import { projectNoteLabels } from "@/domain/mold-trial/project-notes";
 import {
   DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
   formatInjectionMachineLabel,
@@ -92,6 +100,7 @@ import {
   trialResultOptions
 } from "@/server/dev-options";
 import { selectCurrentPlannedTrial } from "@/domain/mold-trial/current-trial";
+import { archiveMoldTrialProject } from "@/server/admin-actions";
 import { getMoldTrialProjectDetail } from "@/server/mold-trial-detail";
 import {
   changeRequesterLabels,
@@ -910,6 +919,12 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
 
   const { project, activityLogs, limit, issuePhotosByIssueId, measurementReportByTrialId } = detail;
   const redirectTo = `/projects/${project.projectCode}`;
+  // Archive state, read through the stale-client seam. `isArchived` is the ONE
+  // switch that turns this page read-only: every `can*` flag below is gated on
+  // it, so no mutating form can be rendered by accident, and the matching server
+  // actions refuse the same write anyway (assertProjectNotArchived).
+  const archiveState = projectArchiveState(project);
+  const isArchived = isProjectArchived(project);
   // V6 (state you can see): the workflow status as a prominent band. The English
   // domain label drives the shared status->tone map; the display text is bilingual.
   const projectStatusDomainLabel = projectStatusLabels[project.status] ?? project.status;
@@ -1093,30 +1108,44 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
       })
     }))
   ].sort((left, right) => new Date(right.sortDate).getTime() - new Date(left.sortDate).getTime());
-  const canSetFirstT0 = hasPermissionCode(permissionCodes, "trial.schedule.first_t0");
-  const canEditProjectBasics = hasPermissionCode(permissionCodes, "project.basic.edit");
-  const canResolveAutoMissedWithNewDate = hasAllPermissionCodes(permissionCodes, [
-    "trial.missed.record",
-    "trial.schedule.reschedule"
-  ]);
-  const canResolveAutoMissedBlockedOrPaused = hasPermissionCode(permissionCodes, "trial.missed.record");
-  const canRecordCompletedTrial = hasPermissionCode(permissionCodes, "trial.record.completed");
-  const canAddNewPlannedTrial = hasPermissionCode(permissionCodes, "trial.schedule.reschedule");
-  const canConfirmTrialDate = hasPermissionCode(permissionCodes, "trial.date.confirm");
-  const canProposeTrialDateChange = hasPermissionCode(permissionCodes, "trial.date.propose_change");
-  const canApproveTrialDateChange = hasPermissionCode(permissionCodes, "trial.date.approve_change");
-  const canRedateReturnedTrial = hasPermissionCode(permissionCodes, "trial.schedule.reschedule");
-  const canCreateIssue = hasPermissionCode(permissionCodes, "trial.issue.create");
-  const canEditProcessSheet = hasPermissionCode(permissionCodes, "trial.process_sheet.edit");
-  const canExportProcessSheet = hasPermissionCode(permissionCodes, "trial.process_sheet.export_pdf");
-  const canUploadAttachment = hasPermissionCode(permissionCodes, "attachment.upload");
-  const canAdminDeleteAttachment = hasPermissionCode(permissionCodes, "attachment.delete");
+  /**
+   * Permission AND liveness. An archived project is read only, so every write
+   * capability is `!isArchived && <permission>` — one rule, applied at the one
+   * place the page decides what a viewer may do, instead of a hidden condition
+   * sprinkled over twenty forms. Read capabilities (downloads, the customer-files
+   * section) are NOT gated: an archived project stays fully readable.
+   */
+  const writeAllowed = (code: Parameters<typeof hasPermissionCode>[1]): boolean =>
+    !isArchived && hasPermissionCode(permissionCodes, code);
+  const canSetFirstT0 = writeAllowed("trial.schedule.first_t0");
+  const canEditProjectBasics = writeAllowed("project.basic.edit");
+  const canResolveAutoMissedWithNewDate =
+    !isArchived &&
+    hasAllPermissionCodes(permissionCodes, ["trial.missed.record", "trial.schedule.reschedule"]);
+  const canResolveAutoMissedBlockedOrPaused = writeAllowed("trial.missed.record");
+  const canRecordCompletedTrial = writeAllowed("trial.record.completed");
+  const canAddNewPlannedTrial = writeAllowed("trial.schedule.reschedule");
+  const canConfirmTrialDate = writeAllowed("trial.date.confirm");
+  const canProposeTrialDateChange = writeAllowed("trial.date.propose_change");
+  const canApproveTrialDateChange = writeAllowed("trial.date.approve_change");
+  const canRedateReturnedTrial = writeAllowed("trial.schedule.reschedule");
+  const canCreateIssue = writeAllowed("trial.issue.create");
+  const canEditProcessSheet = writeAllowed("trial.process_sheet.edit");
+  // Exporting writes a PROCESS_SHEET_EXPORT attachment, so it counts as a write.
+  const canExportProcessSheet = writeAllowed("trial.process_sheet.export_pdf");
+  const canUploadAttachment = writeAllowed("attachment.upload");
+  const canAdminDeleteAttachment = writeAllowed("attachment.delete");
+  // Client notes 客户备注: Marketing / PM / Admin, and never on an archived project.
+  const canWriteClientNotes = writeAllowed("project.client_note.write");
+  // Archiving is the one write an archived project does not offer (there is no
+  // un-archive; see project-archive.ts).
+  const canArchiveProject = writeAllowed("admin.archive_projects");
   // R5: only oversight roles pick a file visibility; workers get the safe default
   // (applied server-side in attachment-actions.ts when the field is omitted). UI
   // hiding only — the server still re-checks upload permission regardless.
   const canChooseAttachmentVisibility =
     currentUser.roleCode === "ADMIN" || currentUser.roleCode === "GM" || currentUser.roleCode === "PM";
-  const canUploadMeasurementReport = hasPermissionCode(permissionCodes, "qc.measurement_report.upload");
+  const canUploadMeasurementReport = writeAllowed("qc.measurement_report.upload");
   const canDownloadCustomerSafe = hasPermissionCode(permissionCodes, "attachment.download.customer_safe");
   const projectAttachments = detail.projectAttachments.map((attachment) => ({
     id: attachment.id,
@@ -1246,6 +1275,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     ...(canEditProjectBasics
       ? [{ id: "section-identifiers", tone: "paused" as const, ...bilingual(projectSectionLabels.identifiers) }]
       : []),
+    // Client notes sit high on purpose: special requests must be read before
+    // anyone scrolls into the technical sections (owner request, 2026-08-06).
+    { id: "section-client-notes", tone: "in-correction", ...bilingual(projectNoteLabels.sectionTitle) },
     { id: "section-parts", tone: "paused", ...bilingual(projectSectionLabels.parts) },
     ...(showFirstT0Section
       ? [
@@ -1281,6 +1313,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   ];
 
   function canEditSimpleIssue(issue: ProjectDetail["project"]["trialIssues"][number]): boolean {
+    if (isArchived) {
+      return false;
+    }
+
     if (issue.status === "CLOSED") {
       return currentUser.roleCode === "GM" && hasPermissionCode(permissionCodes, "trial.issue.create");
     }
@@ -1301,7 +1337,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   }
 
   function canCloseSimpleIssue(issue: ProjectDetail["project"]["trialIssues"][number]): boolean {
-    if (issue.status === "CLOSED" || currentUser.roleCode === "VIEWER") {
+    if (isArchived || issue.status === "CLOSED" || currentUser.roleCode === "VIEWER") {
       return false;
     }
 
@@ -1341,6 +1377,27 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           </div>
         </div>
       </section>
+
+      {/* Archived banner. Deliberately NEUTRAL, not an alarm: archiving is a
+          correction, not a failure, and the page below it is a perfectly good
+          historical record. Placed above the status band because "this project
+          is read only" outranks "this project is Waiting Trial". */}
+      {isArchived ? (
+        <section
+          className="mb-2 grid w-full gap-1 rounded-lg border-2 border-neutral-400 bg-neutral-100 px-4 py-3"
+          role="status"
+          aria-label={pickLabel(projectArchiveLabels.bannerTitle, locale)}
+        >
+          <p className="m-0 text-base font-bold text-neutral-800">
+            {projectArchiveLabels.bannerTitle.zh} · {projectArchiveLabels.bannerTitle.en}
+          </p>
+          <p className="m-0 text-sm text-neutral-600">{pickLabel(projectArchiveLabels.bannerBody, locale)}</p>
+          <p className="m-0 text-sm text-neutral-600">
+            {pickLabel(projectArchiveLabels.archivedAt, locale)}: {displayDate(archiveState.archivedAt)}
+            {archiveState.archiveReason == null ? null : ` · ${archiveState.archiveReason}`}
+          </p>
+        </section>
+      ) : null}
 
       <div
         className={`${statusToneClasses[projectStatusTone].pill} flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-bold`}
@@ -1613,6 +1670,22 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           </form>
         </section>
       ) : null}
+
+      {/* Client notes 客户备注 — append-only ledger. Sits directly after the
+          identifiers so client special requests are read before anyone scrolls
+          into the technical sections (owner request, 2026-08-06). Read-only for
+          anyone without the permission (and for everyone once archived); the
+          phone gets the same markup in one column. */}
+      <ClientNotesSection
+        projectCode={project.projectCode}
+        notes={detail.clientNotes}
+        locale={locale}
+        canWrite={canWriteClientNotes}
+        redirectTo={redirectTo}
+        sectionId="section-client-notes"
+        sectionClassName="sectionHue sectionAnchor"
+        sectionStyle={sectionHueVars("in-correction")}
+      />
 
       <section
         className="workSurface sectionHue sectionAnchor"
@@ -2102,6 +2175,7 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
         redirectTo={redirectTo}
       />
 
+
       <section
         className="workSurface sectionHue sectionAnchor"
         id="section-files"
@@ -2218,6 +2292,46 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           )}
         </ol>
       </section>
+
+      {/* Admin archive. Last on the page and behind a closed <details>, because
+          it is the one irreversible thing here: the code is renamed and released
+          the moment it commits. Required reason + required confirm checkbox,
+          both re-checked server-side (archiveMoldTrialProject). No rail entry —
+          this is not a place anyone should be navigating to. */}
+      {canArchiveProject ? (
+        <section className="workSurface" aria-labelledby="archive-project-heading">
+          <details>
+            <summary className="surfaceHeader cursor-pointer list-none">
+              <div>
+                <h2 id="archive-project-heading">
+                  {projectArchiveLabels.archiveProject.zh} · {projectArchiveLabels.archiveProject.en}
+                </h2>
+                <span>{pickLabel(projectArchiveLabels.confirm, locale)}</span>
+              </div>
+            </summary>
+            <form action={archiveMoldTrialProject} className="grid gap-3 p-4 sm:p-[18px]">
+              <input type="hidden" name="projectCode" value={project.projectCode} />
+              <input type="hidden" name="redirectTo" value="/admin?tab=archived" />
+              <label className="grid gap-1">
+                {pickLabel(projectArchiveLabels.reason, locale)}
+                <textarea name="archiveReason" rows={2} required maxLength={archiveReasonMaxLength} />
+                <span className="text-[0.8125rem] text-neutral-500">
+                  {pickLabel(projectArchiveLabels.reasonHint, locale)}
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="confirmArchive" value="yes" required />
+                <span>{pickLabel(projectArchiveLabels.confirm, locale)}</span>
+              </label>
+              <div className="formActions">
+                <SubmitButton variant="danger">
+                  {pickLabel(projectArchiveLabels.archiveProject, locale)}
+                </SubmitButton>
+              </div>
+            </form>
+          </details>
+        </section>
+      ) : null}
 
       </div>
       </div>

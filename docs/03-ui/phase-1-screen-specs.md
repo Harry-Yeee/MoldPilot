@@ -341,6 +341,7 @@ Show Intake Note and Initial Customer Note side by side when screen width allows
 | Trial Panel | Shows T0/T1/T2 and extra trial panels, trial results, trial issue entry, auto-missed resolution, prior issue verification, and compact trial-limit badge. |
 | Digital Process Sheet | Shows process parameters as rows and trial events as comparison columns, with current trial editable by permitted users. |
 | Parts / Cavities | Shows all part codes, optional cavity labels/counts, notes, and active/archived state. |
+| Client notes 客户备注 | Append-only ledger of what the client said. Own section card, own rail entry, own hue. Active lines plain with author + date; superseded lines struck through and muted with who struck them and when, kept in chronological place. One textarea + submit to add; a small per-line strike-through control with a confirm sheet that can carry an optional replacement (written in the same save). No edit control exists. |
 | Open Trial Issues | Avoid a large global update panel. Normal issue work happens inside the trial panel where the issue was found. |
 | Planning & Change History | Shows resolved missed trials, auto-missed corrections, new-trial reasons, design-change reasons, and extra-trial/limit adjustment history. |
 | Activity Log | Shows operational history. |
@@ -367,11 +368,28 @@ Trial Panel behavior:
 - A 5th trial panel can appear only after the 4th trial is completed and a visible extra-trial reason is recorded.
 - Design change is an extra-trial/customer-driven reason option, not a standalone page-level panel. When selected, collect notes and customer/internal source as needed.
 
+Client notes 客户备注 behavior:
+
+- Writable by PM, Marketing and Admin (`project.client_note.write`); everyone else sees the same section, read-only.
+- Adding appends a line. Striking one through never removes it — the line stays exactly where it was written, struck and muted, so the sequence reads as the story it is (INFO1 struck, INFO2 under it).
+- The strike-through sheet asks only for confirmation. Its optional replacement textarea, when filled, writes the new line in the SAME transaction, immediately below.
+- No edit path, by design. A wrong line is struck through and re-written; nothing un-strikes.
+- Notes carry no countdown and feed no KPI rule or report — they are context, not scored work.
+- Desktop-first. The phone renders the same markup in one column; no phone-specific layout exists for this section.
+
+Archived project behavior:
+
+- An archived project's detail page opens normally and shows a prominent NEUTRAL banner: `已归档 Archived — read only`, with the archive date and reason.
+- Every mutating form is hidden (trial panels, identifiers, process-sheet editing, issue edit/close, uploads, deletes, PDF export, client notes). The matching server actions refuse the same writes regardless.
+- Everything readable stays readable: the whole page, the activity log, and every attachment download.
+- The project is gone from the dashboard trial list, the calendar, /me task sections, Management Reports and KPI scoring. It is reachable from Admin → Archived projects 已归档, or by its archived code.
+
 ### Primary Actions
 
 - Add new planned trial with reason.
 - Export customer-safe Process Sheet PDF.
 - Close project.
+- Archive project (ADMIN only, `admin.archive_projects`): last on the page, behind a closed disclosure, requiring a written reason AND a confirm checkbox. Irreversible — it renames the project code and releases the original.
 
 Most trial actions should appear inside the relevant trial panel. Actions should appear only if the user has permission, but server-side permission checks remain required.
 
@@ -736,6 +754,13 @@ Support setup, users, roles, and Phase 1 permission tuning without becoming a fu
 - Issue categories
 - Missed-trial reason categories
 - New-trial reason categories
+- Archived projects 已归档 (register only)
+
+Archived projects tab (`/admin?tab=archived`, `admin.archive_projects`):
+
+- A read-only register, one row per archived project: archived code (a link to its read-only project page), original code, mold code / client ref, who archived it, when, and the reason.
+- Archiving is NOT done here — it happens on the project page, where the admin is looking at the mistake. This tab is where the archived rows live afterwards.
+- There is no Restore action, deliberately: archiving released the original project code for re-entry, so restoring could collide with the replacement project. Re-create instead.
 
 User setup fields:
 

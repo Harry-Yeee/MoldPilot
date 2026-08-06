@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { assertProjectNotArchived } from "@/domain/mold-trial/project-archive";
 import { prisma } from "@/lib/prisma";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { getCurrentUser } from "@/server/current-user";
@@ -63,6 +64,16 @@ export async function deleteAttachment(formData: FormData) {
 
     if (attachment == null || attachment.deletedAt != null) {
       redirectWithMessage(fallback, "error", "Attachment was not found.");
+    }
+
+    // Archived projects are READ ONLY, and that includes their files: the list
+    // still renders and every file still downloads, but nothing may be removed.
+    const project = await prisma.moldTrialProject.findUnique({
+      where: { projectCode: attachment.moldTrialProject.projectCode }
+    });
+
+    if (project != null) {
+      assertProjectNotArchived(project);
     }
 
     // Uploader-or-admin rule: the original uploader may always delete their own

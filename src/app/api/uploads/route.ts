@@ -23,6 +23,7 @@ import {
   newestMeasurementReport
 } from "@/domain/mold-trial/measurement-report";
 import type { TrialStatusDbValue } from "@/domain/mold-trial/my-plate";
+import { archivedProjectWriteMessage, isProjectArchived } from "@/domain/mold-trial/project-archive";
 import {
   DUPLICATE_SUBMISSION_WINDOW_MS,
   isDuplicateAttachmentSubmission,
@@ -160,6 +161,20 @@ function assertedContentLength(request: Request, maxBytes: number): number | nul
     throw new UploadHttpError("Upload exceeds the permitted size.", 413);
   }
   return parsed;
+}
+
+/**
+ * An upload is a write, so the archive guard applies here too — the project page
+ * hides the uploader on an archived project, and this refuses the POST a stale
+ * tab would still send. The row is read whole (no `select`) so the archive flag
+ * goes through the stale-client-safe seam in project-archive.ts.
+ */
+async function assertUploadTargetNotArchived(projectId: string): Promise<void> {
+  const project = await prisma.moldTrialProject.findUnique({ where: { id: projectId } });
+
+  if (project != null && isProjectArchived(project)) {
+    throw new UploadHttpError(archivedProjectWriteMessage, 409);
+  }
 }
 
 async function assertEntityBelongsToProject(
@@ -449,6 +464,7 @@ export async function POST(request: Request): Promise<Response> {
       if (project == null) {
         throw new UploadHttpError("Project was not found.", 404);
       }
+      await assertUploadTargetNotArchived(project.id);
       const entityType = parseEntityType(request);
       const entityId = requiredHeader(request, "x-moldpilot-entity-id", 80);
       await assertEntityBelongsToProject(entityType, entityId, project.id);
@@ -476,6 +492,7 @@ export async function POST(request: Request): Promise<Response> {
       if (trial == null) {
         throw new UploadHttpError("Trial was not found.", 404);
       }
+      await assertUploadTargetNotArchived(trial.moldTrialProject.id);
       if (!canUploadMeasurementReport(trial.status as TrialStatusDbValue)) {
         throw new UploadHttpError("A measurement report can only be uploaded for a completed trial.", 400);
       }

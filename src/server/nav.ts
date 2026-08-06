@@ -15,7 +15,14 @@ import { isScoreboardEnabled } from "@/server/kpi-settings";
 export const CALENDAR_NAV_ROLES = new Set(["ADMIN", "GM", "PM", "INJECTION", "MARKETING", "VIEWER"]);
 
 /** Any one of these admin-manage permissions opens the Admin destination. */
-const ADMIN_NAV_PERMISSIONS = ["admin.manage_users", "admin.manage_roles", "admin.manage_customers"] as const;
+const ADMIN_NAV_PERMISSIONS = [
+  "admin.manage_users",
+  "admin.manage_roles",
+  "admin.manage_customers",
+  // The Archived-projects register lives on /admin too, so holding only that
+  // permission must still show the destination it is reachable from.
+  "admin.archive_projects"
+] as const;
 
 export type NavVisibility = {
   /** Dashboard (/) and My tasks (/me) are always shown; only these are gated. */

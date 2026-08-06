@@ -75,6 +75,7 @@ const activityEntityKey: Record<string, TranslationKey> = {
   MoldTrialProject: "activity.entity.project",
   MissedTrialEvent: "activity.entity.missedTrial",
   PROCESS_SHEET_EXPORT: "activity.entity.processSheetExport",
+  ProjectNote: "activity.entity.projectNote",
   Role: "activity.entity.role",
   SystemSetting: "activity.entity.systemSetting",
   TRIAL_EVENT: "activity.entity.trial",
@@ -86,7 +87,9 @@ const activityEntityKey: Record<string, TranslationKey> = {
 };
 
 const activityActionKey: Record<string, TranslationKey> = {
+  added_client_note: "activity.action.addedClientNote",
   added_new_planned_trial: "activity.action.addedNewPlannedTrial",
+  admin_archived_project: "activity.action.archivedProject",
   approved_trial_date_change: "activity.action.approvedTrialDateChange",
   auto_marked_missed_reason_required: "activity.action.autoMarkedMissed",
   closed_trial_issue: "activity.action.closedIssue",
@@ -106,6 +109,7 @@ const activityActionKey: Record<string, TranslationKey> = {
   rejected_trial_date_change: "activity.action.rejectedTrialDateChange",
   replanned_same_trial_stage: "activity.action.replannedSameStage",
   resolved_auto_missed_as_truly_missed: "activity.action.resolvedAutoMissed",
+  retired_client_note: "activity.action.retiredClientNote",
   saved_trial_process_sheet: "activity.action.savedProcessSheet",
   seed_trial_completed: "activity.action.seedTrialCompleted",
   set_first_t0_planned_date: "activity.action.setFirstT0",

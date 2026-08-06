@@ -363,6 +363,7 @@ try {
   const [
     projectIndex,
     partIndex,
+    noteIndex,
     trialIndex,
     missedIndex,
     issueIndex,
@@ -375,6 +376,9 @@ try {
     prisma.moldTrialProject.findMany({ select: { id: true, createdAt: true, updatedAt: true } }),
     prisma.moldTrialPart.findMany({
       select: { id: true, moldTrialProjectId: true, createdAt: true, updatedAt: true }
+    }),
+    prisma.projectNote.findMany({
+      select: { id: true, projectId: true, createdAt: true, retiredAt: true }
     }),
     prisma.trialEvent.findMany({
       select: { id: true, moldTrialProjectId: true, createdAt: true, updatedAt: true }
@@ -413,6 +417,7 @@ try {
     }
   };
   addLineage(projectIndex, (row) => row.id);
+  addLineage(noteIndex, (row) => row.projectId);
   for (const rows of [
     partIndex,
     trialIndex,
@@ -447,6 +452,8 @@ try {
     ["MoldTrialProject.updatedAt", projectIndex, (row) => row.id, "updatedAt"],
     ["MoldTrialPart.createdAt", partIndex, (row) => row.moldTrialProjectId, "createdAt"],
     ["MoldTrialPart.updatedAt", partIndex, (row) => row.moldTrialProjectId, "updatedAt"],
+    ["ProjectNote.createdAt", noteIndex, (row) => row.projectId, "createdAt"],
+    ["ProjectNote.retiredAt", noteIndex, (row) => row.projectId, "retiredAt"],
     ["TrialEvent.createdAt", trialIndex, (row) => row.moldTrialProjectId, "createdAt"],
     ["TrialEvent.updatedAt", trialIndex, (row) => row.moldTrialProjectId, "updatedAt"],
     ["MissedTrialEvent.createdAt", missedIndex, (row) => row.moldTrialProjectId, "createdAt"],
@@ -509,15 +516,15 @@ try {
   }
 
   // -- Pass 2: full rows, written in FK-safe order --------------------------
-  const projectScoped = (delegate) => async () => {
+  // `foreignKey` because ProjectNote (2026-08-06) names its column `projectId`
+  // while every older child table uses `moldTrialProjectId`.
+  const projectScoped = (delegate, foreignKey = "moldTrialProjectId") => async () => {
     if (includedIds.length === 0) {
       return [];
     }
     const rows = [];
     for (const ids of chunk(includedIds, ID_CHUNK_SIZE)) {
-      rows.push(
-        ...(await delegate.findMany({ where: { moldTrialProjectId: { in: ids } }, orderBy: { id: "asc" } }))
-      );
+      rows.push(...(await delegate.findMany({ where: { [foreignKey]: { in: ids } }, orderBy: { id: "asc" } })));
     }
     return rows;
   };
@@ -541,7 +548,11 @@ try {
     KpiRule: () => prisma.kpiRule.findMany({ orderBy: { id: "asc" } }),
     SystemSetting: () => prisma.systemSetting.findMany({ orderBy: { id: "asc" } }),
 
-    // windowed — complete history of the IN projects
+    // windowed — complete history of the IN projects.
+    // ARCHIVED PROJECTS TRAVEL. A slice recreates the working shape of the
+    // database, and an archived project is part of that history (its rows are
+    // still referenced by activity logs and attachments). The live-surface
+    // `archivedAt IS NULL` filters belong to the app, not to the export.
     MoldTrialProject: async () => {
       if (includedIds.length === 0) {
         return [];
@@ -553,6 +564,7 @@ try {
       return rows;
     },
     MoldTrialPart: projectScoped(prisma.moldTrialPart),
+    ProjectNote: projectScoped(prisma.projectNote, "projectId"),
     TrialEvent: projectScoped(prisma.trialEvent),
     MissedTrialEvent: projectScoped(prisma.missedTrialEvent),
     TrialIssue: projectScoped(prisma.trialIssue),

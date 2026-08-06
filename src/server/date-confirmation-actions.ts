@@ -14,6 +14,7 @@ import {
 } from "@/domain/mold-trial/date-confirmation";
 import type { PermissionCode } from "@/domain/mold-trial/permission-policy";
 import { snapshotInjectionMachine } from "@/domain/mold-trial/process-sheet";
+import { assertProjectNotArchived } from "@/domain/mold-trial/project-archive";
 import { prisma } from "@/lib/prisma";
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { getCurrentUser } from "@/server/current-user";
@@ -139,6 +140,17 @@ async function loadParticipatingTrial(input: {
 
   if (projectCode.length > 0 && trial.moldTrialProject.projectCode !== projectCode) {
     redirectWithMessage(input.fallback, "error", "Trial event does not belong to this project.");
+  }
+
+  // The archive guard for all five handshake actions, in the one place they
+  // share. The full project row is re-read rather than selected above so the
+  // read goes through the stale-client-safe seam (project-archive.ts).
+  const project = await prisma.moldTrialProject.findUnique({
+    where: { id: trial.moldTrialProject.id }
+  });
+
+  if (project != null) {
+    assertProjectNotArchived(project);
   }
 
   if (!participatesInDateConfirmation(trial.status)) {

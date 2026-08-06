@@ -1,6 +1,7 @@
 import { buildMoldTrialDashboard } from "@/domain/mold-trial/dashboard";
 import { prisma } from "@/lib/prisma";
 import { applyAutoMissedTrialsForAllProjects } from "@/server/auto-missed-trials";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 export async function getMoldTrialDashboardData(actorUserId?: string) {
   if (actorUserId != null) {
@@ -8,6 +9,10 @@ export async function getMoldTrialDashboardData(actorUserId?: string) {
   }
 
   const projects = await prisma.moldTrialProject.findMany({
+    // Archived (mis-entered) projects leave the trial list entirely — that is
+    // the point of archiving. They stay reachable by their archived code from
+    // the admin list.
+    where: liveProjectFilter(),
     include: {
       planningPm: {
         select: {

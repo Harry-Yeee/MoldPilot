@@ -18,6 +18,7 @@ import { defaultKpiRules, isKpiRuleCode, type KpiRuleCode } from "@/domain/mold-
 import type { KpiHabitEvent, KpiPointsEvent, ScoringRule } from "@/domain/mold-trial/kpi-scoring";
 import { trialStageLabel } from "@/domain/mold-trial/trial-panel";
 import { prisma } from "@/lib/prisma";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 /** A rule's editable hours window, keyed by code (null => boolean rule). */
 export type RuleHoursByCode = Partial<Record<KpiRuleCode, number | null>>;
@@ -170,8 +171,17 @@ export async function extractKpiEvents(
   const habitEvents: KpiHabitEvent[] = [];
   const pointsEvents: KpiPointsEvent[] = [];
 
+  // ARCHIVED PROJECTS ARE NOT SCORED. Every applicable event this extractor can
+  // produce belongs to a project (a trial, an issue, a design change), so the
+  // exclusion is applied once per source query — `isKpiScorableProject` in
+  // project-archive.ts states the rule and is unit-tested. Reasoning: an
+  // archived project is a data-entry mistake, and nobody should carry a habit
+  // event for a date they never really had to confirm. This matches the module's
+  // standing policy of EXCLUDING rather than guessing; the <5-applicable-events
+  // floor protects a bar that loses rows.
   const [trials, issues, activityLogs] = await Promise.all([
     prisma.trialEvent.findMany({
+      where: { moldTrialProject: liveProjectFilter() },
       include: {
         moldTrialProject: { select: { projectCode: true, planningPmId: true, technicalPmId: true } },
         processValues: { select: { id: true }, take: 1 },
@@ -179,6 +189,7 @@ export async function extractKpiEvents(
       }
     }),
     prisma.trialIssue.findMany({
+      where: { moldTrialProject: liveProjectFilter() },
       include: {
         moldTrialProject: { select: { projectCode: true } }
       }
@@ -239,6 +250,7 @@ export async function extractKpiEvents(
   // drawing yet is EXCLUDED (no reliable design attribution — pending, not late).
   const [designChanges, designDrawings] = await Promise.all([
     prisma.designChangeEvent.findMany({
+      where: { moldTrialProject: liveProjectFilter() },
       select: { id: true, title: true, createdAt: true, moldTrialProject: { select: { projectCode: true } } }
     }),
     prisma.fileAttachment.findMany({

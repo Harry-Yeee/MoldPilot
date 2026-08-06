@@ -39,6 +39,166 @@ Related Docs:
 
 ## Entries
 
+### 2026-08-06: Admin Project Archive + Client Notes Ledger (One Migration)
+
+Context:
+
+Two owner-approved pilot asks, both about things the system had no answer for.
+(1) Intake is fast and sometimes WRONG — wrong client, wrong mold code, a
+duplicate of a project someone else already opened — and the only options were
+"leave the junk on the dashboard forever" or "delete", which is not an option
+when attachments, activity log and KPI history hang off the row. (2) The owner's
+strikethrough sketch: a place on the project page where Marketing writes what the
+client said, and superseding a line STRIKES IT THROUGH instead of overwriting it
+(INFO1 struck, INFO2 below).
+
+Tried:
+
+- **`prisma/migrations/20260806120000_project_archive_and_client_notes/`** — one
+  folder: three nullable columns on `mold_trial_projects` (`archived_at`,
+  `archived_by_id` → users ON DELETE SET NULL, `archive_reason`), an index on
+  `archived_at`, and `CREATE TABLE project_notes` with its three FKs (project
+  CASCADE, author RESTRICT, retirer SET NULL) and a `project_id` index. No
+  backfill: every existing project reads as live.
+- **Unique-constraint investigation FIRST, and it changed the design.**
+  `project_code` is the ONLY `@unique` on `MoldTrialProject`; `mold_code` and
+  `client_project_ref` are indexed but not unique, and there is no separate
+  internal-tracking column — `project_code` IS the internal tracking id
+  (`MP-TRK-<date>-<suffix>`, `identifiers.ts`). So exactly one code has to move,
+  and archiving renames it to `<original>-ARCHIVED-<n>` in the same transaction
+  that stamps the columns. `nextArchivedProjectCode` (pure, unit-tested) takes
+  the lowest FREE counter, so archiving the same mis-typed code twice yields
+  `-ARCHIVED-2` instead of fighting the unique index; it strips an existing
+  suffix first so nothing ever stacks. Mold code and client ref are left exactly
+  as typed — renaming them would destroy the identifiers that make the archived
+  row recognisable, and nothing forces them to be unique. The originals are
+  written into the `admin_archived_project` ActivityLog `beforeJson`/`afterJson`,
+  so the rename loses nothing.
+- **No un-archive, deliberately.** The rename releases the original code the
+  moment the archive commits, so a restore could hand back a code that already
+  belongs to the replacement project. Documented in `project-archive.ts`, in the
+  schema doc and on the admin tab (which has no Restore button).
+- **Exclusions, each one found by reading the query that feeds the surface:**
+  dashboard (`mold-trial-dashboard.ts:15`), calendar month grid + phone agenda
+  (`calendar.ts:181`, `:232`), every /me task section (`my-plate.ts:497`, `:528`,
+  `:713`, `:955`, `:1084`), Management Reports' three inputs — which is what
+  removes an archived project from the attention list and from every rate
+  (`management-reports.ts:48`, `:60`, `:82`), and KPI extraction at all three
+  event sources (`kpi-events.ts:184`, `:192`, `:253`). One more found by asking
+  "what still WRITES to an archived project?": the auto-missed sweep, which would
+  otherwise keep stamping AUTO_MISSED_REASON_REQUIRED + an ActivityLog row +
+  TRIAL_DELAYED on a project nobody will ever schedule
+  (`auto-missed-trials.ts:30`). The KPI decision is stated
+  as a pure, unit-tested predicate (`isKpiScorableProject`): a data-entry mistake
+  must not cost anybody a habit event, which is the same "exclude rather than
+  guess" policy the extractor already documents. The dev slice KEEPS archived
+  projects (a slice reproduces history) and attachments stay readable.
+- **One shared write guard.** `assertProjectNotArchived(project)` — pure, takes
+  `{ id, archivedAt? }` — is called by all 12 project-scoped actions in
+  `mold-trial-actions.ts`, by `loadParticipatingTrial` (covering all five
+  date-confirmation actions), by the three issue actions (whose lookup carries
+  the filter, with a follow-up read only on the miss so the message says WHY), by
+  `deleteAttachment`, by both upload branches of `/api/uploads`, and by both
+  client-note actions. On the page, ONE `writeAllowed()` helper folds `!isArchived`
+  into every `can*` flag, so no mutating form can be rendered by accident.
+- **Client notes**: `ProjectNote` + `project.client_note.write` (PM / Marketing /
+  Admin — Marketing owns the client conversation). Add appends; retire stamps
+  `retiredAt`/`retiredById`; an optional replacement in the same sheet is written
+  in the SAME transaction, after the retire, so it sorts directly below. There is
+  no code path that updates `body` — the reason is a comment at the top of
+  `project-notes.ts` and a rule in the schema doc: visible history is the feature.
+  Own section card, own rail entry (`section-client-notes`, `in-correction` hue),
+  bilingual, `SubmitButton`, no client JS. Countdown/KPI: none — notes are
+  context, not scored work.
+
+Result:
+
+`npx tsc --noEmit` clean with the generated client still stale (it predates the
+2026-08-05 migration — verified: `assignedAssemblyGroupId` is absent from
+`node_modules/.pnpm/@prisma+client*/…/.prisma/client/index.d.ts`). Three seam
+shapes were needed, and the difference between them is worth recording:
+
+1. **Write payload** — a bare spread still works (`archiveStampWrite`), the same
+   seam `insertTypesWrite` uses.
+2. **`where` filters** — a spread does NOT work. TypeScript's weak-type rule
+   rejects `{ archivedAt: null }` against an all-optional `WhereInput` it shares
+   no property with, both as the whole `where` and as a nested relation value. So
+   `liveProjectFilter()` / `archivedProjectFilter()` in
+   `src/server/project-archive-filters.ts` are typed AS
+   `Prisma.MoldTrialProjectWhereInput` — two documented casts, one file, and they
+   are exactly what Prisma accepts uncast after regeneration.
+3. **A NEW MODEL** cannot be smuggled at all: `prisma.projectNote` does not exist
+   on a stale client. `src/server/project-note-store.ts` is the single seam — one
+   cast plus hand-authored row/delegate types covering exactly the four calls the
+   feature makes (and deliberately no update-body call).
+
+The same weak-type rule is why every read seam takes a REQUIRED `id` —
+`isProjectArchived({ archivedAt?: Date | null })` alone is rejected when handed a
+stale row. That is the reason the existing `projectInsertTypes` /
+`projectIntakeDetails` seams carry `id: string`; it was not decoration.
+
+`node --test tests/domain/*.test.ts`: 1000 tests, 977 pass, 0 fail, 22
+pre-existing cancellations (the platform suite, which cancels in this sandbox),
+1 skipped — up from 962/939 with the same 22/1. New cases cover the rename helper
+(first archive, collision with an already-archived same code, lowest-free-gap,
+prefix look-alikes, no suffix stacking, case sensitivity), the reason parser, the
+archive read seams in stale/explicit-null/full shapes, the KPI decision as the
+exact negation of `isProjectArchived`, the write guard, the note body parser
+(including preserved interior line breaks), the sketch ordering (retired lines
+kept IN PLACE, not grouped at the bottom), the id tie-break, and all four retire
+decisions. E2E smoke sentinels untouched — no existing page string was changed or
+removed, and the new admin tab is additive.
+
+Why:
+
+Archiving had to be soft AND had to free the code, or the correction it exists to
+enable (re-enter the project properly) would be blocked by the very row being
+corrected. Those two requirements together are what forced the rename, and the
+rename is what forced "no un-archive" — the honest consequence, stated rather
+than hidden behind a button that would sometimes collide.
+
+Decision:
+
+Soft archive, code released, no restore. Notes append-only with no edit path, at
+the schema level and in every code path. Both features are ADMIN/permission-gated
+in the UI and re-checked in the server action.
+
+Verification:
+
+Harry runs these on the Mac, with the dev server stopped (the running server
+holds the old client):
+
+```bash
+cd ~/Documents/LJ_ERP/MoldPilot
+pnpm exec prisma validate
+pnpm prisma:migrate        # prisma migrate dev — applies 20260806120000 and regenerates
+pnpm prisma:generate       # only if migrate dev skipped generation
+pnpm prisma:seed           # picks up project.client_note.write + admin.archive_projects
+# proof the client is fresh (pnpm keeps the generated client in the virtual store):
+grep -rl "archivedAt" node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/index.d.ts
+grep -rl "projectNote" node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/index.d.ts
+pnpm typecheck && pnpm test:domain
+pnpm dev                   # restart; the old server process keeps the stale client
+```
+
+Or, for a full local reset instead of the incremental path:
+`bash scripts/dev-refresh.sh` (migrate + seed + checks in one).
+
+Until the migration runs, opening a project page on the Mac fails with a
+PrismaClientValidationError naming `projectNote` — the documented stale-client
+tell, not a code bug. Production picks both up through `prisma migrate deploy`
+plus the permission seed in the next release; no backfill, no data migration.
+
+Not verified in the sandbox: `pnpm exec prisma validate` (the schema-engine
+download is blocked there) and the migration itself. Both run on the Mac as the
+first two commands above.
+
+Related Docs:
+
+- `docs/02-schema/schema-v0.md` (MoldTrialProject archive columns + rules, ProjectNote)
+- `docs/03-ui/phase-1-screen-specs.md` (Screen 4 client notes + archived behavior, Screen 10 archived tab)
+- `docs/02-schema/permissions-matrix.md` (`project.client_note.write`, `admin.archive_projects`)
+
 ### 2026-08-06: Assembly-Group Picker Shows Real People (Stale 钟组 / 裴组 Removed)
 
 Context:

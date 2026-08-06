@@ -116,6 +116,12 @@ export const permissionDefinitions = [
     description: "Approve eligible +1 design-change trial allowance."
   },
   {
+    code: "project.client_note.write",
+    name: "Write client notes",
+    processGroup: "Project Intake",
+    description: "Add client notes and strike through superseded ones (append-only; no edit)."
+  },
+  {
     code: "project.close",
     name: "Close project",
     processGroup: "Project Closure",
@@ -186,6 +192,12 @@ export const permissionDefinitions = [
     name: "Manage report templates",
     processGroup: "Administration",
     description: "Manage fixed process-sheet and report template assignments."
+  },
+  {
+    code: "admin.archive_projects",
+    name: "Archive projects",
+    processGroup: "Administration",
+    description: "Archive a mis-entered mold trial project with a reason (soft, never deleted)."
   },
   {
     code: "kpi.rules.manage",
@@ -262,6 +274,7 @@ export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCod
     "trial.limit.set_custom",
     "trial.design_change.report",
     "trial.design_change.approve_extra_trial",
+    "project.client_note.write",
     "project.close",
     "attachment.upload",
     "attachment.download.internal"
@@ -272,6 +285,8 @@ export const defaultRolePermissionCodes: Record<RoleCode, readonly PermissionCod
     "trial.issue.create",
     "trial.process_sheet.export_pdf",
     "trial.design_change.report",
+    // Marketing owns the client conversation, so it owns the client-notes ledger.
+    "project.client_note.write",
     "attachment.upload",
     "attachment.download.customer_safe"
   ],

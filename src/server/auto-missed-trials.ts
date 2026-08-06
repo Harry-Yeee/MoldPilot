@@ -1,6 +1,7 @@
 import { shouldAutoMissTrial, shouldRunAutoMissedSweep } from "@/domain/mold-trial/auto-missed";
 import { prisma } from "@/lib/prisma";
 import { trialStatusLabels } from "@/server/mold-trial-codecs";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 let lastAllProjectsAutoMissedSweepAt: number | null = null;
 
@@ -25,7 +26,11 @@ function claimAllProjectsAutoMissedSweep(now: Date): boolean {
 async function findAutoMissedCandidates(projectCode?: string) {
   return prisma.trialEvent.findMany({
     where: {
-      ...(projectCode == null ? {} : { moldTrialProject: { projectCode } }),
+      // Archived projects are read only, and that includes the automatic writes:
+      // the sweep must not keep stamping AUTO_MISSED_REASON_REQUIRED (plus an
+      // ActivityLog row, plus a TRIAL_DELAYED status) on a mis-entered project
+      // nobody is ever going to schedule.
+      moldTrialProject: projectCode == null ? liveProjectFilter() : { projectCode, ...liveProjectFilter() },
       status: {
         in: ["PLANNED", "AT_RISK"]
       },

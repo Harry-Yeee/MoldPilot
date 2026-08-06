@@ -130,6 +130,11 @@ export const SLICE_CLASSIFICATION: readonly SliceModelClassification[] = [
     note: "Parts/cavities of a project (moldTrialProjectId FK). Follows its project."
   },
   {
+    model: "ProjectNote",
+    category: "windowed",
+    note: "Client-notes ledger (projectId FK). Follows its project, retired lines included — the strikethrough history is the feature, and a dev laptop reproducing a project needs the same story the pilot sees. Free text a customer dictated, so it carries the same commercial confidentiality as Customer; no credential, nothing to sanitize."
+  },
+  {
     model: "TrialEvent",
     category: "windowed",
     note: "Trial runs — the core activity table. Follows its project. createdAt/updatedAt are also a window signal."
@@ -305,6 +310,7 @@ export const SLICE_EXPORT_ORDER: readonly string[] = [
   // windowed — project lineage
   "MoldTrialProject", // needs Customer + User + ProcessSheetTemplate
   "MoldTrialPart", // needs MoldTrialProject
+  "ProjectNote", // needs MoldTrialProject + User
   "TrialEvent", // needs MoldTrialProject + InjectionMachine + User
   "MissedTrialEvent", // needs MoldTrialProject + TrialEvent + User
   "TrialIssue", // needs MoldTrialProject + TrialEvent + MoldTrialPart + DepartmentGroup + User

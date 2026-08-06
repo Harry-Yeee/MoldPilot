@@ -8,6 +8,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { computeMonthlyScores, loadKpiRuleLabels, type MonthlyScores } from "@/server/kpi-scores";
 import { requirePermission } from "@/server/permissions";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 export type ManagementReportQuery = {
   month?: string | null;
@@ -38,8 +39,13 @@ export async function getManagementReportData(
 
   const asOf = query.asOf ?? new Date();
   const month = selectedReportMonth(query.month, asOf);
+  // Archived projects are excluded from all three inputs, so they raise no
+  // attention rows (missing result / process sheet / QC report) and are absent
+  // from every count and rate the report computes. A mis-entered project must
+  // never make a month look worse than it was.
   const [projects, trials, issues, qcReports] = await Promise.all([
     prisma.moldTrialProject.findMany({
+      where: liveProjectFilter(),
       select: {
         id: true,
         projectCode: true,
@@ -51,6 +57,7 @@ export async function getManagementReportData(
       }
     }),
     prisma.trialEvent.findMany({
+      where: { moldTrialProject: liveProjectFilter() },
       select: {
         id: true,
         moldTrialProjectId: true,
@@ -72,6 +79,7 @@ export async function getManagementReportData(
       }
     }),
     prisma.trialIssue.findMany({
+      where: { moldTrialProject: liveProjectFilter() },
       select: {
         id: true,
         moldTrialProjectId: true,

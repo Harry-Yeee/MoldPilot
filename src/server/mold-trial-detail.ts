@@ -3,9 +3,12 @@ import { measurementReportState } from "@/domain/mold-trial/measurement-report";
 import type { TrialStatusDbValue } from "@/domain/mold-trial/my-plate";
 import { compareInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
 import { evaluateTrialLimit } from "@/domain/mold-trial/trial-limit";
+import { formatBilingualUserName } from "@/domain/mold-trial/users";
+import type { ProjectNoteRecord } from "@/domain/mold-trial/project-notes";
 import { prisma } from "@/lib/prisma";
 import { applyAutoMissedTrialsForProject } from "@/server/auto-missed-trials";
 import { trialCodeLabels, trialStatusLabels } from "@/server/mold-trial-codecs";
+import { listProjectNoteRows } from "@/server/project-note-store";
 
 export async function getMoldTrialProjectDetail(projectCode: string, options: { autoMissActorUserId?: string } = {}) {
   if (options.autoMissActorUserId != null) {
@@ -201,7 +204,8 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     projectAttachments,
     issuePhotoRows,
     measurementReportRows,
-    customerSafeRows
+    customerSafeRows,
+    projectNotes
   ] = await Promise.all([
     prisma.activityLog.findMany({
     where: {
@@ -299,7 +303,11 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
         uploadedBy: { select: { displayName: true, username: true } }
       },
       orderBy: [{ uploadedAt: "desc" }]
-    })
+    }),
+    // Client notes 客户备注 — the whole ledger, retired lines included. Read
+    // through the ProjectNote seam (the model arrives with the 2026-08-06
+    // migration); ordering is re-applied in the pure domain layer.
+    listProjectNoteRows(project.id)
   ]);
 
   // Group issue photos by issue id (entityId) for O(1) per-issue lookup in the page.
@@ -351,6 +359,17 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     }))
   });
 
+  // Notes in the shape the pure section renderer consumes: names resolved here
+  // (the page never re-queries a user), ordering decided by orderProjectNotes.
+  const clientNotes: ProjectNoteRecord[] = projectNotes.map((note) => ({
+    id: note.id,
+    body: note.body,
+    createdAt: note.createdAt,
+    createdByName: formatBilingualUserName(note.createdBy),
+    retiredAt: note.retiredAt,
+    retiredByName: note.retiredBy == null ? null : formatBilingualUserName(note.retiredBy)
+  }));
+
   return {
     project,
     activityLogs,
@@ -359,6 +378,7 @@ export async function getMoldTrialProjectDetail(projectCode: string, options: { 
     issuePhotosByIssueId,
     measurementReportByTrialId,
     customerSafeAttachments: customerSafeRows,
+    clientNotes,
     limit
   };
 }

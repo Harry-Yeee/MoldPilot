@@ -175,12 +175,14 @@ Phase 1 permission codes (updated 2026-07-07; source of truth is `src/domain/mol
 | `trial.process_sheet.export_pdf` | Export customer-safe process-sheet PDF. |
 | `trial.design_change.report` | Record customer/internal design change event. |
 | `trial.design_change.approve_extra_trial` | Approve eligible +1 design-change trial allowance. |
+| `project.client_note.write` | Add a client note 客户备注 and strike through a superseded one (append-only; there is no edit). Defaults: PM, Marketing, Admin. |
 | `project.close` | Close or cancel mold trial project with reason. |
 | `admin.manage_users` | Create/edit users and account status. |
 | `admin.manage_roles` | Create/edit roles and permission assignments. |
 | `admin.manage_customers` | Create/edit/archive Customer Master records used by project intake. |
 | `admin.manage_machines` | Create/edit/delete or safe-delete Injection Machine Master records. |
 | `admin.manage_report_templates` | Assign fixed process-sheet/report templates to customers or defaults. |
+| `admin.archive_projects` | Archive a mis-entered mold trial project with a required reason. Soft (never deleted); renames `project_code` to `<original>-ARCHIVED-<n>` so the original code is free again, and there is no restore. Defaults: Admin only. |
 | `attachment.upload` | Upload files to projects/trials/issues within per-type allowlists and size caps. Defaults: PM, Injection, Assembly, QC, Marketing, Admin. |
 | `attachment.delete` | Soft-delete any attachment. Defaults: Admin (the original uploader may always delete their own file — enforced in the action). |
 | `attachment.download.internal` | Download Internal/Technical/Restricted files. Defaults: PM, Injection, Assembly, QC, GM, Viewer, Admin (not Marketing). |

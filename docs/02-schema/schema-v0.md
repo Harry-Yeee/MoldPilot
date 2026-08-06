@@ -45,6 +45,7 @@ ProcessSheetTemplate
 ProcessSheetParameter
 MoldTrialProject
 MoldTrialPart
+ProjectNote
 TrialEvent
 TrialProcessValue
 TrialIssue
@@ -435,6 +436,9 @@ Allowed customer fields are the selected Customer reference and customer-code sn
 | custom_trial_limit_set_at | datetime | Optional. |
 | final_trial_count | integer | Set on closure or derived. |
 | close_reason | text | Required when closed/cancelled. |
+| archived_at | datetime | Set when an ADMIN archives a mis-entered project. NULL = live. The single switch every live surface filters on. Never cleared — there is no un-archive. |
+| archived_by_id | uuid | References User, ON DELETE SET NULL. Who archived it. |
+| archive_reason | text | Required when archiving; the admin's own words ("wrong client", "duplicate intake"). |
 | created_by_id | uuid | References User. |
 | created_at | datetime |  |
 | updated_at | datetime |  |
@@ -467,6 +471,32 @@ Rule: `insert_types` is optional and multi-select. Store only allowlisted codes,
 Rule: `material` and `color` are free text, not enums or lookup tables. The material `<datalist>` in `src/domain/mold-trial/intake-details.ts` is a typing aid only — an unlisted grade must still save. Nothing joins, filters or scores on either column. Do not store customer part numbers, supplier names or colour-standard licences here.
 
 Rule: `assigned_assembly_group_id` may only point at a child of the `assembly` DepartmentGroup, enforced by the form and re-validated server-side (an unknown or deactivated id falls back to unassigned rather than failing the FK). When set, auto-routed issues that would land on the `assembly` PARENT route to that child group instead (`defaultOwnerGroupCodeForIssueType`); every other department's routing is unaffected. Assembly inbox matching watches the parent code AND the viewer's own working group, so a child-routed issue is never invisible and no parent-routed issue is ever hidden.
+
+Rule (archive, added 2026-08-06): a mis-entered project is ARCHIVED, never deleted. Archiving requires `admin.archive_projects` (ADMIN only) plus a reason, and does two things in one transaction: it stamps the three columns above, and it RENAMES `project_code` to `<original>-ARCHIVED-<n>` so the original code is released for the corrected re-entry. `project_code` is the only UNIQUE-constrained code on this table — `mold_code` and `client_project_ref` are indexed but not unique, and are left exactly as typed — so it is the only one that has to move. `n` is the lowest free counter (`nextArchivedProjectCode` in `src/domain/mold-trial/project-archive.ts`), which makes archiving the same code twice safe. The original identifiers are written into the `admin_archived_project` ActivityLog entry's `beforeJson`, so the rename loses nothing.
+
+Rule: an archived project leaves the dashboard trial list, the calendar (month grid and phone agenda), every /me task section, and the Management Reports inputs; its events are excluded from KPI scoring (`isKpiScorableProject`). It stays fully READABLE — its project page, its activity log and all of its attachments — and it still travels in a dev slice, because a slice reproduces history. Every mutating server action refuses it (`assertProjectNotArchived`).
+
+Rule: there is NO un-archive, deliberately. The rename releases the original code the moment the archive commits, so a restore could hand back a code that already belongs to the replacement project. The supported correction is to create the project again.
+
+## ProjectNote
+
+Client notes 客户备注: an append-only ledger of what the client said, on the project page. Added 2026-08-06.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| id | uuid | Primary key. |
+| project_id | uuid | References MoldTrialProject, ON DELETE CASCADE. Indexed. |
+| body | text | The note. Trimmed, blank rejected, 2000-character cap (`parseProjectNoteBody`). |
+| created_by_id | uuid | References User. Required. |
+| created_at | datetime | Also the display order — oldest first. |
+| retired_at | datetime | Set when the line is struck through. NULL = live. |
+| retired_by_id | uuid | References User, ON DELETE SET NULL. Who struck it through. |
+
+Rule: APPEND-ONLY. No code path updates `body` after insert, and none may be added: superseding a line RETIRES it (strikethrough, kept in place) and appends the replacement, both in one transaction. The visible history of what was believed and when it stopped being true is the feature; an edit would erase exactly that.
+
+Rule: writing (add or retire) requires `project.client_note.write` — PM, Marketing and Admin by default. Nothing un-retires: an accidental strikethrough is corrected by adding the line again, and both entries stay visible.
+
+Rule: notes are context, not workload. They carry no countdown, feed no KPI rule, and appear in no report — only the project page section and the ActivityLog (`added_client_note` / `retired_client_note`).
 
 ## MoldTrialPart
 

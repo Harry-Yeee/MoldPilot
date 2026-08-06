@@ -11,6 +11,7 @@ import {
 import { compareInjectionMachineNo, formatInjectionMachineLabel } from "@/domain/mold-trial/process-sheet";
 import { trialStageLabel } from "@/domain/mold-trial/trial-panel";
 import { prisma } from "@/lib/prisma";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 /**
  * Trial statuses that appear on the calendar. PLANNED / AT_RISK /
@@ -174,7 +175,10 @@ export async function getCalendarMonthData(month: string, selectedDay: string | 
       plannedDate: {
         gte: new Date(`${range.start}T00:00:00.000Z`),
         lte: new Date(`${range.end}T00:00:00.000Z`)
-      }
+      },
+      // A trial belonging to an archived project never occupies a calendar day
+      // or counts toward a day's machine load.
+      moldTrialProject: liveProjectFilter()
     },
     select: calendarTrialSelect,
     orderBy: [{ plannedDate: "asc" }]
@@ -223,7 +227,9 @@ export async function getTrialAgendaData(now: Date = new Date()): Promise<TrialA
   const rows = await prisma.trialEvent.findMany({
     where: {
       status: { in: [...CALENDAR_TRIAL_STATUSES] },
-      plannedDate: { gte: start, lte: end }
+      plannedDate: { gte: start, lte: end },
+      // Same exclusion as the month grid — the phone agenda is the same data.
+      moldTrialProject: liveProjectFilter()
     },
     select: calendarTrialSelect,
     orderBy: [{ plannedDate: "asc" }]

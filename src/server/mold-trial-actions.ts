@@ -44,6 +44,7 @@ import {
   type IntakeDetails
 } from "@/domain/mold-trial/intake-details";
 import { computeDefaultIssueDueDate, defaultOwnerGroupCodeForIssueType } from "@/domain/mold-trial/issue-routing";
+import { assertProjectNotArchived } from "@/domain/mold-trial/project-archive";
 import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
 import {
   buildCustomerSafeProcessSheetExport,
@@ -93,6 +94,7 @@ import { activeAssemblyGroupOptions, getAssemblyGroupOptions } from "@/server/de
 import { storeIssuePhotos } from "@/server/issue-photo-storage";
 import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-trial-limit-service";
 import { requirePermission, requirePermissions } from "@/server/permissions";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 import { createSimplePdfBuffer } from "@/server/simple-pdf";
 import { isAssemblyRelevantIssue, type PermissionCode } from "@/domain/mold-trial/permission-policy";
 import { resolveDefaultPlanningPm } from "@/domain/mold-trial/users";
@@ -959,6 +961,23 @@ async function generateUniqueProjectTrackingCode(tx: Prisma.TransactionClient): 
   throw new Error("Unable to generate a unique internal tracking code.");
 }
 
+/**
+ * Why an issue-scoped write found nothing.
+ *
+ * The three issue actions resolve their issue THROUGH the project
+ * (`moldTrialProject: { projectCode, …liveProjectFilter() }`), so an archived
+ * project silently matches nothing — correct, but "Trial issue not found." would
+ * be a confusing thing to read. This runs only on that miss, and only to replace
+ * the message with the real reason.
+ */
+async function assertIssueProjectWritable(projectCode: string): Promise<void> {
+  const project = await prisma.moldTrialProject.findUnique({ where: { projectCode } });
+
+  if (project != null) {
+    assertProjectNotArchived(project);
+  }
+}
+
 function assertProjectHasMoldCode(project: { moldCode: string | null | undefined }) {
   if ((project.moldCode ?? "").trim().length === 0) {
     throw new Error("Mold code is required before setting T0, scheduling trials, or recording trial activity.");
@@ -1280,6 +1299,8 @@ export async function updateMoldTrialParts(formData: FormData) {
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     const partResult = normalizeMoldTrialParts(parseMoldTrialPartRows(formData), {
       fallbackPartCode: project.partCode
     });
@@ -1395,6 +1416,8 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     if (project.status !== "INTAKE" && moldCode.length === 0) {
       redirectWithMessage(fallback, "error", "Mold code can be blank only while the project is in Intake.");
     }
@@ -1494,6 +1517,8 @@ export async function setFirstPlannedTrialDate(formData: FormData) {
     if (project == null) {
       throw new Error("Project not found.");
     }
+
+    assertProjectNotArchived(project);
 
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
@@ -1608,6 +1633,8 @@ export async function recordMissedTrial(formData: FormData) {
     if (project == null) {
       throw new Error("Project not found.");
     }
+
+    assertProjectNotArchived(project);
 
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
@@ -1765,6 +1792,8 @@ export async function resolveAutoMissedTrial(formData: FormData) {
     if (project == null) {
       throw new Error("Project not found.");
     }
+
+    assertProjectNotArchived(project);
 
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
@@ -1991,6 +2020,8 @@ export async function recordCompletedTrial(formData: FormData) {
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
 
@@ -2206,6 +2237,8 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
   if (project == null) {
     throw new Error("Project not found.");
   }
+
+  assertProjectNotArchived(project);
 
   assertProjectHasMoldCode(project);
 
@@ -2429,6 +2462,8 @@ export async function exportProcessSheetPdf(
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     if (project.processSheetTemplate == null) {
       throw new Error("This project does not have a process-sheet template assigned.");
     }
@@ -2618,6 +2653,8 @@ export async function addNewPlannedTrial(formData: FormData) {
     if (project == null) {
       throw new Error("Project not found.");
     }
+
+    assertProjectNotArchived(project);
 
     assertProjectHasMoldCode(project);
     await assertProjectHasActivePart(project.id);
@@ -2866,6 +2903,8 @@ export async function createTrialIssue(formData: FormData) {
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     assertProjectHasMoldCode(project);
 
     await resolveAffectedPart({
@@ -3046,8 +3085,11 @@ export async function editTrialIssue(formData: FormData) {
     const issue = await prisma.trialIssue.findFirst({
       where: {
         id: issueId,
+        // The archive guard rides in the same lookup: an archived project
+        // matches nothing, so an issue-scoped write cannot reach one.
         moldTrialProject: {
-          projectCode
+          projectCode,
+          ...liveProjectFilter()
         }
       },
       include: {
@@ -3061,6 +3103,7 @@ export async function editTrialIssue(formData: FormData) {
     });
 
     if (issue == null) {
+      await assertIssueProjectWritable(projectCode);
       throw new Error("Trial issue not found.");
     }
 
@@ -3222,8 +3265,11 @@ export async function closeTrialIssue(formData: FormData) {
     const issue = await prisma.trialIssue.findFirst({
       where: {
         id: issueId,
+        // The archive guard rides in the same lookup: an archived project
+        // matches nothing, so an issue-scoped write cannot reach one.
         moldTrialProject: {
-          projectCode
+          projectCode,
+          ...liveProjectFilter()
         }
       },
       include: {
@@ -3236,6 +3282,7 @@ export async function closeTrialIssue(formData: FormData) {
     });
 
     if (issue == null) {
+      await assertIssueProjectWritable(projectCode);
       throw new Error("Trial issue not found.");
     }
 
@@ -3357,8 +3404,11 @@ export async function updateTrialIssue(formData: FormData) {
     const issue = await prisma.trialIssue.findFirst({
       where: {
         id: issueId,
+        // The archive guard rides in the same lookup: an archived project
+        // matches nothing, so an issue-scoped write cannot reach one.
         moldTrialProject: {
-          projectCode
+          projectCode,
+          ...liveProjectFilter()
         }
       },
       include: {
@@ -3382,6 +3432,7 @@ export async function updateTrialIssue(formData: FormData) {
     });
 
     if (issue == null) {
+      await assertIssueProjectWritable(projectCode);
       throw new Error("Trial issue not found.");
     }
 
@@ -3715,6 +3766,8 @@ export async function setPmCustomTrialLimit(formData: FormData) {
       throw new Error("Project not found.");
     }
 
+    assertProjectNotArchived(project);
+
     await prisma.$transaction(async (tx) => {
       await applyPmCustomTrialLimit(tx, {
         project,
@@ -3770,6 +3823,8 @@ export async function createDesignChangeEvent(formData: FormData) {
     if (project == null) {
       throw new Error("Project not found.");
     }
+
+    assertProjectNotArchived(project);
 
     const result = await prisma.$transaction((tx) =>
       applyDesignChangeEvent(tx, {

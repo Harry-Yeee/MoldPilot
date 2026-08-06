@@ -15,6 +15,7 @@ import { computeMonthlyScores, loadKpiRuleLabels } from "@/server/kpi-scores";
 import { ensureDefaultKpiRules, isScoreboardEnabled } from "@/server/kpi-settings";
 import { protectedAdminRoleCode, protectedAdminRolePermissionCodes } from "@/domain/mold-trial/admin-safety";
 import { permissionDefinitions } from "@/domain/mold-trial/permission-policy";
+import { projectArchiveLabels } from "@/domain/mold-trial/project-archive";
 import { compareInjectionMachineNo } from "@/domain/mold-trial/process-sheet";
 import { formatBilingualUserOption } from "@/domain/mold-trial/users";
 import {
@@ -35,10 +36,11 @@ import {
   updateRolePermissionMatrix,
   updateUserAccount
 } from "@/server/admin-actions";
+import { listArchivedProjects } from "@/server/archived-projects";
 import { getCurrentUser } from "@/server/current-user";
 import { getEffectivePermissionCodes, requireAnyPermission } from "@/server/permissions";
 import { getNavVisibility } from "@/server/nav";
-import { translateSystemRole } from "@/i18n/display";
+import { formatLocalizedDate, translateSystemRole } from "@/i18n/display";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +69,8 @@ async function loadAdminData() {
     "admin.manage_roles",
     "admin.manage_customers",
     "admin.manage_machines",
-    "admin.manage_report_templates"
+    "admin.manage_report_templates",
+    "admin.archive_projects"
   ]);
 
   const [roles, users, permissions, customers, injectionMachines] = await Promise.all([
@@ -139,12 +142,14 @@ export default async function AdminPage({ searchParams }: PageProps) {
     requestedTabValue === "clients" ||
     requestedTabValue === "rules" ||
     requestedTabValue === "scores" ||
+    requestedTabValue === "archived" ||
     requestedTabValue === "users"
       ? requestedTabValue === "customers"
         ? "clients"
         : requestedTabValue
       : "users";
-  const locale: Locale = (await getCurrentLanguage()) === "zh-CN" ? "ZH_CN" : "EN_US";
+  const language = await getCurrentLanguage();
+  const locale: Locale = language === "zh-CN" ? "ZH_CN" : "EN_US";
   const requestedMonthValue = params == null ? null : messageValue(params, "month");
   const scoresSort = parseKpiSortState(
     params == null ? null : messageValue(params, "scoreSort"),
@@ -190,6 +195,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
   const canManageMachines = hasPermissionCode(permissionCodes, "admin.manage_machines");
   const canManageKpiRules = hasPermissionCode(permissionCodes, "kpi.rules.manage");
   const canViewKpiScores = hasPermissionCode(permissionCodes, "kpi.scores.view_all");
+  const canArchiveProjects = hasPermissionCode(permissionCodes, "admin.archive_projects");
   const activeTab =
     requestedTab === "users" && canManageUsers
       ? "users"
@@ -203,6 +209,8 @@ export default async function AdminPage({ searchParams }: PageProps) {
           ? "rules"
         : requestedTab === "scores" && canViewKpiScores
           ? "scores"
+        : requestedTab === "archived" && canArchiveProjects
+          ? "archived"
           : canManageUsers
             ? "users"
             : canManageCustomers
@@ -215,12 +223,15 @@ export default async function AdminPage({ searchParams }: PageProps) {
                     ? "rules"
                     : canViewKpiScores
                       ? "scores"
-                      : "users";
+                      : canArchiveProjects
+                        ? "archived"
+                        : "users";
   const usersRedirectTo = "/admin?tab=users";
   const customersRedirectTo = "/admin?tab=clients";
   const machinesRedirectTo = "/admin?tab=machines";
   const rolesRedirectTo = "/admin?tab=roles";
   const rulesRedirectTo = "/admin?tab=rules";
+  const archivedRedirectTo = "/admin?tab=archived";
   const sortedRoles = [...(data?.roles ?? [])].sort((left, right) => {
     if (left.code === protectedAdminRoleCode) {
       return -1;
@@ -277,6 +288,10 @@ export default async function AdminPage({ searchParams }: PageProps) {
     data != null && activeTab === "scores" && canViewKpiScores ? await isScoreboardEnabled() : false;
   const kpiRuleLabels: Record<string, { en: string; zh: string }> =
     kpiScores == null ? {} : await loadKpiRuleLabels();
+  // Loaded lazily, like the KPI tabs: archiving is rare, so nobody pays for this
+  // query on the Users tab.
+  const archivedProjects =
+    data != null && activeTab === "archived" && canArchiveProjects ? await listArchivedProjects() : [];
 
   function roleHasPermission(
     role: (typeof sortedRoles)[number],
@@ -388,6 +403,14 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 href={`/admin?tab=scores&month=${scoresMonth}`}
               >
                 {pickLabel(kpiLabels.scoresTab, locale)}
+              </Link>
+            ) : null}
+            {canArchiveProjects ? (
+              <Link
+                className={activeTab === "archived" ? "adminTab adminTabActive" : "adminTab"}
+                href={archivedRedirectTo}
+              >
+                {pickLabel(projectArchiveLabels.listTitle, locale)}
               </Link>
             ) : null}
           </nav>
@@ -912,6 +935,73 @@ export default async function AdminPage({ searchParams }: PageProps) {
                 sort={scoresSort}
               />
             )
+          ) : null}
+
+          {/* Archived projects 已归档 — read-only register. Archiving itself
+              happens on the project page (that is where an admin sees the
+              mistake); this is where the archived rows live afterwards. There is
+              no restore button, deliberately: the original code was released on
+              archive, so the supported correction is to re-create. */}
+          {activeTab === "archived" && canArchiveProjects ? (
+            <section className="workSurface" aria-labelledby="archived-projects-heading">
+              <div className="surfaceHeader">
+                <div>
+                  <h2 id="archived-projects-heading">
+                    {projectArchiveLabels.listTitle.zh} · {projectArchiveLabels.listTitle.en}
+                  </h2>
+                  <span>{pickLabel(projectArchiveLabels.listSubtitle, locale)}</span>
+                </div>
+              </div>
+              <div className="tableWrap">
+                <table className="compactHistoryTable">
+                  <thead>
+                    <tr>
+                      <th>{pickLabel(projectArchiveLabels.archivedCode, locale)}</th>
+                      <th>{pickLabel(projectArchiveLabels.originalCode, locale)}</th>
+                      <th>{t("field.moldCode")}</th>
+                      <th>{pickLabel(projectArchiveLabels.archivedBy, locale)}</th>
+                      <th>{pickLabel(projectArchiveLabels.archivedAt, locale)}</th>
+                      <th>{t("field.reason")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archivedProjects.length === 0 ? (
+                      <tr>
+                        <td className="emptyTableCell" colSpan={6}>
+                          {pickLabel(projectArchiveLabels.listEmpty, locale)}
+                        </td>
+                      </tr>
+                    ) : (
+                      archivedProjects.map((archived) => (
+                        <tr key={archived.id}>
+                          <td>
+                            <Link href={`/projects/${archived.projectCode}`}>
+                              {archived.projectCode}
+                            </Link>
+                            <span className="sr-only">
+                              {" "}
+                              {pickLabel(projectArchiveLabels.openReadOnly, locale)}
+                            </span>
+                          </td>
+                          <td>{archived.originalCode}</td>
+                          <td>
+                            {archived.moldCode}
+                            {archived.clientProjectRef == null ? "" : ` · ${archived.clientProjectRef}`}
+                          </td>
+                          <td>{archived.archivedByName ?? t("common.notSet")}</td>
+                          <td>
+                            {archived.archivedAt == null
+                              ? t("common.notSet")
+                              : formatLocalizedDate(archived.archivedAt, language, t("common.notSet"))}
+                          </td>
+                          <td>{archived.archiveReason ?? t("common.notSet")}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           ) : null}
         </>
       )}

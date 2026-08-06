@@ -107,6 +107,9 @@ model User {
   technicalProjects          MoldTrialProject[]     @relation("TechnicalPMProjects")
   createdProjects            MoldTrialProject[]     @relation("ProjectCreator")
   customLimitSetProjects     MoldTrialProject[]     @relation("CustomLimitSetter")
+  archivedProjects           MoldTrialProject[]     @relation("ProjectArchiver")
+  authoredProjectNotes       ProjectNote[]          @relation("ProjectNoteAuthor")
+  retiredProjectNotes        ProjectNote[]          @relation("ProjectNoteRetirer")
   createdTrialEvents         TrialEvent[]           @relation("TrialCreator")
   requestedTrialEvents       TrialEvent[]           @relation("TrialRequester")
   followUpTrialEvents        TrialEvent[]           @relation("TrialFollowUpOwner")
@@ -211,6 +214,13 @@ model MoldTrialProject {
   customTrialLimitSetAt   DateTime?              @map("custom_trial_limit_set_at")
   finalTrialCount         Int?                   @map("final_trial_count")
   closeReason             String?                @map("close_reason")
+  // Admin archive (2026-08-06). A mis-entered project is NEVER deleted: it is
+  // stamped here, its unique projectCode is renamed to `<original>-ARCHIVED-<n>`
+  // to free the real code for re-entry, and it drops out of every live surface
+  // (dashboard, calendar, /me, reports, KPI) while staying fully readable.
+  archivedAt              DateTime?              @map("archived_at")
+  archivedById            String?                @map("archived_by_id") @db.Uuid
+  archiveReason           String?                @map("archive_reason")
   createdById             String                 @map("created_by_id") @db.Uuid
   createdAt               DateTime               @default(now()) @map("created_at")
   updatedAt               DateTime               @updatedAt @map("updated_at")
@@ -218,6 +228,7 @@ model MoldTrialProject {
   planningPm            User?                  @relation("PlanningPMProjects", fields: [planningPmId], references: [id])
   technicalPm           User?                  @relation("TechnicalPMProjects", fields: [technicalPmId], references: [id])
   customTrialLimitSetBy User?                  @relation("CustomLimitSetter", fields: [customTrialLimitSetById], references: [id])
+  archivedBy            User?                  @relation("ProjectArchiver", fields: [archivedById], references: [id])
   createdBy             User                   @relation("ProjectCreator", fields: [createdById], references: [id])
   customer              Customer               @relation(fields: [customerId], references: [id])
   assignedAssemblyGroup DepartmentGroup?       @relation("ProjectAssignedAssemblyGroup", fields: [assignedAssemblyGroupId], references: [id], onDelete: SetNull)
@@ -230,7 +241,9 @@ model MoldTrialProject {
   trialLimitAdjustments TrialLimitAdjustment[]
   missedTrialEvents     MissedTrialEvent[]
   fileAttachments       FileAttachment[]
+  projectNotes          ProjectNote[]
 
+  @@index([archivedAt])
   @@index([assignedAssemblyGroupId])
   @@index([customerCode])
   @@index([customerId])
@@ -351,6 +364,30 @@ model MoldTrialPart {
 
   @@index([moldTrialProjectId, active, sortOrder])
   @@map("mold_trial_parts")
+}
+
+/// Client notes 客户备注 — the append-only ledger on a project page.
+///
+/// A line is written once and never edited. Superseding it RETIRES it
+/// (`retiredAt` / `retiredById`) and, when a replacement is typed in the same
+/// sheet, writes the new line in the same transaction. The retired line stays in
+/// place, struck through: the visible history of what the client said and when
+/// it changed IS the feature, which is why no UPDATE path to `body` exists.
+model ProjectNote {
+  id          String    @id @default(uuid()) @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  body        String
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  retiredAt   DateTime? @map("retired_at")
+  retiredById String?   @map("retired_by_id") @db.Uuid
+
+  project   MoldTrialProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("ProjectNoteAuthor", fields: [createdById], references: [id])
+  retiredBy User?            @relation("ProjectNoteRetirer", fields: [retiredById], references: [id])
+
+  @@index([projectId])
+  @@map("project_notes")
 }
 
 model TrialEvent {

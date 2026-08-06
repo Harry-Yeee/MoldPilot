@@ -57,6 +57,7 @@ import {
   severityLabels,
   trialStatusLabels
 } from "@/server/mold-trial-codecs";
+import { liveProjectFilter } from "@/server/project-archive-filters";
 
 const COMING_UP_WINDOW_DAYS = 7;
 const QC_REPORT_WINDOW_DAYS = 14;
@@ -489,8 +490,11 @@ export async function getMyPlateData(
     prisma.trialEvent.findMany({
       where: {
         status: { in: ["PLANNED", "AT_RISK", "AUTO_MISSED_REASON_REQUIRED"] },
+        // Archived projects never put a card on anyone's plate: the phone task
+        // sections are a to-do list, and a mis-entered project has no to-do.
         moldTrialProject: {
-          OR: [{ planningPmId: viewer.userId }, { technicalPmId: viewer.userId }]
+          OR: [{ planningPmId: viewer.userId }, { technicalPmId: viewer.userId }],
+          ...liveProjectFilter()
         }
       },
       select: {
@@ -520,7 +524,8 @@ export async function getMyPlateData(
     prisma.trialIssue.findMany({
       where: {
         status: { notIn: ["VERIFIED", "CLOSED"] },
-        OR: issueOwnershipFilters
+        OR: issueOwnershipFilters,
+        moldTrialProject: liveProjectFilter()
       },
       select: {
         id: true,
@@ -704,7 +709,8 @@ export async function getMyPlateData(
       prisma.trialEvent.findMany({
         where: {
           status: { in: ["PLANNED", "AT_RISK"] },
-          dateConfirmationStatus: confirmationStatus
+          dateConfirmationStatus: confirmationStatus,
+          moldTrialProject: liveProjectFilter()
         },
         select: {
           id: true,
@@ -945,7 +951,8 @@ export async function getMyPlateData(
     const completedTrials = await prisma.trialEvent.findMany({
       where: {
         status: { in: ["COMPLETED", "PENDING_FOLLOW_UP"] },
-        actualDate: { gte: windowStart, lte: endOfUtcDay(now) }
+        actualDate: { gte: windowStart, lte: endOfUtcDay(now) },
+        moldTrialProject: liveProjectFilter()
       },
       select: {
         id: true,
@@ -1074,7 +1081,7 @@ export async function getMyPlateData(
 
   if (viewer.roleCode === "DESIGN") {
     const changeEvents = await prisma.designChangeEvent.findMany({
-      where: { moldTrialProject: { status: { notIn: ["CANCELLED", "CLOSED"] } } },
+      where: { moldTrialProject: { status: { notIn: ["CANCELLED", "CLOSED"] }, ...liveProjectFilter() } },
       select: {
         id: true,
         title: true,
