@@ -14,8 +14,9 @@ import {
   belongsToPmConfirmReadySection,
   belongsToQcReportsToUploadSection,
   belongsToReturnedDatesSection,
+  assemblyGroupCodesForViewer,
   comparePlateItemsByDate,
-  directDepartmentInboxGroupByRole,
+  departmentInboxGroupCodesForViewer,
   isOverdue,
   type PlateDesignChangeRecord,
   type PlateIssueRecord,
@@ -27,7 +28,9 @@ import { daysBetweenProposedAndTarget, isProposedDateAfterTarget, type DateConfi
 import {
   compareByCountdownUrgency,
   computeDeadline,
-  remainingHours
+  remainingHours,
+  trialCountdown,
+  type TrialUrgencySource
 } from "@/domain/mold-trial/deadline-countdown";
 import type { KpiRuleCode } from "@/domain/mold-trial/kpi-rules";
 import type { ScoringRule } from "@/domain/mold-trial/kpi-scoring";
@@ -90,6 +93,26 @@ export type SelfCheckDeadline = {
   remainingHours: number;
 };
 
+/**
+ * The trial-deadline chip on an OPEN issue card: "距试模 X天 · MMM d".
+ *
+ * Display-only urgency — nothing here touches KPI scoring. It exists because an
+ * issue's own due date says nothing about the wall everybody actually works to,
+ * which is the next trial: a fix that lands the morning after the mold is on the
+ * machine is a wasted trial. Present only when the project HAS an upcoming
+ * planned trial.
+ */
+export type TrialDeadline = {
+  /** The next planned trial's date (YYYY-MM-DD) — the chip's suffix. */
+  trialDate: string;
+  /** Signed hours until that trial; drives the chip text. */
+  trialHours: number;
+  /** Signed hours until the earlier of the issue due date and the trial; drives tone. */
+  urgencyHours: number;
+  /** Which date set the urgency. */
+  urgencySource: TrialUrgencySource;
+};
+
 export type PlateOption = {
   value: string;
   label: string;
@@ -136,6 +159,8 @@ export type MyOpenIssueRow = PlateRowBase & {
   photoCount: number;
   /** Read-only photos for the expanded card (viewing is allowed on phone). */
   photos: MyPlatePhoto[];
+  /** "距试模 X天 · MMM d" chip; null when the project has no upcoming trial. */
+  trialDeadline: TrialDeadline | null;
 };
 
 /**
@@ -161,6 +186,12 @@ export type IssueLifecycleRow = PlateRowBase & {
   deadline: PlateDeadline | null;
   /** Assembly self-check "before next trial" chip; null except in that section. */
   selfCheckDeadline: SelfCheckDeadline | null;
+  /**
+   * "距试模 X天 · MMM d" chip; null when the project has no upcoming trial. Not
+   * set on the self-check section, which already carries `selfCheckDeadline`
+   * saying the same thing — one trial statement per card.
+   */
+  trialDeadline: TrialDeadline | null;
   // Round-trip fields for updateTrialIssue.
   ownerUsername: string | null;
   ownerGroupCode: string | null;
@@ -348,6 +379,33 @@ function selfCheckCountdown(nextTrialDate: Date | null | undefined, now: Date): 
   return { nextTrialDate: nextTrialDate.toISOString().slice(0, 10), remainingHours: remaining };
 }
 
+/**
+ * The trial-deadline chip for an open issue: hours to the project's next planned
+ * trial, toned by whichever comes first — that trial or the issue's own due
+ * date. Unlike the self-check chip there is NO window: an issue is measured
+ * against its trial from the day the trial is planned, because "close it before
+ * the mold goes on the machine" is true the whole time, not only in the last
+ * 72 hours. Null when the project has no upcoming planned trial.
+ */
+function trialDeadlineFor(
+  dueDate: Date | null,
+  nextTrialDate: Date | null | undefined,
+  now: Date
+): TrialDeadline | null {
+  const countdown = trialCountdown({ dueDate, nextTrialDate: nextTrialDate ?? null }, now);
+
+  if (countdown == null || nextTrialDate == null) {
+    return null;
+  }
+
+  return {
+    trialDate: nextTrialDate.toISOString().slice(0, 10),
+    trialHours: countdown.trialHours,
+    urgencyHours: countdown.urgencyHours,
+    urgencySource: countdown.urgencySource
+  };
+}
+
 /** Sort key for a standard-countdown row (most urgent first, no-chip rows last). */
 function urgencyOf(row: { deadline: PlateDeadline | null }): { remainingHours: number | null } {
   return { remainingHours: row.deadline?.remainingHours ?? null };
@@ -359,34 +417,53 @@ function urgencyOf(row: { deadline: PlateDeadline | null }): { remainingHours: n
  * then queries and maps rows through the pure section-membership functions.
  */
 export async function getMyPlateData(
-  viewerInput: { userId: string; roleCode: RoleCode },
+  viewerInput: { userId: string; roleCode: RoleCode; departmentGroupId?: string | null },
   now: Date = new Date()
 ): Promise<MyPlateData> {
   await applyAutoMissedTrialsForAllProjects(viewerInput.userId, now);
 
-  const viewer: PlateViewer = { userId: viewerInput.userId, roleCode: viewerInput.roleCode };
+  // The viewer's own department group + its parent. Assembly members sit in the
+  // working CHILD groups (assembly-a 钟组 / assembly-b 裴组), and since
+  // 2026-08-05 an assembly issue can be routed to one of those instead of the
+  // `assembly` parent, so the inbox has to match on both. One tiny lookup, only
+  // when the account actually has a group.
+  const viewerGroup =
+    viewerInput.departmentGroupId == null
+      ? null
+      : await prisma.departmentGroup.findUnique({
+          where: { id: viewerInput.departmentGroupId },
+          select: { code: true, parentGroup: { select: { code: true } } }
+        });
+
+  const viewer: PlateViewer = {
+    userId: viewerInput.userId,
+    roleCode: viewerInput.roleCode,
+    departmentGroupCode: viewerGroup?.code ?? null,
+    departmentGroupParentCode: viewerGroup?.parentGroup?.code ?? null
+  };
 
   // Owned issues are relevant for everyone; assembly/PM roles additionally need
   // the workflow-stage issues their sections act on. Each OR branch mirrors a
   // section predicate so the DB fetch stays narrow; the pure functions re-apply
   // the exact same rules for the final membership decision.
   const issueOwnershipFilters: Array<Record<string, unknown>> = [{ ownerUserId: viewer.userId }];
-  const directDepartmentGroupCode = directDepartmentInboxGroupByRole[viewer.roleCode];
+  const departmentInboxGroupCodes = [...departmentInboxGroupCodesForViewer(viewer)];
 
-  if (directDepartmentGroupCode != null) {
+  if (departmentInboxGroupCodes.length > 0) {
     issueOwnershipFilters.push({
       ownerUserId: null,
-      ownerGroup: { code: directDepartmentGroupCode }
+      ownerGroup: { code: { in: departmentInboxGroupCodes } }
     });
   }
 
   if (viewer.roleCode === "ASSEMBLY") {
-    // Assembly acts only on issues relevant to it (assigned to me, owned by the
-    // assembly group, or an assembly/fitting issue) — mirrors the action guard.
+    // Assembly acts only on issues relevant to it (assigned to me, owned by an
+    // assembly group I watch, or an assembly/fitting issue) — mirrors the action
+    // guard. The group list is the `assembly` parent plus my own working group.
     const assemblyRelevant = {
       OR: [
         { ownerUserId: viewer.userId },
-        { ownerGroup: { code: "assembly" } },
+        { ownerGroup: { code: { in: [...assemblyGroupCodesForViewer(viewer)] } } },
         { issueType: "ASSEMBLY_FITTING_ISSUE" as const }
       ]
     };
@@ -526,11 +603,14 @@ export async function getMyPlateData(
     photosByIssue.set(photo.entityId, list);
   }
 
-  // Assembly self-check has no hours rule — its soft deadline is the NEXT planned
-  // trial per project. Batch the lookup for every fetched issue's project (one
-  // query, grouped in memory) so the self-check section adds no N+1.
+  // The next planned trial per project, for BOTH trial-facing chips: the
+  // assembly self-check chip (no hours rule — its soft deadline is that trial)
+  // and the trial-deadline chip every open-issue card now carries. Batched for
+  // every fetched issue's project (one query, grouped in memory), so neither
+  // adds an N+1. Previously assembly-only; widened because a handler in any
+  // department needs the same "before the mold goes on the machine" wall.
   const nextPlannedTrialByProject = new Map<string, Date>();
-  if (viewer.roleCode === "ASSEMBLY" && issues.length > 0) {
+  if (issues.length > 0) {
     const projectIds = [...new Set(issues.map((issue) => issue.moldTrialProject.id))];
     const upcomingTrials = await prisma.trialEvent.findMany({
       where: {
@@ -762,6 +842,8 @@ export async function getMyPlateData(
       title: issue.title
     };
     const cavity = partCavityLabel(issue.affectedPart, issue.affectedCavityNote);
+    // Display-only urgency shared by every open-issue card on this plate.
+    const trialDeadline = trialDeadlineFor(issue.dueDate, nextPlannedTrialByProject.get(project.id), now);
 
     if (belongsToMyOpenIssuesSection(viewer, record)) {
       myOpenIssues.push({
@@ -775,7 +857,8 @@ export async function getMyPlateData(
         description: issue.description,
         partCavity: cavity,
         photoCount: photoCountsByIssue.get(issue.id) ?? 0,
-        photos: photosByIssue.get(issue.id) ?? []
+        photos: photosByIssue.get(issue.id) ?? [],
+        trialDeadline
       });
     }
 
@@ -806,7 +889,8 @@ export async function getMyPlateData(
       pmReadyConfirmedAtInput: formatDate(issue.pmReadyConfirmedAt),
       // Filled per-section below; PM-confirm-ready has no hours rule → no chip.
       deadline: null,
-      selfCheckDeadline: null
+      selfCheckDeadline: null,
+      trialDeadline
     };
 
     if (belongsToDepartmentInboxSection(viewer, record)) {
@@ -832,9 +916,13 @@ export async function getMyPlateData(
     }
 
     if (belongsToAssemblySelfCheckSection(viewer, record)) {
+      // The self-check chip IS this section's trial statement ("before next
+      // trial · date"), so the generic trial chip is suppressed here rather than
+      // printing the same trial twice on one card.
       assemblySelfCheck.push({
         ...lifecycleRow,
-        selfCheckDeadline: selfCheckCountdown(nextPlannedTrialByProject.get(project.id), now)
+        selfCheckDeadline: selfCheckCountdown(nextPlannedTrialByProject.get(project.id), now),
+        trialDeadline: null
       });
     }
 

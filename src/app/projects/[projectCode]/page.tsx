@@ -10,6 +10,8 @@ import { IssuePhotoCountChip, IssuePhotoGallery, type IssuePhoto } from "@/compo
 import { StatusBadge, SubmitButton, sectionHueVars, statusToneClasses, toneForStatus } from "@/components/ui";
 import { ProjectSectionNav, type ProjectSectionNavItem } from "@/components/project/ProjectSectionNav";
 import { InsertTypeChips, InsertTypesField } from "@/components/project/InsertTypesField";
+import { AssemblyGroupChip, IntakeDetailsFields } from "@/components/project/IntakeDetailsFields";
+import { IssueTrialDeadlineChip } from "@/components/project/TrialDeadlineChip";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
 import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
@@ -19,6 +21,7 @@ import { TrialIssueRowActions } from "@/app/projects/[projectCode]/trial-issue-r
 import { formatPartSummary } from "@/domain/mold-trial/parts";
 import { formatMoldWorkingIdentifier } from "@/domain/mold-trial/identifiers";
 import { insertTypeFieldLabels, projectInsertTypes } from "@/domain/mold-trial/insert-types";
+import { intakeDetailLabels, projectIntakeDetails } from "@/domain/mold-trial/intake-details";
 import {
   DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
   formatInjectionMachineLabel,
@@ -106,6 +109,11 @@ import {
   trialStatusLabels
 } from "@/server/mold-trial-codecs";
 import { getCurrentUser } from "@/server/current-user";
+import {
+  activeAssemblyGroupOptions,
+  assemblyGroupName,
+  getAssemblyGroupOptions
+} from "@/server/department-group-options";
 import { getEffectivePermissionCodes } from "@/server/permissions";
 import { getNavVisibility } from "@/server/nav";
 import { getActiveUserOptions } from "@/server/user-options";
@@ -856,6 +864,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const { detail } = await loadProjectDetail(projectCode, currentUser.id);
   const activeUserOptions = detail == null ? [] : await getActiveUserOptions();
   const activePmUserOptions = activeUserOptions.filter((user) => user.role.code === "pm");
+  // Assembly working groups, active AND inactive: the select offers the active
+  // ones, the overview needs the whole list to name a project already assigned
+  // to a group that was later retired.
+  const assemblyGroupOptions = detail == null ? [] : await getAssemblyGroupOptions().catch(() => []);
   const permissionCodes = new Set(await getEffectivePermissionCodes(currentUser.id));
   const nav = await getNavVisibility({
     permissionCodes,
@@ -937,6 +949,10 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const activeParts = project.parts.filter((part) => part.active);
   const partSummary = formatPartSummary(project.parts, project.partCode);
   const insertTypes = projectInsertTypes(project);
+  // Material / colour / trial quantity / assembly group, read through the
+  // stale-client seam (the columns arrive with the 2026-08-05 migration).
+  const intakeDetails = projectIntakeDetails(project);
+  const assignedAssemblyGroupName = assemblyGroupName(assemblyGroupOptions, intakeDetails.assignedAssemblyGroupId);
   const workingIdentifier = formatMoldWorkingIdentifier({
     projectCode: project.projectCode,
     clientProjectRef: project.clientProjectRef,
@@ -970,6 +986,17 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
     requestNow,
     dictionary
   );
+  // The date the trial-deadline chips count down to — the same value the header
+  // already shows as "Next trial", so a chip and the header can never disagree.
+  const nextPlannedTrialDate = defaultCurrentTrial?.plannedDate ?? project.nextPlannedTrialDate ?? null;
+  // Non-blocking scheduling notice: nothing stops the PM planning the next trial
+  // while issues are open (see `validateNextTrialStageCreation`, which gates on
+  // prior-trial closure, never on issue closure), and nothing should — the
+  // schedule is often what forces the fixes. Saying the number out loud is the
+  // whole intervention.
+  const openIssueCountForNotice = project.trialIssues.filter(
+    (issue) => issue.status !== "CLOSED" && issue.status !== "VERIFIED"
+  ).length;
   const moldCodeBlank = project.moldCode.trim().length === 0;
   const clientProjectRefBlank = project.clientProjectRef == null || project.clientProjectRef.trim().length === 0;
   const showInternalTrackingId = (moldCodeBlank && clientProjectRefBlank) || currentUser.roleCode === "ADMIN";
@@ -1437,6 +1464,39 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 </dd>
               </div>
             )}
+            {/* Material / colour / quantity answer "what does this mold shoot,
+                and how much of it": the same question as Parts and Inserts, so
+                they sit in the same column. Unlike the insert chips these rows
+                always render — an unanswered material is itself information —
+                and fall back to the house muted "—". */}
+            <div>
+              <dt>{`${intakeDetailLabels.material.en} ${intakeDetailLabels.material.zh}`}</dt>
+              <dd>{optionalText(intakeDetails.material, t("common.notSet"))}</dd>
+            </div>
+            <div>
+              <dt>{`${intakeDetailLabels.color.en} ${intakeDetailLabels.color.zh}`}</dt>
+              <dd>{optionalText(intakeDetails.color, t("common.notSet"))}</dd>
+            </div>
+            <div>
+              <dt>{`${intakeDetailLabels.trialQuantity.en} ${intakeDetailLabels.trialQuantity.zh}`}</dt>
+              <dd>
+                {intakeDetails.trialQuantity == null ? (
+                  <MissingDash title={t("common.notSet")} />
+                ) : (
+                  String(intakeDetails.trialQuantity)
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>{`${intakeDetailLabels.assemblyGroup.en} ${intakeDetailLabels.assemblyGroup.zh}`}</dt>
+              <dd>
+                {assignedAssemblyGroupName == null ? (
+                  <MissingDash title={t("common.notSet")} />
+                ) : (
+                  <AssemblyGroupChip name={assignedAssemblyGroupName} />
+                )}
+              </dd>
+            </div>
             <div>
               <dt>{t("field.moldCode")}</dt>
               <dd>{optionalText(project.moldCode, t("common.notSet"))}</dd>
@@ -1521,6 +1581,25 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                 silently clear the list. */}
             <div className="fullSpan hidden md:block">
               <InsertTypesField selected={insertTypes} />
+            </div>
+            {/* Material / colour / quantity / assembly group are correctable
+                here for the same reason inserts are: intake often does not know
+                them yet. Desktop-only like the checkbox group above — the inputs
+                still POST their stored values, so a phone save can never blank
+                them. */}
+            <div className="fullSpan hidden md:block">
+              {/* Inner grid uses utilities only — `.formGrid` is the form itself
+                  and re-declaring it here would fight the `hidden` display. The
+                  labels still inherit `.formGrid label` as descendants. */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3.5">
+                <IntakeDetailsFields
+                  assemblyGroups={activeAssemblyGroupOptions(assemblyGroupOptions)}
+                  material={intakeDetails.material}
+                  color={intakeDetails.color}
+                  trialQuantity={intakeDetails.trialQuantity}
+                  assignedAssemblyGroupId={intakeDetails.assignedAssemblyGroupId}
+                />
+              </div>
             </div>
             <div className="formActions">
               {/* V5b: identifier edits are a secondary action, not the page's primary. */}
@@ -1872,7 +1951,24 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
                                 </span>
                               </td>
                               <td>{issue.ownerUser?.displayName ?? issue.ownerGroup?.name ?? t("common.unassigned")}</td>
-                              <td>{displayDate(issue.dueDate)}</td>
+                              {/* Due date + the trial wall. An issue's own due
+                                  date says nothing about the date the shop is
+                                  scheduled around; the chip states it, toned by
+                                  whichever comes first. Closed/verified issues
+                                  have nothing left to beat, so they get none. */}
+                              <td>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{displayDate(issue.dueDate)}</span>
+                                  {issue.status === "CLOSED" || issue.status === "VERIFIED" ? null : (
+                                    <IssueTrialDeadlineChip
+                                      dueDate={issue.dueDate}
+                                      nextTrialDate={nextPlannedTrialDate}
+                                      now={requestNow}
+                                      locale={locale}
+                                    />
+                                  )}
+                                </div>
+                              </td>
                               <td>
                                 <TrialIssueRowActions
                                   activeParts={issueActionPartOptions}
@@ -1968,6 +2064,16 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
           <div className="surfaceHeader">
             <h3 id="new-trial-heading">{t("project.addNextPlannedTrial")}</h3>
           </div>
+          {/* Information, not a gate: the form below stays fully usable. */}
+          {openIssueCountForNotice === 0 ? null : (
+            <p className="notice noticeWarning" role="status">
+              <span>
+                {locale === "ZH_CN"
+                  ? `有${openIssueCountForNotice}${projectSectionLabels.openIssuesBeforeTrial.zh}`
+                  : `${openIssueCountForNotice} ${projectSectionLabels.openIssuesBeforeTrial.en}`}
+              </span>
+            </p>
+          )}
           {canAddNewPlannedTrial ? (
             <AddPlannedTrialPanelForm
               activeUserOptions={activeUserOptions}

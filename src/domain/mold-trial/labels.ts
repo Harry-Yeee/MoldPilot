@@ -143,7 +143,14 @@ export const projectSectionLabels = {
   stageCurrent: { en: "current", zh: "当前" },
   // Folded trial summary (progressive disclosure).
   trialCurrent: { en: "Current", zh: "当前" },
-  trialMachine: { en: "Machine", zh: "机台" }
+  trialMachine: { en: "Machine", zh: "机台" },
+  // Non-blocking notice above "Add next planned trial". Scheduling with issues
+  // still open is ALLOWED — often the schedule is what forces the fixes — so
+  // this states the count and the expectation, and nothing more.
+  openIssuesBeforeTrial: {
+    en: "open issues — close before trial day",
+    zh: "个未关闭问题，须在试模前关闭"
+  }
 } as const satisfies Record<string, BilingualLabel>;
 
 /** Trial-issue create form labels (blame-free intake — R1). */

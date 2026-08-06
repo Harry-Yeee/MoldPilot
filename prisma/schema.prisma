@@ -74,6 +74,10 @@ model DepartmentGroup {
   kpiLeader   User?             @relation("DepartmentGroupKpiLeader", fields: [kpiLeaderId], references: [id], onDelete: SetNull)
   users       User[]
   ownedIssues TrialIssue[]      @relation("IssueOwnerGroup")
+  // Projects assigned to this group at intake. Only the `assembly` children
+  // (assembly-a 钟组 / assembly-b 裴组) are offered in the UI; the relation is
+  // generic so nothing here hard-codes a group code.
+  assignedProjects MoldTrialProject[] @relation("ProjectAssignedAssemblyGroup")
 
   @@map("department_groups")
 }
@@ -181,6 +185,13 @@ model MoldTrialProject {
   partCode                String                 @map("part_code")
   moldCode                String                 @map("mold_code")
   insertTypes             String[]               @default([]) @map("insert_types")
+  material                String?                @map("material")
+  color                   String?                @map("color")
+  trialQuantity           Int?                   @map("trial_quantity")
+  // Which assembly working group (assembly-a 钟组 / assembly-b 裴组) owns this
+  // mold. Optional; when set, auto-routed assembly-typed issues go to that child
+  // group instead of the `assembly` parent (issue-routing.ts).
+  assignedAssemblyGroupId String?                @map("assigned_assembly_group_id") @db.Uuid
   planningPmId            String?                @map("planning_pm_id") @db.Uuid
   technicalPmId           String?                @map("technical_pm_id") @db.Uuid
   status                  MoldTrialProjectStatus @default(ACTIVE)
@@ -209,6 +220,7 @@ model MoldTrialProject {
   customTrialLimitSetBy User?                  @relation("CustomLimitSetter", fields: [customTrialLimitSetById], references: [id])
   createdBy             User                   @relation("ProjectCreator", fields: [createdById], references: [id])
   customer              Customer               @relation(fields: [customerId], references: [id])
+  assignedAssemblyGroup DepartmentGroup?       @relation("ProjectAssignedAssemblyGroup", fields: [assignedAssemblyGroupId], references: [id], onDelete: SetNull)
   processSheetTemplate  ProcessSheetTemplate?  @relation(fields: [processSheetTemplateId], references: [id])
   parts                 MoldTrialPart[]
   trialEvents           TrialEvent[]
@@ -219,6 +231,7 @@ model MoldTrialProject {
   missedTrialEvents     MissedTrialEvent[]
   fileAttachments       FileAttachment[]
 
+  @@index([assignedAssemblyGroupId])
   @@index([customerCode])
   @@index([customerId])
   @@index([clientProjectRef])

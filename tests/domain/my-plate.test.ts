@@ -13,7 +13,9 @@ import {
   belongsToPmConfirmReadySection,
   belongsToQcReportsToUploadSection,
   belongsToReturnedDatesSection,
+  assemblyGroupCodesForViewer,
   comparePlateItemsByDate,
+  departmentInboxGroupCodesForViewer,
   isAssemblyActionableIssue,
   isOverdue,
   isViewerProjectPm,
@@ -22,6 +24,7 @@ import {
   type PlateTrialRecord,
   type PlateViewer
 } from "../../src/domain/mold-trial/my-plate.ts";
+import { ASSEMBLY_PARENT_GROUP_CODE } from "../../src/domain/mold-trial/issue-routing.ts";
 import { measurementReportEligibleStatuses } from "../../src/domain/mold-trial/measurement-report.ts";
 
 const NOW = new Date("2026-07-04T09:00:00.000Z");
@@ -29,6 +32,24 @@ const NOW = new Date("2026-07-04T09:00:00.000Z");
 const pmBill: PlateViewer = { userId: "bill", roleCode: "PM" };
 const pmJun: PlateViewer = { userId: "jun", roleCode: "PM" };
 const assemblyZhong: PlateViewer = { userId: "zhong", roleCode: "ASSEMBLY" };
+/**
+ * The two assembly working groups, as the seed creates them: `assembly-a` 钟组
+ * and `assembly-b` 裴组, both children of the `assembly` DEPARTMENT parent.
+ * Since 2026-08-05 a project can be assigned one of them at intake and its
+ * auto-routed assembly issues carry that CHILD code instead of the parent.
+ */
+const assemblyZhongInGroupA: PlateViewer = {
+  userId: "zhong",
+  roleCode: "ASSEMBLY",
+  departmentGroupCode: "assembly-a",
+  departmentGroupParentCode: "assembly"
+};
+const assemblyPeiInGroupB: PlateViewer = {
+  userId: "pei",
+  roleCode: "ASSEMBLY",
+  departmentGroupCode: "assembly-b",
+  departmentGroupParentCode: "assembly"
+};
 const qcGong: PlateViewer = { userId: "gong", roleCode: "QC" };
 const injectionWang: PlateViewer = { userId: "wang", roleCode: "INJECTION" };
 const marketingYvonne: PlateViewer = { userId: "yvonne", roleCode: "MARKETING" };
@@ -260,6 +281,107 @@ describe("department inbox section", () => {
     assert.equal(
       belongsToDepartmentInboxSection(qcGong, issue({ ownerGroupCode: "qc", ownerUserId: "gong" })),
       false
+    );
+  });
+});
+
+describe("assembly working-group inboxes (per-mold assignment)", () => {
+  test("a member of a working group watches the parent AND their own group", () => {
+    assert.deepEqual([...departmentInboxGroupCodesForViewer(assemblyZhongInGroupA)].sort(), [
+      "assembly",
+      "assembly-a"
+    ]);
+    assert.deepEqual([...departmentInboxGroupCodesForViewer(assemblyPeiInGroupB)].sort(), [
+      "assembly",
+      "assembly-b"
+    ]);
+  });
+
+  test("zhong sees assembly-a and parent issues, never assembly-b", () => {
+    assert.equal(
+      belongsToDepartmentInboxSection(assemblyZhongInGroupA, issue({ ownerGroupCode: "assembly-a" })),
+      true
+    );
+    assert.equal(belongsToDepartmentInboxSection(assemblyZhongInGroupA, issue({ ownerGroupCode: "assembly" })), true);
+    assert.equal(
+      belongsToDepartmentInboxSection(assemblyZhongInGroupA, issue({ ownerGroupCode: "assembly-b" })),
+      false
+    );
+  });
+
+  test("pei sees assembly-b and parent issues, never assembly-a", () => {
+    assert.equal(belongsToDepartmentInboxSection(assemblyPeiInGroupB, issue({ ownerGroupCode: "assembly-b" })), true);
+    assert.equal(belongsToDepartmentInboxSection(assemblyPeiInGroupB, issue({ ownerGroupCode: "assembly" })), true);
+    assert.equal(belongsToDepartmentInboxSection(assemblyPeiInGroupB, issue({ ownerGroupCode: "assembly-a" })), false);
+  });
+
+  test("the widening is strictly additive — no parent-owned issue stops being visible", () => {
+    // The pre-2026-08-05 behaviour, viewer with no group loaded at all.
+    assert.equal(belongsToDepartmentInboxSection(assemblyZhong, issue({ ownerGroupCode: "assembly" })), true);
+    // ...and a child-group issue is simply invisible to a viewer with no group,
+    // exactly as it was before, rather than leaking to everyone.
+    assert.equal(belongsToDepartmentInboxSection(assemblyZhong, issue({ ownerGroupCode: "assembly-a" })), false);
+    for (const viewer of [assemblyZhong, assemblyZhongInGroupA, assemblyPeiInGroupB]) {
+      assert.equal(departmentInboxGroupCodesForViewer(viewer).has("assembly"), true);
+    }
+  });
+
+  test("a child group under a DIFFERENT parent never widens the inbox", () => {
+    const qcInStrayChildGroup: PlateViewer = {
+      userId: "gong",
+      roleCode: "QC",
+      departmentGroupCode: "assembly-a",
+      departmentGroupParentCode: "assembly"
+    };
+
+    assert.deepEqual([...departmentInboxGroupCodesForViewer(qcInStrayChildGroup)], ["qc"]);
+    assert.equal(belongsToDepartmentInboxSection(qcInStrayChildGroup, issue({ ownerGroupCode: "assembly-a" })), false);
+  });
+
+  test("acknowledge and self-check follow the same lineage", () => {
+    assert.deepEqual([...assemblyGroupCodesForViewer(assemblyZhongInGroupA)].sort(), ["assembly", "assembly-a"]);
+
+    const groupAIssue = issue({ ownerGroupCode: "assembly-a", issueType: "OTHER", ownerUserId: null });
+    const groupBIssue = issue({ ownerGroupCode: "assembly-b", issueType: "OTHER", ownerUserId: null });
+
+    assert.equal(isAssemblyActionableIssue(assemblyZhongInGroupA, groupAIssue), true);
+    assert.equal(isAssemblyActionableIssue(assemblyZhongInGroupA, groupBIssue), false);
+    assert.equal(isAssemblyActionableIssue(assemblyPeiInGroupB, groupBIssue), true);
+    assert.equal(isAssemblyActionableIssue(assemblyPeiInGroupB, groupAIssue), false);
+
+    assert.equal(belongsToAssemblyAcknowledgeSection(assemblyZhongInGroupA, groupAIssue), true);
+    assert.equal(belongsToAssemblyAcknowledgeSection(assemblyZhongInGroupA, groupBIssue), false);
+    assert.equal(
+      belongsToAssemblySelfCheckSection(
+        assemblyPeiInGroupB,
+        issue({
+          ownerGroupCode: "assembly-b",
+          issueType: "OTHER",
+          ownerUserId: null,
+          assemblyAcknowledgedAt: new Date("2026-07-03T00:00:00.000Z")
+        })
+      ),
+      true
+    );
+  });
+
+  test("the parent group is still actionable for a working-group member", () => {
+    assert.equal(
+      isAssemblyActionableIssue(
+        assemblyZhongInGroupA,
+        issue({ ownerGroupCode: "assembly", issueType: "OTHER", ownerUserId: null })
+      ),
+      true
+    );
+  });
+
+  test("the local assembly code matches the routing module's parent constant", () => {
+    // my-plate.ts keeps `assembly` as a local literal to stay free of value
+    // imports from sibling domain modules; this is the assertion that keeps the
+    // two honest, exactly as the comment there promises.
+    assert.equal(
+      [...assemblyGroupCodesForViewer({ userId: "x", roleCode: "ASSEMBLY" })][0],
+      ASSEMBLY_PARENT_GROUP_CODE
     );
   });
 });

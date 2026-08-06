@@ -412,6 +412,10 @@ Allowed customer fields are the selected Customer reference and customer-code sn
 | part_code | text | Legacy/primary display field for migration compatibility. It should mirror the first/primary active MoldTrialPart, not replace MoldTrialPart records. |
 | mold_code | text | Example: M-014-01. May be blank only while status is Intake/Draft. Required before active trial scheduling or trial activity. |
 | insert_types | text[] | Optional insert types 嵌件类型 the mold shoots over (IML, IMD, threaded nut, magnet, metal terminal, stamped metal, glass/lens, other). NOT NULL DEFAULT '{}'; empty means no inserts. Values are codes from the allowlist in `src/domain/mold-trial/insert-types.ts`, not free text. |
+| material | text | Optional material 材料 the mold shoots (PC, ABS, PC+ABS, PP, PA66, PA66+GF, POM, TPU, PMMA and beyond). Free text with a `<datalist>` of the common grades — deliberately not an enum. Normalized by `parseMaterial` (trim, blank → NULL, 120-char cap). |
+| color | text | Optional colour 颜色 for the trial shots, as the customer states it. Free text, same normalization as `material`. |
+| trial_quantity | integer | Optional piece count 试模数量 the trial should produce. Positive whole numbers only; zero, negative, fractional and non-numeric input reads as NULL ("not given"), never as an error. |
+| assigned_assembly_group_id | uuid | Optional assembly working group 装配组 that owns this mold. References DepartmentGroup, ON DELETE SET NULL. Only children of the `assembly` parent (assembly-a 钟组 / assembly-b 裴组) are offered. Drives issue routing: see the rule below. |
 | planning_pm_id | uuid | Optional until PM is assigned; references User. Field name may remain for migration compatibility, but UI copy should say PM. |
 | technical_pm_id | uuid | Optional, references User. |
 | status | enum | Intake, Active, Waiting Trial, Trial Delayed, In Correction, Waiting Verification, Approved, Over Limit, Blocked, Paused, Cancelled, Closed. |
@@ -459,6 +463,10 @@ Rule: Project intake should create at least one active MoldTrialPart before acti
 Rule: Project creation snapshots the Customer default process-sheet template, or the global default if the Customer does not specify one. Template snapshot should not change historical process-sheet reports if Customer defaults are later edited.
 
 Rule: `insert_types` is optional and multi-select. Store only allowlisted codes, de-duplicated and in the canonical order defined by `insertTypeCodes`; adding a new insert type is a code change in `src/domain/mold-trial/insert-types.ts`, not a migration. Do not store customer-supplied insert part numbers or supplier names here.
+
+Rule: `material` and `color` are free text, not enums or lookup tables. The material `<datalist>` in `src/domain/mold-trial/intake-details.ts` is a typing aid only — an unlisted grade must still save. Nothing joins, filters or scores on either column. Do not store customer part numbers, supplier names or colour-standard licences here.
+
+Rule: `assigned_assembly_group_id` may only point at a child of the `assembly` DepartmentGroup, enforced by the form and re-validated server-side (an unknown or deactivated id falls back to unassigned rather than failing the FK). When set, auto-routed issues that would land on the `assembly` PARENT route to that child group instead (`defaultOwnerGroupCodeForIssueType`); every other department's routing is unaffected. Assembly inbox matching watches the parent code AND the viewer's own working group, so a child-routed issue is never invisible and no parent-routed issue is ever hidden.
 
 ## MoldTrialPart
 

@@ -39,6 +39,159 @@ Related Docs:
 
 ## Entries
 
+### 2026-08-05: Pilot Feedback — Intake Details + Per-Mold Assembly Routing + Trial-Deadline Chips
+
+Context:
+
+Two things the pilot asked for. **F1:** intake never recorded what the mold
+shoots (材料), in what colour (颜色), how many pieces the trial should produce
+(试模数量), or which assembly working group owns the mold (装配组) — all four
+lived in the group chat. **F2:** an issue's own due date says nothing about the
+date the whole shop is scheduled around, so corrections kept landing the morning
+after the mold was already on the machine, and people believed (wrongly) that
+they were not allowed to schedule the next trial while issues were open.
+
+Tried:
+
+- **Schema (one migration, `20260805120000_project_material_color_assembly_group`):**
+  `material TEXT`, `color TEXT`, `trial_quantity INTEGER`,
+  `assigned_assembly_group_id UUID` on `mold_trial_projects`, plus an index and
+  an FK to `department_groups(id) ON DELETE SET NULL`. Prisma relation is named
+  `ProjectAssignedAssemblyGroup` (matching the existing `IssueOwnerGroup` style;
+  DepartmentGroup gains `assignedProjects`). Nullable throughout — no backfill,
+  every existing project reads exactly as it does today.
+- **New pure module `src/domain/mold-trial/intake-details.ts`:** bilingual field
+  labels, the nine-material datalist (PC, ABS, PC+ABS, PP, PA66, PA66+GF, POM,
+  TPU, PMMA), `parseMaterial` / `parseColor` (trim, blank → null, 120-char cap),
+  `parseTrialQuantity` (positive integers only; zero/negative/fractional/garbage
+  read as "not given", never as an error), and the read seams
+  `projectIntakeDetails` / `projectAssignedAssemblyGroupId`. Material is FREE
+  TEXT with a `<datalist>`, not an enum: shop-floor vocabulary keeps growing, and
+  nothing downstream is keyed on the value.
+- **UI:** `IntakeDetailsFields` (no JS, native inputs + datalist + select) in the
+  dashboard intake form's main grid right after the inserts, and in the project
+  Identifiers edit form (desktop-only wrapper, exactly like the insert
+  checkboxes, so the phone stays byte-identical and a phone save cannot blank a
+  stored value). Project Overview gains four rows: material, colour and quantity
+  as text with the house muted `—`, assembly group as a chip. No new permission
+  codes — the fields ride the intake/`project.basic.edit` forms that already
+  gate on marketing/PM/admin.
+- **Routing (the real behaviour change).** `defaultOwnerGroupCodeForIssueType`
+  takes an optional `{ assignedAssemblyGroupCode }` and redirects anything bound
+  for the `assembly` PARENT to that child group. Nothing else moves — design, qc,
+  injection and marketing routing are byte-identical, asserted in tests.
+- **Inbox matcher — the finding that made the routing safe.**
+  `belongsToDepartmentInboxSection` matched `directDepartmentInboxGroupByRole[role]
+  === issue.ownerGroupCode`, i.e. the parent code `assembly` and nothing else, and
+  `isAssemblyActionableIssue` hard-coded `=== "assembly"`. Routing to `assembly-a`
+  without touching them would have made those issues **vanish from every inbox**.
+  `PlateViewer` now optionally carries `departmentGroupCode` +
+  `departmentGroupParentCode`, and `departmentInboxGroupCodesForViewer` /
+  `assemblyGroupCodesForViewer` return the role's group PLUS the viewer's own
+  group when it is a genuine child of it. Widening is strictly additive: the
+  parent code is always in the set, so nothing that was visible stopped being
+  visible. Two server guards were widened the same way from the issue's OWN
+  lineage (`ownerGroup.parentGroup.code`): `isAssemblyRelevantIssue` (else
+  acknowledge/self-check would refuse every assigned project) and the ASSEMBLY
+  branch of `isDepartmentInboxClaim` (else the `all.inbox_claim` KPI event would
+  silently stop firing — a scoring change nobody asked for). Visibility is scoped
+  per group; AUTHORIZATION stays at department level, so visible always implies
+  permitted.
+- **F2 scheduling investigation:** there is **no hard block**.
+  `validateNextTrialStageCreation` gates on prior-trial *closure* and, for a
+  not-approved result, on at least one *linked* issue existing — never on issue
+  closure. `addNewPlannedTrial` adds no issue guard, and neither does the
+  pm-confirm-ready flow. Nothing was relaxed because nothing was blocking; a
+  non-blocking bilingual notice ("N open issues — close before trial day / 有N个
+  未关闭问题，须在试模前关闭") now sits above the Add-next-planned-trial form so
+  the count is stated out loud instead of assumed.
+- **F2 countdown, no schema change:** `trialCountdown` / `trialCountdownTone` /
+  `formatTrialCountdown` / `formatTrialDateShort` added to the existing
+  `deadline-countdown.ts`. The chip TEXT always counts the trial ("距试模3天 ·
+  Aug 8"), the TONE follows the EARLIER of the issue due date and the trial
+  (amber ≤72h, red past either). `formatTrialDateShort` is deliberate string math
+  on `YYYY-MM-DD`, not `Date`/`Intl`: re-parsing would reintroduce the timezone
+  shift that turns Aug 8 into Aug 7 west of UTC. The next-planned-trial lookup
+  already existed in `src/server/my-plate.ts` for the assembly self-check chip —
+  it was gated on `roleCode === "ASSEMBLY"`, so the only query change was
+  removing that gate. Chips render on My open issues, Department inbox, Assembly
+  acknowledge and PM confirm-ready cards, and in the desktop trial-issue table's
+  Due column. Assembly self-check keeps its existing "before next trial" chip
+  instead of printing the same trial twice.
+
+Result:
+
+`npx tsc --noEmit --incremental false` is clean — **zero** stale-generated-client
+errors again, with the sandbox client verified as NOT containing
+`assignedAssemblyGroupId` or `trialQuantity`. Two seams did it, the same pair the
+2026-07-30 entry established: writes spread a typed `intakeDetailsWrite()` object
+into the `data` literal, reads go through `projectIntakeDetails(project)` whose
+parameter marks every new field optional. Domain tests: **933 total, 910 pass,
+0 fail**, +41 new cases; the 22 cancellations are the pre-existing platform-package
+suites that need the sibling `LJ_ERP/ops` tree. `npx eslint` clean on all 15
+touched source files.
+
+Why:
+
+The inbox investigation is the load-bearing part of this entry. Per-mold assembly
+assignment reads like a one-line routing change, and shipping it as one would
+have quietly deleted issues from every queue — the matcher, the action guard and
+the KPI classifier each hard-coded the parent literal in a different file. The
+rule that came out of it: **when routing gains a new target, find every place
+that matched the old target by literal.** Three places, and only one of them was
+the obvious one.
+
+Decision:
+
+Visibility narrows per working group, authorization does not. 钟组 sees 钟组's
+molds; any assembly member can still cover for another group if they have to.
+Encoding the org chart into permissions would have been a bigger change than the
+pilot asked for, and the invariant (visible ⊆ actionable) keeps the two coherent.
+
+Harry runs these on the Mac, with the dev server stopped (the running server
+holds the old client):
+
+```bash
+cd ~/Documents/LJ_ERP/MoldPilot
+pnpm exec prisma validate
+pnpm prisma:migrate        # prisma migrate dev — applies 20260805120000 and regenerates
+pnpm prisma:generate       # only if migrate dev skipped generation
+# proof the client is fresh (pnpm keeps the generated client in the virtual store):
+grep -rl "assignedAssemblyGroupId" node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/index.d.ts
+pnpm typecheck && pnpm test:domain
+pnpm dev                   # restart; the old server process keeps the stale client
+```
+
+Until that runs, creating or editing a project on the Mac fails with a
+PrismaClientValidationError naming `material` — the documented stale-client tell,
+not a code bug. Production picks the columns up through `prisma migrate deploy`
+in the next release; no backfill, no data migration. Assigning a mold to 钟组 or
+裴组 needs no seed change — `assembly-a` / `assembly-b` already exist.
+
+Verification:
+
+`npx tsc --noEmit --incremental false`: 0 errors, with the generated client
+confirmed stale for all four new columns. `CI=true node --test tests/domain/*.test.ts`:
+933 tests, 910 pass, 0 fail, 22 pre-existing cancellations, 1 skipped. New cases
+cover: zhong sees `assembly-a` + parent and never `assembly-b`, pei the mirror,
+a viewer with no group keeps the exact pre-change behaviour, a QC user in a stray
+assembly child group gains nothing, routing for every issue type with and without
+an assignment, the trial countdown in both date orders plus both missing-date
+cases, the format bands, and the intake parsers including the stale-client read
+shape. E2E smoke sentinels untouched (no page string was changed or removed).
+The phone is unchanged except for the new chip on existing cards: the Identifiers
+inputs are `hidden md:block` and still POST their stored values, and the intake
+form is inside the existing desktop-only block.
+
+Not verified in the sandbox: `pnpm exec prisma validate` (the schema engine
+download is blocked there) and the migration itself. Both run on the Mac as the
+first two commands above.
+
+Related Docs:
+
+- `docs/02-schema/schema-v0.md` (MoldTrialProject columns + rules)
+- `docs/03-ui/phase-1-screen-specs.md` (intake + project overview)
+
 ### 2026-07-30: Backup v2 Review Fixes — Codex Findings 1–8
 
 Context:

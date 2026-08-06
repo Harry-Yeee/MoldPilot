@@ -321,15 +321,29 @@ export function isPermissionCode(value: string): value is PermissionCode {
   return permissionDefinitions.some((permission) => permission.code === value);
 }
 
+/**
+ * Whether an assembly-role actor may act on this issue.
+ *
+ * `ownerGroupParentCode` is the owner group's parent code, supplied by the
+ * caller's query. It is what keeps this guard working after per-mold assembly
+ * assignment (2026-08-05): an issue routed to `assembly-a` 钟组 is still an
+ * assembly issue, and refusing it would have broken acknowledge/self-check on
+ * every assigned project. AUTHORIZATION stays at the department level on
+ * purpose — any assembly member may cover for another group — while VISIBILITY
+ * (`isAssemblyActionableIssue` in my-plate.ts) is scoped to the viewer's own
+ * group. Visible therefore always implies permitted.
+ */
 export function isAssemblyRelevantIssue(input: {
   actorUserId: string;
   issueType: TrialIssueType | "ASSEMBLY_FITTING_ISSUE" | string | null | undefined;
   ownerUserId?: string | null;
   ownerGroupCode?: string | null;
+  ownerGroupParentCode?: string | null;
 }): boolean {
   return (
     input.ownerUserId === input.actorUserId ||
     input.ownerGroupCode === "assembly" ||
+    input.ownerGroupParentCode === "assembly" ||
     input.issueType === "Assembly / Fitting Issue" ||
     input.issueType === "ASSEMBLY_FITTING_ISSUE"
   );

@@ -162,6 +162,43 @@ describe("Phase 1 named permission policy", () => {
     );
   });
 
+  test("an issue routed to an assembly WORKING group is still Assembly-relevant", () => {
+    // Per-mold assignment (2026-08-05) routes assembly issues to `assembly-a`
+    // 钟组 / `assembly-b` 裴组 instead of the parent. Without the parent-code
+    // check, acknowledge and self-check would refuse every assigned project.
+    assert.equal(
+      isAssemblyRelevantIssue({
+        actorUserId: "assy-1",
+        issueType: "MOLD_DESIGN_ISSUE",
+        ownerGroupCode: "assembly-a",
+        ownerGroupParentCode: "assembly",
+        ownerUserId: null
+      }),
+      true
+    );
+    assert.equal(
+      isAssemblyRelevantIssue({
+        actorUserId: "assy-1",
+        issueType: "MOLD_DESIGN_ISSUE",
+        ownerGroupCode: "assembly-b",
+        ownerGroupParentCode: "assembly",
+        ownerUserId: null
+      }),
+      true
+    );
+    // A child group under any OTHER parent is still not assembly's business.
+    assert.equal(
+      isAssemblyRelevantIssue({
+        actorUserId: "assy-1",
+        issueType: "MOLD_DESIGN_ISSUE",
+        ownerGroupCode: "design-a",
+        ownerGroupParentCode: "design",
+        ownerUserId: null
+      }),
+      false
+    );
+  });
+
   test("permission matrix constants include all codes used by server action mappings", () => {
     const serverActionCodes: readonly PermissionCode[] = [
       "project.intake.create",

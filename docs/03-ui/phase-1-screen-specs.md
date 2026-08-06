@@ -138,6 +138,10 @@ Issue tables should use subtle status row treatments:
 
 Keep the visible status text or chip in the row. Do not rely on color alone.
 
+### Trial-Deadline Chip
+
+Every open-issue surface a handler works from — the phone task cards for My open issues, Department inbox, Assembly acknowledge and PM confirm-ready, plus the Due column of the desktop trial-issue table — carries a chip reading `距试模 X天/X小时 · MMM d` (`Xd/Xh to trial · MMM d`) when the project has an upcoming planned trial. The text always counts down to that trial; the tone follows whichever comes first, the issue's own due date or the trial: neutral beyond 72h, amber inside 72h, red once either has passed. It is display urgency only and never blocks an action, and it does not affect scoring — the `asm.self_check` KPI rule already encodes "before next trial". The Assembly self-check section keeps its existing "before next trial · date" chip instead of showing both.
+
 ## Screen 1: Trial Dashboard
 
 ### Purpose
@@ -277,6 +281,7 @@ Start tracking one mold trial cycle.
 - Additional part/cavity rows
 - Part name, cavity label, cavity count, and part notes
 - Inserts 嵌件, a multi-select checkbox group in the main grid (IML, IMD, threaded nut, magnet, metal terminal, stamped metal, glass/lens, other). Nothing checked means no inserts. Correctable later in the project Identifiers form.
+- Material 材料 (free text with a datalist of PC, ABS, PC+ABS, PP, PA66, PA66+GF, POM, TPU, PMMA — an unlisted grade still saves), Color 颜色 (free text), Trial quantity 试模数量 (number, min 1), and Assembly group 装配组 (select of the active `assembly` children 钟组 / 裴组, default 未指定). All four sit in the main grid beside Inserts, are correctable later in the project Identifiers form, and appear in Project Overview — the first three as text with the muted "—" when unset, the assembly group as a chip. Assigning a group also routes that project's auto-routed assembly issues to it instead of the shared assembly queue.
 - Base trial limit, default 3
 - Notes
 - Initial feedback/design-change note
@@ -596,6 +601,7 @@ These categories can appear as customer-driven reasons, but Marketing/Sales shou
 - Design change source defaults to `No / None`.
 - Hide or disable design-change source, design-change date, and design-change title unless the reason is design-change related.
 - Design change title is optional and should not block adding a new planned trial by itself.
+- Open issues never block scheduling. When the project has open issues the form shows a non-blocking notice above it — "N open issues — close before trial day / 有N个未关闭问题，须在试模前关闭" — and the form stays fully usable. Often the schedule is what forces the fixes; the intervention is stating the count, not withholding the button.
 
 ### Result
 

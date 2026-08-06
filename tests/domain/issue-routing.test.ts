@@ -86,6 +86,75 @@ describe("defaultOwnerGroupCodeForIssueType", () => {
   });
 });
 
+describe("assigned assembly working group (per-mold routing)", () => {
+  /** The issue types that fall to the assembly parent by default. */
+  const ASSEMBLY_PARENT_TYPES = [
+    "ASSEMBLY_FITTING_ISSUE",
+    "MACHINING_ISSUE",
+    "SUPPLIER_OUTSOURCING_ISSUE",
+    "ABORTED_INVALID_TRIAL",
+    "OTHER"
+  ] as const;
+
+  test("everything bound for the assembly parent goes to the assigned group instead", () => {
+    for (const issueType of ASSEMBLY_PARENT_TYPES) {
+      assert.equal(
+        defaultOwnerGroupCodeForIssueType(issueType, { assignedAssemblyGroupCode: "assembly-a" }),
+        "assembly-a"
+      );
+      assert.equal(
+        defaultOwnerGroupCodeForIssueType(issueType, { assignedAssemblyGroupCode: "assembly-b" }),
+        "assembly-b"
+      );
+    }
+  });
+
+  test("an unknown issue type still falls back, now to the assigned group", () => {
+    assert.equal(
+      defaultOwnerGroupCodeForIssueType("NOT_A_REAL_TYPE", { assignedAssemblyGroupCode: "assembly-b" }),
+      "assembly-b"
+    );
+    assert.equal(defaultOwnerGroupCodeForIssueType("", { assignedAssemblyGroupCode: "assembly-b" }), "assembly-b");
+  });
+
+  test("no other department is affected by the assignment", () => {
+    assert.equal(
+      defaultOwnerGroupCodeForIssueType("DESIGN_CHANGE", { assignedAssemblyGroupCode: "assembly-a" }),
+      "design"
+    );
+    assert.equal(
+      defaultOwnerGroupCodeForIssueType("QC_DIMENSION_ISSUE", { assignedAssemblyGroupCode: "assembly-a" }),
+      "qc"
+    );
+    assert.equal(
+      defaultOwnerGroupCodeForIssueType("MATERIAL_ISSUE", { assignedAssemblyGroupCode: "assembly-a" }),
+      "injection"
+    );
+    assert.equal(
+      defaultOwnerGroupCodeForIssueType("BAD_CUSTOMER_FEEDBACK", { assignedAssemblyGroupCode: "assembly-a" }),
+      "marketing"
+    );
+  });
+
+  test("an unassigned project keeps the shared assembly parent queue", () => {
+    for (const context of [{}, { assignedAssemblyGroupCode: null }, { assignedAssemblyGroupCode: "" }, { assignedAssemblyGroupCode: "   " }]) {
+      assert.equal(
+        defaultOwnerGroupCodeForIssueType("ASSEMBLY_FITTING_ISSUE", context),
+        ASSEMBLY_PARENT_GROUP_CODE
+      );
+    }
+  });
+
+  test("the one-argument call is unchanged for every issue type", () => {
+    for (const issueType of ALL_ISSUE_TYPES) {
+      assert.equal(
+        defaultOwnerGroupCodeForIssueType(issueType),
+        defaultOwnerGroupCodeForIssueType(issueType, {})
+      );
+    }
+  });
+});
+
 describe("computeDefaultIssueDueDate", () => {
   test("defaults to 7 days (168 hours) after creation", () => {
     assert.equal(DEFAULT_ISSUE_DUE_HOURS, 168);

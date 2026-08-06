@@ -6,6 +6,7 @@ import { MoldTrialListTable } from "@/app/mold-trial-list-table";
 import { MyPlateSections } from "@/app/me/my-plate-sections";
 import { PartsCavitiesEditor } from "@/app/parts-cavities-editor";
 import { InsertTypesField } from "@/components/project/InsertTypesField";
+import { IntakeDetailsFields } from "@/components/project/IntakeDetailsFields";
 import { BlockedAction, hasPermissionCode } from "@/app/permission-ui";
 import { EmptyState, HeadlineCard, MessageBanner, SectionHeading } from "@/components/ui";
 import { TrialAgenda } from "@/app/calendar/trial-agenda";
@@ -29,6 +30,7 @@ import { getMyPlateData, type MyPlateData } from "@/server/my-plate";
 import { priorityOptions } from "@/server/dev-options";
 import { getCurrentUser } from "@/server/current-user";
 import { getActiveCustomerOptions } from "@/server/customer-options";
+import { activeAssemblyGroupOptions, getAssemblyGroupOptions } from "@/server/department-group-options";
 import { getEffectivePermissionCodes } from "@/server/permissions";
 import { getActivePmUserOptions } from "@/server/user-options";
 import { isScoreboardEnabled } from "@/server/kpi-settings";
@@ -75,7 +77,10 @@ async function loadDashboard(now: Date): Promise<{
   const currentUser = await getCurrentUser();
 
   const myPlatePromise: Promise<{ myPlate: MyPlateData; myPlateError: string | null }> = getMyPlateData(
-    { userId: currentUser.id, roleCode: currentUser.roleCode },
+    // `departmentGroupId` is what lets an assembly member's own working group
+    // (assembly-a 钟组 / assembly-b 裴组) show its routed issues alongside the
+    // shared `assembly` queue.
+    { userId: currentUser.id, roleCode: currentUser.roleCode, departmentGroupId: currentUser.departmentGroupId },
     now
   )
     .then((myPlate) => ({ myPlate, myPlateError: null }))
@@ -164,6 +169,14 @@ export default async function Home({ searchParams }: PageProps) {
   const success = params == null ? null : translateWorkflowMessage(dictionary, messageValue(params, "success"));
   const canCreateIntake = hasPermissionCode(permissionCodes, "project.intake.create");
   const canSetFirstT0 = hasPermissionCode(permissionCodes, "trial.schedule.first_t0");
+  // Assembly working groups for the intake "装配组" select. Loaded only for the
+  // actors who can actually create an intake, and never allowed to break the
+  // dashboard: an empty list just renders the "未指定" option on its own.
+  const assemblyGroups = canCreateIntake
+    ? await getAssemblyGroupOptions()
+        .then(activeAssemblyGroupOptions)
+        .catch(() => [])
+    : [];
   const scoreboardEnabled = await isScoreboardEnabled().catch(() => false);
   // Shared app-shell nav visibility (Bundle D): the SAME rules the desktop
   // AppHeader uses, computed once here from data already loaded, then consumed by
@@ -360,6 +373,11 @@ export default async function Home({ searchParams }: PageProps) {
                 mold shoots over inserts changes who prepares what before T0, so
                 it must be visible at intake, not folded away. */}
             <InsertTypesField />
+            {/* Material / colour / trial quantity / assembly group sit in the
+                same main grid, right after the inserts: they answer "what is in
+                this mold and who owns it", which is the question the whole
+                block is about. All four are optional. */}
+            <IntakeDetailsFields assemblyGroups={assemblyGroups} />
             <label>
               {t("field.assignedPm")}
               <select name="planningPmUsername" defaultValue="">

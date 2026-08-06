@@ -14,6 +14,7 @@ import {
   TextInput
 } from "@/components/ui";
 import { IssuePhotoCountChip, IssuePhotoGallery } from "@/components/attachments/issue-photo-gallery";
+import { TrialDeadlineChip } from "@/components/project/TrialDeadlineChip";
 import { DirectFileUploadForm } from "@/components/attachments/DirectFileUploadForm";
 import { MeasurementReportUploadForm } from "@/components/attachments/MeasurementReportUploadForm";
 import {
@@ -47,7 +48,8 @@ import type {
   PlateOption,
   QcReportToUploadRow,
   ReturnedDateRow,
-  SelfCheckDeadline
+  SelfCheckDeadline,
+  TrialDeadline
 } from "@/server/my-plate";
 import { closeTrialIssue, resolveAutoMissedTrial, updateTrialIssue } from "@/server/mold-trial-actions";
 import {
@@ -173,6 +175,28 @@ function SelfCheckChip({ selfCheck, locale }: { selfCheck: SelfCheckDeadline | n
     >
       {label("beforeNextTrial", locale)} · {selfCheck.nextTrialDate}
     </span>
+  );
+}
+
+/**
+ * The trial-deadline chip on an open-issue card ("距试模 3天 · Aug 8"). Purely
+ * additive: it sits beside whatever rule countdown the card already shows and
+ * never replaces it, and it never touches the card's urgency stripe, which stays
+ * owned by the scored rule deadline. Renders nothing when the project has no
+ * upcoming planned trial.
+ */
+function IssueTrialChip({ trialDeadline, locale }: { trialDeadline: TrialDeadline | null; locale: Locale }) {
+  if (trialDeadline == null) {
+    return null;
+  }
+
+  return (
+    <TrialDeadlineChip
+      trialHours={trialDeadline.trialHours}
+      urgencyHours={trialDeadline.urgencyHours}
+      trialDate={trialDeadline.trialDate}
+      locale={locale}
+    />
   );
 }
 
@@ -751,6 +775,7 @@ function MyOpenIssueCard({
         overdue={row.overdue}
         primaryAction={doneAction}
         headerExtra={<IssuePhotoCountChip count={row.photoCount} />}
+        countdown={<IssueTrialChip trialDeadline={row.trialDeadline} locale={locale} />}
         details={
           <>
             {row.description == null ? null : (
@@ -915,7 +940,12 @@ function DepartmentInboxCard({
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
-        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        countdown={
+          <>
+            <CountdownChip deadline={row.deadline} locale={locale} />
+            <IssueTrialChip trialDeadline={row.trialDeadline} locale={locale} />
+          </>
+        }
         stripeHours={row.deadline?.remainingHours}
         details={
           <>
@@ -1042,7 +1072,12 @@ function AssemblyAcknowledgeCard({
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
-        countdown={<CountdownChip deadline={row.deadline} locale={locale} />}
+        countdown={
+          <>
+            <CountdownChip deadline={row.deadline} locale={locale} />
+            <IssueTrialChip trialDeadline={row.trialDeadline} locale={locale} />
+          </>
+        }
         stripeHours={row.deadline?.remainingHours}
         details={
           <>
@@ -1175,6 +1210,7 @@ function PmConfirmReadyCard({
         dateValue={row.dueDate}
         overdue={row.overdue}
         primaryAction={action}
+        countdown={<IssueTrialChip trialDeadline={row.trialDeadline} locale={locale} />}
         details={
           <>
             {row.description == null ? null : (

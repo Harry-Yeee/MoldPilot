@@ -35,6 +35,14 @@ import {
 } from "@/domain/mold-trial/submission-guards";
 import { createInternalTrackingCode, normalizeClientProjectRef } from "@/domain/mold-trial/identifiers";
 import { parseInsertTypes, projectInsertTypes } from "@/domain/mold-trial/insert-types";
+import {
+  parseColor,
+  parseMaterial,
+  parseTrialQuantity,
+  projectAssignedAssemblyGroupId,
+  projectIntakeDetails,
+  type IntakeDetails
+} from "@/domain/mold-trial/intake-details";
 import { computeDefaultIssueDueDate, defaultOwnerGroupCodeForIssueType } from "@/domain/mold-trial/issue-routing";
 import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
 import {
@@ -81,6 +89,7 @@ import {
 import { friendlyActionErrorMessage } from "@/server/action-errors";
 import { writeAttachmentFile } from "@/server/attachment-storage";
 import { getCurrentUser } from "@/server/current-user";
+import { activeAssemblyGroupOptions, getAssemblyGroupOptions } from "@/server/department-group-options";
 import { storeIssuePhotos } from "@/server/issue-photo-storage";
 import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-trial-limit-service";
 import { requirePermission, requirePermissions } from "@/server/permissions";
@@ -390,6 +399,41 @@ function insertTypesWrite(insertTypes: string[]): { insertTypes: string[] } {
   return { insertTypes };
 }
 
+/**
+ * Material / colour / trial quantity / assembly group off the submitted form.
+ *
+ * The assembly group is validated against the real child groups of the
+ * `assembly` parent rather than trusted from the POST: it is a foreign key, and
+ * an unknown or deactivated id must fall back to "unassigned" instead of
+ * exploding on the FK constraint. Free text and quantity are normalized by the
+ * pure domain parsers.
+ */
+async function formIntakeDetails(formData: FormData): Promise<IntakeDetails> {
+  const submittedGroupId = optionalValue(formData, "assignedAssemblyGroupId");
+  const assemblyGroups = submittedGroupId == null ? [] : await getAssemblyGroupOptions();
+  const assignedAssemblyGroupId =
+    activeAssemblyGroupOptions(assemblyGroups).find((group) => group.id === submittedGroupId)?.id ?? null;
+
+  return {
+    material: parseMaterial(optionalValue(formData, "material")),
+    color: parseColor(optionalValue(formData, "color")),
+    trialQuantity: parseTrialQuantity(optionalValue(formData, "trialQuantity")),
+    assignedAssemblyGroupId
+  };
+}
+
+/**
+ * The one place the 2026-08-05 intake columns enter a Prisma write payload.
+ *
+ * Same seam as `insertTypesWrite`: spreading a typed object into a `data`
+ * literal keeps every other field strictly checked against the generated input
+ * type, while a checkout whose generated client predates the migration still
+ * typechecks. Correct, unchanged, after `prisma generate`.
+ */
+function intakeDetailsWrite(details: IntakeDetails): IntakeDetails {
+  return details;
+}
+
 /** All non-empty File entries submitted under `key` (e.g. issue photos). */
 function fileValues(formData: FormData, key: string): File[] {
   return formData.getAll(key).filter((raw): raw is File => raw instanceof File && raw.size > 0);
@@ -567,6 +611,7 @@ async function requireIssueLifecyclePermissions(input: {
     ownerUserId: string | null;
     ownerGroup?: {
       code: string;
+      parentGroup?: { code: string } | null;
     } | null;
   };
   changedFields: readonly TrialIssueLifecycleField[];
@@ -632,7 +677,8 @@ async function requireIssueLifecyclePermissions(input: {
       actorUserId: input.actor.id,
       issueType: input.issue.issueType,
       ownerUserId: input.issue.ownerUserId,
-      ownerGroupCode: input.issue.ownerGroup?.code
+      ownerGroupCode: input.issue.ownerGroup?.code,
+      ownerGroupParentCode: input.issue.ownerGroup?.parentGroup?.code
     })
   ) {
     throw new Error("Assembly can acknowledge only assigned or Assembly-relevant trial issues.");
@@ -649,6 +695,7 @@ function isDepartmentInboxClaim(input: {
     ownerUserId: string | null;
     ownerGroup?: {
       code: string;
+      parentGroup?: { code: string } | null;
     } | null;
     moldTrialProject: {
       planningPmId: string | null;
@@ -677,7 +724,12 @@ function isDepartmentInboxClaim(input: {
 
   switch (input.actor.roleCode) {
     case "ASSEMBLY":
-      return input.issue.ownerGroup?.code === "assembly";
+      // The `assembly` parent OR one of its working groups (assembly-a 钟组 /
+      // assembly-b 裴组). Without the parent check, claiming an issue routed to
+      // an assigned group would silently stop counting as an inbox claim and the
+      // all.inbox_claim KPI event would disappear — a scoring change nobody
+      // asked for. Behaviour is preserved, not extended.
+      return input.issue.ownerGroup?.code === "assembly" || input.issue.ownerGroup?.parentGroup?.code === "assembly";
     case "INJECTION":
       return input.issue.ownerGroup?.code === "injection";
     case "MARKETING":
@@ -1072,6 +1124,7 @@ export async function createMoldTrialProject(formData: FormData) {
 
     const priority = toDbEnum(value(formData, "priority"), priorityValues, "priority", "NORMAL");
     const insertTypes = formInsertTypes(formData);
+    const intakeDetails = await formIntakeDetails(formData);
     const partResult = normalizeMoldTrialParts(parseMoldTrialPartRows(formData), {
       fallbackPartCode: value(formData, "partCode")
     });
@@ -1126,7 +1179,8 @@ export async function createMoldTrialProject(formData: FormData) {
           baseTrialLimit: 3,
           currentTrialLimit: 3,
           createdById: actor.id,
-          ...insertTypesWrite(insertTypes)
+          ...insertTypesWrite(insertTypes),
+          ...intakeDetailsWrite(intakeDetails)
         }
       });
 
@@ -1156,7 +1210,8 @@ export async function createMoldTrialProject(formData: FormData) {
             customerCode: project.customerCode,
             processSheetTemplateCode: project.processSheetTemplateCode,
           partCount: partResult.parts.length,
-          insertTypes
+          insertTypes,
+          ...intakeDetails
         }
       });
 
@@ -1333,6 +1388,7 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
     const clientProjectRef = normalizeClientProjectRef(optionalValue(formData, "clientProjectRef"));
     const moldCode = value(formData, "moldCode");
     const insertTypes = formInsertTypes(formData);
+    const intakeDetails = await formIntakeDetails(formData);
     const project = await prisma.moldTrialProject.findUnique({ where: { projectCode } });
 
     if (project == null) {
@@ -1349,7 +1405,8 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
         data: {
           clientProjectRef,
           moldCode,
-          ...insertTypesWrite(insertTypes)
+          ...insertTypesWrite(insertTypes),
+          ...intakeDetailsWrite(intakeDetails)
         }
       });
 
@@ -1361,12 +1418,14 @@ export async function updateMoldTrialProjectIdentifiers(formData: FormData) {
         beforeJson: {
           clientProjectRef: project.clientProjectRef,
           moldCode: project.moldCode,
-          insertTypes: projectInsertTypes(project)
+          insertTypes: projectInsertTypes(project),
+          ...projectIntakeDetails(project)
         },
         afterJson: {
           clientProjectRef: next.clientProjectRef,
           moldCode: next.moldCode,
-          insertTypes
+          insertTypes,
+          ...intakeDetails
         }
       });
 
@@ -2766,6 +2825,18 @@ export async function createTrialIssue(formData: FormData) {
     const ownerUser = ownerUsername == null ? null : await findUserByUsername(ownerUsername, "Owner");
     const foundAtTrialEventId = optionalValue(formData, "foundAtTrialEventId");
     const issueTypeRaw = value(formData, "issueType");
+    // The assembly working group this mold was assigned at intake, if any. Only
+    // looked up when the project actually carries an assignment, and only used
+    // when routing would otherwise land on the `assembly` parent. An inactive
+    // group is ignored so a retired group cannot swallow new issues.
+    const assignedAssemblyGroupId = project == null ? null : projectAssignedAssemblyGroupId(project);
+    const assignedAssemblyGroup =
+      assignedAssemblyGroupId == null
+        ? null
+        : await prisma.departmentGroup.findUnique({
+            where: { id: assignedAssemblyGroupId },
+            select: { code: true, active: true }
+          });
     // R1 (blame-free intake): the create form never names a person. When neither
     // an owner user nor an explicit department override is supplied, route the
     // issue to the department inbox its type belongs to, so it lands in a queue a
@@ -2773,7 +2844,9 @@ export async function createTrialIssue(formData: FormData) {
     // department override (e.g. from the edit tools) still flows through unchanged.
     const ownerGroupCode =
       ownerUser == null && explicitOwnerGroupCode == null
-        ? defaultOwnerGroupCodeForIssueType(issueTypeRaw)
+        ? defaultOwnerGroupCodeForIssueType(issueTypeRaw, {
+            assignedAssemblyGroupCode: assignedAssemblyGroup?.active === true ? assignedAssemblyGroup.code : null
+          })
         : explicitOwnerGroupCode;
     const ownerGroup =
       ownerGroupCode == null
@@ -3298,7 +3371,11 @@ export async function updateTrialIssue(formData: FormData) {
         },
         ownerGroup: {
           select: {
-            code: true
+            code: true,
+            // The parent code is what keeps the assembly guards working after
+            // per-mold assignment: an issue on `assembly-a` 钟组 is still an
+            // assembly issue for acknowledge / self-check / inbox-claim.
+            parentGroup: { select: { code: true } }
           }
         }
       }

@@ -42,6 +42,20 @@ export type TrialStatusDbValue =
 export type PlateViewer = {
   userId: string;
   roleCode: RoleCode;
+  /**
+   * `department_groups.code` of the group this user belongs to. Usually the same
+   * as the role's inbox group ("assembly"), but assembly members sit in the
+   * working CHILD groups (`assembly-a` 钟组 / `assembly-b` 裴组). Optional: a
+   * user with no department group (or a caller that does not load one) keeps
+   * exactly the pre-2026-08-05 behaviour.
+   */
+  departmentGroupCode?: string | null;
+  /**
+   * Code of that group's parent, when it has one ("assembly" for `assembly-a`).
+   * This is what makes the child-group widening safe: the inbox only widens when
+   * the viewer's group genuinely descends from the role's inbox group.
+   */
+  departmentGroupParentCode?: string | null;
 };
 
 /** A trial event scoped to its project's PM assignment. */
@@ -103,6 +117,61 @@ export const directDepartmentInboxGroupByRole: Partial<Record<RoleCode, string>>
 };
 const pmDepartmentInboxGroups: ReadonlySet<string> = new Set(["pm", "planning", "technical"]);
 
+/**
+ * The assembly PARENT group code. Kept as a local literal rather than imported
+ * from `issue-routing.ts` so this module keeps its "no value imports from other
+ * domain modules" shape; the two are asserted equal in tests.
+ */
+const ASSEMBLY_GROUP_CODE = "assembly";
+
+/**
+ * Every DepartmentGroup code whose queue this viewer watches: the one group
+ * their role owns, PLUS their own group when that group is a CHILD of it.
+ *
+ * This is the fix that makes per-mold assembly assignment safe. Issue routing
+ * can now put an assembly issue on `assembly-a` (钟组) instead of the `assembly`
+ * parent; matching on the parent code alone would have made those issues vanish
+ * from every inbox. Widening is strictly additive — the parent code is always in
+ * the set, so no parent-owned issue that was visible yesterday stops being
+ * visible — and it is scoped by lineage, so 钟组 sees `assembly` + `assembly-a`
+ * and never `assembly-b`.
+ *
+ * Returns an empty set for roles with no single department inbox (PM, GM,
+ * ADMIN, VIEWER); PM is handled separately by
+ * {@link belongsToDepartmentInboxSection}.
+ */
+export function departmentInboxGroupCodesForViewer(viewer: PlateViewer): ReadonlySet<string> {
+  const roleGroupCode = directDepartmentInboxGroupByRole[viewer.roleCode];
+
+  if (roleGroupCode == null) {
+    return new Set<string>();
+  }
+
+  const codes = new Set<string>([roleGroupCode]);
+
+  if (viewer.departmentGroupCode != null && viewer.departmentGroupParentCode === roleGroupCode) {
+    codes.add(viewer.departmentGroupCode);
+  }
+
+  return codes;
+}
+
+/**
+ * The assembly group codes an assembly viewer acts on: the `assembly` parent
+ * plus their own working group. Same lineage rule as
+ * {@link departmentInboxGroupCodesForViewer}, named separately because the
+ * assembly acknowledge / self-check sections are not the department inbox.
+ */
+export function assemblyGroupCodesForViewer(viewer: PlateViewer): ReadonlySet<string> {
+  const codes = new Set<string>([ASSEMBLY_GROUP_CODE]);
+
+  if (viewer.departmentGroupCode != null && viewer.departmentGroupParentCode === ASSEMBLY_GROUP_CODE) {
+    codes.add(viewer.departmentGroupCode);
+  }
+
+  return codes;
+}
+
 /** True when the viewer is the planning or technical PM on the item's project. */
 export function isViewerProjectPm(
   viewer: PlateViewer,
@@ -125,13 +194,19 @@ export function isAssemblyRole(viewer: PlateViewer): boolean {
  * Whether an assembly viewer can actually act on this issue — mirrors the
  * server-side `isAssemblyRelevantIssue` guard so the assembly sections only
  * surface issues the acknowledge/self-check action will accept (assigned to me,
- * owned by the assembly group, or an assembly/fitting issue type). DB enum form:
- * `ASSEMBLY_FITTING_ISSUE`, group code `assembly`.
+ * owned by an assembly group I watch, or an assembly/fitting issue type). DB
+ * enum form: `ASSEMBLY_FITTING_ISSUE`, group code `assembly` (or my own working
+ * group under it).
+ *
+ * Visibility is deliberately NARROWER than the action guard: the guard lets any
+ * assembly-role user act on anything in the assembly lineage, while this only
+ * puts 钟组's own molds on 钟组's plate. Visible therefore always implies
+ * actionable, which is the invariant the mirror needs.
  */
 export function isAssemblyActionableIssue(viewer: PlateViewer, issue: PlateIssueRecord): boolean {
   return (
     issue.ownerUserId === viewer.userId ||
-    issue.ownerGroupCode === "assembly" ||
+    (issue.ownerGroupCode != null && assemblyGroupCodesForViewer(viewer).has(issue.ownerGroupCode)) ||
     issue.issueType === "ASSEMBLY_FITTING_ISSUE"
   );
 }
@@ -205,9 +280,10 @@ export function belongsToMyOpenIssuesSection(viewer: PlateViewer, issue: PlateIs
 
 /**
  * "Department inbox": group-owned issues that have not been claimed by a
- * person yet. Department roles see only their own group. PM sees PM/planning/
- * technical group items only when they are the planning or technical PM on that
- * project.
+ * person yet. Department roles see their own group — and, for a member of a
+ * working child group, that group too (see
+ * {@link departmentInboxGroupCodesForViewer}). PM sees PM/planning/technical
+ * group items only when they are the planning or technical PM on that project.
  */
 export function belongsToDepartmentInboxSection(viewer: PlateViewer, issue: PlateIssueRecord): boolean {
   if (issue.ownerUserId != null || OPEN_ISSUE_EXCLUDED_STATUSES.has(issue.status)) {
@@ -218,7 +294,7 @@ export function belongsToDepartmentInboxSection(viewer: PlateViewer, issue: Plat
     return issue.ownerGroupCode != null && pmDepartmentInboxGroups.has(issue.ownerGroupCode) && isViewerProjectPm(viewer, issue);
   }
 
-  return directDepartmentInboxGroupByRole[viewer.roleCode] === issue.ownerGroupCode;
+  return issue.ownerGroupCode != null && departmentInboxGroupCodesForViewer(viewer).has(issue.ownerGroupCode);
 }
 
 /**

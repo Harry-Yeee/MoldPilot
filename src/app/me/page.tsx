@@ -51,7 +51,16 @@ export default async function MyPlatePage({ searchParams }: PageProps) {
   let databaseError = false;
 
   try {
-    data = await getMyPlateData({ userId: currentUser.id, roleCode: currentUser.roleCode }, now);
+    data = await getMyPlateData(
+      {
+        userId: currentUser.id,
+        roleCode: currentUser.roleCode,
+        // Assembly members sit in a working child group; the inbox matcher needs
+        // it to show 钟组 / 裴组 their own routed issues.
+        departmentGroupId: currentUser.departmentGroupId
+      },
+      now
+    );
   } catch {
     databaseError = true;
   }
