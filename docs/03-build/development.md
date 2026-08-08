@@ -39,6 +39,608 @@ Related Docs:
 
 ## Entries
 
+### 2026-08-09: The Wall Of Fields Got A Map, Not Tabs
+
+Context:
+
+The density pass (2026-08-08 #2) made every field the right size, and the sheet
+was still unreadable — because it is forty-odd rows in twenty-two section bands
+and every one of them is on screen whether or not anybody ever filled it. The
+owner's phrase was "a wall of fields". The obvious answer is tabs, and the owner
+rejected it himself: **he reads this sheet line by line, comparing T0 against T1
+against T2 on the same row, and tabs put the line he is on and the line he is
+comparing it to on different screens.** That is the decision this entry records.
+Everything below is what you can do to a wall when you are not allowed to break
+it into rooms.
+
+Tried:
+
+- **A sticky chip strip — the map.** One chip per section, the section's own
+  (already bilingual) name plus a fill count like `保压 12/21`, and the chip is
+  a plain `<a href="#process-section-4">`, so the jump works with no JavaScript
+  at all and reuses the project rail's `scroll-margin-top` trick. The count is
+  `processSheetSectionFill` in `process-sheet-catalog.ts`: filled cells over
+  total cells across **every visible trial column**, not just the editable one —
+  a section that is complete in T0 and untouched in T2 is half done, and saying
+  `21/21` would hide exactly the gap the owner is looking for.
+- **Each section is a native `<details>`, its band the `<summary>`.** Open when
+  the section holds any value in any trial column, closed when it is completely
+  empty (`isProcessSheetSectionOpen`), plus a guard: a project with **no trial
+  columns yet** has `total === 0` and opens everything, or a brand-new project
+  would present as an empty accordion. Native `<details>` means the fold needs
+  no state, survives without JavaScript, and is keyboard/AT-correct for free.
+  Expand-all / collapse-all are **two buttons, not one toggle**: the operator
+  folds bands by hand as he works, so a single label would be lying half the
+  time. They write `.open` straight to the DOM through one container ref —
+  mirroring it in React state would be a second source of truth that drifts.
+- **THE ONE THING THAT WOULD HAVE BROKEN IT.** `open` is passed to an otherwise
+  uncontrolled `<details>`, and React only writes a DOM prop when it CHANGES
+  between renders — so the value behind it must not move while the operator
+  types. Both `open` and the fill count are therefore computed from the STORED
+  values (the `values` prop), never from `currentValues`. Had they come from
+  `currentValues`, every keystroke would have slammed sections open and shut
+  under the cursor and undone whatever he had folded by hand.
+- **One `<table>` per section instead of one giant table.** Forced, and worth
+  the cost: `<details>` cannot wrap `<tr>`s and a `<tbody>` cannot be a grid
+  item, so neither the folding nor the packing below is possible while the sheet
+  is one table. The price is a repeated trial-column header per section, which
+  on a sheet this long is a gain — the column you are reading is always
+  labelled. `thead` therefore LOST `position: sticky`: sections are six rows at
+  most now, and two sticky boxes both claiming `top: 0` only fight each other.
+  The sticky left parameter column is untouched.
+- **Two-up packing at `min-width: 1440px` only.** A section spans `1 / -1` by
+  default and only a SHORT one (`isShortProcessSheetSection`: no ZONED row, five
+  rows or fewer) opts back into `grid-column: auto`, so consecutive short
+  sections pair up while every matrix keeps the full width it needs. Grid
+  auto-placement does the pairing, so **the DOM order never changes** — anchors,
+  tab order and the `<details>` all behave exactly as they do in one column.
+  Below 1440px it is precisely today's single column; the phone is untouched.
+- **连续六啤产品重量 became one ZONED row of six.** Six rows (`shot_weight_1` …
+  `shot_weight_6`) were six copies of one measurement, and what the measurement
+  is FOR is the drift across the six — which six stacked rows hide and one line
+  of six boxes shows, exactly as the paper does. The data migration
+  (`20260808130000`) is the 2026-08-08 hot-runner block statement for statement:
+  guarded INSERT per template, an UPDATE that **re-points** each stored value's
+  `process_sheet_parameter_id` and sets `zone_index` (so the trial linkage, the
+  operator and the created_at all survive), a `NOT EXISTS` guard that makes the
+  move re-runnable, and a DELETE that retires a legacy row only when it holds
+  nothing at all.
+- **Zone captions without a schema column.** The six columns are SHOTS, not
+  machine zones, so calling shot 3 `三区` is wrong on the owner's own paper.
+  `processSheetZoneCaptionKind(parameterKey)` derives `SHOT` vs `ZONE` from the
+  key — pure, unit-tested, no `zone_caption_kind` column, and unknown keys read
+  as `ZONE`, which is what every zoned row that existed before this wants. The
+  Excel export calls the SAME function, so the workbook can never print `一区`
+  where the screen says `第1啤`.
+
+Result:
+
+`npx tsc --noEmit` clean. `node --test tests/domain/*.test.ts`: 1047 pass, 0
+fail, 22 cancelled — every cancelled test is in the platform suite
+(`platform-production-package` / `platform-required-files`), which cancels the
+same way on its own and is unrelated. New coverage: the fill/open/short/anchor
+helpers, the caption function in both languages and both axes, the migration's
+pure zone-index rule and its SQL guards, and the workbook's `第N啤` header row.
+
+Why:
+
+Tabs, an accordion-with-only-one-open, and a "hide empty sections" filter were
+all cheaper. All three take something off the page, and the owner's whole
+workflow is that everything is ON the page at once. Folding an empty section
+leaves its band, its name and its `0/21` visible and one click from open — it
+removes the noise without removing the section.
+
+Decision:
+
+Section map + collapse-empty + xl two-up packing is the pattern for any long
+comparison surface in MoldPilot. Tabs are NOT, on any surface where a user
+compares one row across columns. Zone caption kinds are derived from the
+parameter key; do not add a column for them.
+
+Verification:
+
+`npx tsc --noEmit`; `node --test tests/domain/*.test.ts`; open a project with a
+half-filled sheet and check that empty bands arrive folded, that a chip jumps to
+its band and opens it, that typing does not re-fold anything, and that a
+collapsed section still SAVES (its inputs are hidden, never disabled, so they
+still post).
+
+Related Docs:
+
+`docs/03-ui/phase-1-screen-specs.md` Screen 4A;
+`prisma/migrations/20260808130000_six_shot_part_weight_zoned/migration.sql`.
+
+Correction (2026-08-10 — owner reverted the collapse, grid made uniform):
+
+The owner saw the above on screen and rejected two of its three rules. **The
+folding is gone**: no `<details>`, no `<summary>`, no expand-all / collapse-all,
+no `isProcessSheetSectionOpen` — every section is open at all times and the band
+is a plain `<h3>` again. A band that may or may not be open is a band he cannot
+find by eye, and hunting beats scrolling only in theory. **The `≤5 rows` packing
+test is gone too** (`isShortProcessSheetSection`, deleted): it let a five-row
+section be half the width of the six-row section beneath it, which is exactly the
+raggedness he was complaining about. The rule is now: at `min-width: 1440px`
+EVERY non-matrix section takes one lane of `repeat(2, minmax(0, 1fr))`, ZONED
+sections span both, an odd remainder leaves its sibling lane empty, and DOM order
+is still untouched (auto-placement, no `dense`). **The chip strip survived** — it
+was the part he liked — as a pure jump list with its fill count. The lesson worth
+keeping: *taking a section off the screen is the thing he objects to, whether a
+tab does it or a fold does*; the map may point at the wall, it may not hide any
+of it. The uniformity itself is now BY CONSTRUCTION rather than by measurement —
+`--processLabelCol: 17rem` and `--processTrialCol` (scalar cap + its own padding)
+are declared once on `.processSheetTable`, so every separately-laid-out section
+table starts its trial columns at the same x; 操作 and 入水, which used to size
+their column to a dropdown and a checklist, now take the same track as a numeric
+row. Verification: `npx tsc --noEmit` clean; `node --test tests/domain/*.test.ts`
+1046 pass, 0 fail, 22 cancelled (all 22 in the platform suites `D2.2` / `D3.1`,
+which cancel identically on their own).
+
+Final note (2026-08-10 — owner's two-region layout, the packing removed):
+
+The third rule went the way of the first two. **The two-up packing is deleted**:
+the `@media (min-width: 1440px)` block, its `grid-template-columns: repeat(2,
+minmax(0, 1fr))`, and `.processSectionZoned { grid-column: 1 / -1 }` are all
+gone, and `.processSheetSections` now declares NO tracks at all — an undeclared
+grid is one implicit column, at every width. The reason is sharper than the
+raggedness that killed the `≤5 rows` test: a section placed in the RIGHT lane
+starts its T0 column at a different x from the section above it, so the uniform
+column widths the same day had just bought (`--processLabelCol` and friends)
+bought alignment *within a lane* and lost it *across the page* — and running the
+eye down one trial column through every section is the entire reason this screen
+is not tabs. Two lanes bought a shorter page and spent the only thing the page
+was for. `.processSectionZoned` survives as a class, but only as
+`:not(.processSectionZoned)`, which is what gives a CHOICE dropdown and a FLAGS
+checklist the same trial-column track as a numeric row.
+
+What replaces it is a PARTITION BY KIND, not a sort: every SCALAR / CHOICE /
+FLAGS section renders first, full width, stacked into one continuous
+spreadsheet; every ZONED section follows, each its own full-width matrix,
+compared table by table; catalog order is preserved INSIDE each group, so the
+only thing that ever moves is which group a section is in. A slim bilingual
+divider (`process.zonedGroup`, "Zoned parameters 分区参数") marks the seam, and it
+is deliberately NOT styled as a band — a third tinted strip would invite the
+reader to look for trial columns under it. The chip strip is re-ordered to match
+(`orderedSections = [...scalarSections, ...zonedSections]`) because a map that
+pointed somewhere other than the eye would be a lie; anchors and fill counts are
+untouched, since `processSheetSectionAnchorId` is keyed by CATALOG position and
+moving a block does not renumber it. **The Excel export follows the screen** —
+`process-sheet-workbook.ts` partitions the same way and prints one bold, unboxed
+`分区参数 Zoned Parameters` row before the first matrix — because a workbook whose
+order disagreed with the sheet the setter had just filled in is a workbook he has
+to re-read before he can trust it. Verification: `npx tsc --noEmit` clean;
+`node --test tests/domain/*.test.ts` 1049 pass, 0 fail, 22 cancelled (the same 22
+in `D2.2` / `D3.1`, which cancel identically when those two files are run alone).
+
+Refinement (2026-08-10 — one-parameter matrices transposed, Excel columns cut):
+
+Two more things the owner saw on screen. **A zoned section with ONE row was
+still read sideways.** 热流道 (twelve tips) and 连续六啤 (six shots) print that one
+row's zone boxes once per TRIAL COLUMN, so three trials is thirty-six boxes on a
+single line and comparing T0 with T1 means scrolling horizontally past
+everything between them — the exact movement this screen exists to avoid. Such a
+section is now **TRANSPOSED**: the zone captions become the header row spanning
+the full sheet width in equal fractions (`repeat(N, minmax(0, 1fr))` after the
+label column), and **every trial gets a row of its own**, labelled with its code
+and status, empty rows included — an empty row is where the next trial's numbers
+get typed, and a row that appeared only once it had data would be a row nobody
+could fill. The comparison then runs DOWN the page, which is the direction the
+page already scrolls. The rule is derived, never stored, and is exactly *zoned,
+and one parameter* (`isTransposedProcessSheetSection`): a multi-row matrix (注塑,
+保压) already compares something down its rows and is untouched, and adding a
+second row to 热流道 turns it back into an ordinary matrix with no code change.
+Save semantics are identical — same cell keys, same `value:<cell>` field names,
+same hidden `processParameterId`, same chip fill counts. Only the arrangement
+moved.
+
+**Enter had to be told about the new grid.** The walk order is now
+`processSheetNavigationCellKeys` — pure and tested — instead of a flat run built
+inline in the editor: a transposed section is walked **row-major** (one trial
+row, its zones left→right, then the next trial row), so the day a second column
+becomes editable Enter cannot start hopping between trial rows on every
+keystroke. Only the editable trial's row holds inputs, so today one unbroken run
+of zones comes out of the section, and it comes out wherever that row sits.
+
+**The Excel 数值 column was six times too wide, and now we know why.** The
+worksheet has ONE set of middle columns shared by the zone matrices and the flat
+rows, and the flat value cell was `span: valueColumns` — merged across ALL of
+them. On a seven-zone sheet that is seven columns of 10.5 characters: a
+73-character box holding "32.5". The fix is two-part and both parts are in
+`process-sheet-workbook.ts`: the declared widths are now parameter 34, zone 7,
+unit 8, and the value merges only as far as a TARGET WIDTH says it needs
+(`spanForWidth(12, …)` → two columns ≈ 14 characters), with the remaining
+columns covered by one empty bordered cell so the row still tiles the grid and
+the unit stays in the last column. The header block's right-hand label asks for
+its width the same way rather than hard-coding "two columns", which would have
+silently shrunk 试模日期 Trial Date when the zone column got narrower.
+**Transposed sections need no inversion in the export**: a worksheet IS one
+trial, so that section is already the caption row plus the single row belonging
+to that tab — the transposed shape with the other trials' rows on the other
+tabs. The row keeps the PARAMETER's bilingual label rather than the trial code,
+because the tab and the header stamp already say which trial this is and the
+label column is the only place the sheet names 热流道温度.
+
+Verification: `npx tsc --noEmit` clean; `node --test tests/domain/*.test.ts`
+1057 pass, 0 fail, 22 cancelled + 1 skipped — the same 22/1 as before the change,
+all in the platform suites `platform-production-package` /
+`platform-required-files`, which cancel identically when run alone. New coverage:
+the transposed rule against the REAL seeded template (exactly 热流道 and 连续六啤
+transpose, 注塑 / 保压 do not), the row-major navigation order and its cell count,
+the printed column widths, and the un-merged value cell.
+
+### 2026-08-08 #2: The Sheet Became Paper Again, And The Export Became A Workbook
+
+Context:
+
+Two complaints from the same screenshot. "The fields are gigantic" — a seven
+zone section pushed one trial column past 1200px, so the owner scrolled
+sideways to read a row he reads at a glance on paper. And the export: a PDF of
+text lines, which nobody prints, nobody edits, and nobody pins to a machine. He
+asked for the 技术参数表, in Excel.
+
+Tried:
+
+- **Found out WHY the boxes were gigantic before resizing anything.** An
+  `<input>` with no explicit width contributes the browser's DEFAULT text-field
+  width (~11rem, `size=20`) to intrinsic sizing, and `.processSheetTable` is
+  `width: max-content`. The `width: 100%` in `@layer base` therefore never bit:
+  a percentage resolves to auto during max-content sizing, so each
+  `minmax(58px, 1fr)` zone track measured a default text box. Seven of them plus
+  gaps and padding is ~1300px per trial column. The fix is explicit widths, not
+  smaller padding: zone cell `~11rem → 5.5rem` (fixed track, centred, 2px/4px
+  padding), scalar input `~11rem → width: 10rem` capped, row height `~66px →
+  ~40px` (cell padding 13px → 4px, control min-height 2.5rem → 1.75rem), table
+  font 0.875rem → 0.8125rem. Parameter column keeps 260–320px. All seven zones
+  plus the sticky label column now measure ~910px, which fits the sheet
+  container at 1280px; below that `.processSheetWrap` self-scrolls exactly as
+  before. Every rule stayed inside `@layer components` and inside a
+  `.processSheetTable` scope, so the global `th, td` padding — and the phone —
+  did not move.
+- **A .xlsx writer with no dependency: `src/server/xlsx-writer.ts`.** An .xlsx is
+  an OPC package, i.e. a ZIP of XML parts. `zlib.crc32()` was VERIFIED PRESENT on
+  this runtime (`typeof crc32 === "function"`, `crc32("123456789") === 0xCBF43926`
+  on Node 22.22.3; the repo's `engines` field is `>=24`, where it has shipped
+  since 20.15/22.2), so the recorded fallback — hand-authored SpreadsheetML 2003
+  `.xls` XML, which needs no ZIP at all — was NOT needed and .xlsx was chosen.
+  Entries are STORED (method 0), never deflated: storing removes the whole
+  deflate surface (stream state, window, flush semantics) and a process sheet is
+  a few dozen KB of XML. Strings are INLINE (`t="inlineStr"`), not a shared
+  string table, because a shared table is a second part that must stay index
+  consistent with every sheet and inline strings cannot drift; the parts are
+  UTF-8, so 炮筒温度 is stored verbatim. A fixed DOS timestamp keeps the bytes
+  deterministic so the test can assert the structure.
+- **The workbook is the paper sheet: `src/server/process-sheet-workbook.ts`.**
+  One worksheet per trial column, tabbed `T0` / `T1` / …, because a setter pins
+  ONE trial to the machine and comparing is a tab click. Each sheet: a merged,
+  bordered header block (bilingual title, mold code, project, part, customer
+  CODE, material / colour / trial quantity only when set, machine, trial date,
+  调机员, result); then one bordered table per section band — ZONED as a matrix of
+  一区…N区 capped at the section's LAST USED zone, SCALAR as label | value | unit,
+  CHOICE/FLAGS printed as their stored text; then blank 调机员签名 / 组长签名 /
+  QC签名 cells. Every row tiles the grid exactly (a short zone block gets one
+  merged filler cell), because a printed table with a ragged edge looks broken
+  even when the data is right — and that is asserted by test.
+- **The permission CODE was NOT renamed.** `trial.process_sheet.export_pdf` still
+  gates the action, and the stored `PROCESS_SHEET_PDF` FileType and
+  `exported_process_sheet_pdf` activity action keep their names too. All three
+  are stored strings with production history behind them; renaming any of them
+  is a data migration for text no user reads. Only the labels changed:
+  `Export Excel` / `导出Excel` on the button, `Export process sheet Excel` /
+  `导出工艺表 Excel` in the permission matrix. The 2026-08-08 #1 entry is the
+  reason this is written down — that day cost a migration.
+- **Retired the PDF path, having grepped for it first.** Deleted
+  `src/server/simple-pdf.ts`, `tests/domain/simple-pdf.test.ts`, and
+  `export-process-sheet-pdf-button.tsx`. `buildCustomerSafeProcessSheetExport`
+  and `formatZonedProcessValuesForExport` existed only to feed the PDF's line
+  writer and went with it — but the privacy rule they carried did NOT: the
+  workbook builder now skips any row with `customerVisible = false`, and it
+  carries no TrialIssue data at all, which is strictly safer than the text it
+  replaced. `scripts/e2e-smoke.mjs` and `scripts/pilot-preflight.mjs` turned out
+  to hold no PDF assertion at all; `scripts/pilot-workflow-e2e.mjs` did, and its
+  format assertions moved to `.xlsx` / the ZIP magic while its DB assertions
+  (entityType, FileType, activity action) stayed untouched.
+
+Result:
+
+`npx tsc --noEmit` clean. `node --test tests/domain/*.test.ts`: 1054 tests, 1031
+pass, 0 fail, 22 cancelled (all `platform-production-package.test.ts`, which
+cancels in this environment — the same 22 as before this change), 1 skipped.
+`tests/domain/xlsx-writer.test.ts` is new: CRC-32 vectors, XML escaping
+(including CJK, `&`, `<`, `>` and the no-double-escape rule), column letters,
+sheet-name rules, the stored-ZIP header fields, and a round trip that unzips the
+package with a small central-directory reader written IN the test and checks
+`[Content_Types].xml` plus every part for XML well-formedness.
+
+Why:
+
+Both halves are the same mistake in different clothes: a control was allowed to
+size itself, and an artifact was allowed to be whatever the library made easy.
+The paper sheet is a fixed grid a person reads at arm's length. Matching it
+meant measuring it — 5.5rem, 10rem, 40px — not "making things smaller".
+
+Decision:
+
+A screen that reproduces a paper form states its cell geometry in numbers, in
+one place, scoped to its own container. When a stored artifact's FORMAT changes,
+its stored IDENTIFIERS (permission codes, enum values, activity actions) do not
+change with it unless a user can see them — the label is the only thing that
+should move, and the reason belongs in this log so nobody "tidies" it later. And
+before writing a binary format by hand, verify the primitive it needs on the
+actual runtime and record the fallback that was not taken.
+
+Verification:
+
+- `npx tsc --noEmit`
+- `node --test tests/domain/*.test.ts`
+- Open a project with a 7-zone template at 1280px: the sheet shows all seven
+  zones with no horizontal scroll, and Enter / Shift+Enter still walk the cells.
+- Click `Export Excel 导出Excel`, open the file: one tab per trial, bordered
+  header block, 一区…七区 matrix, signature row.
+
+Related Docs:
+
+- `docs/03-ui/phase-1-screen-specs.md` (Screen 4A: density numbers, workbook layout)
+- `docs/03-build/acceptance-tests.md` (export acceptance now asserts `.xlsx` / `PK`)
+- `docs/02-schema/permissions-matrix.md` (`export_pdf` code kept, label says Excel)
+
+### 2026-08-08: A Data Migration Must Look At The Rows A Template ALREADY HAS
+
+Context:
+
+The owner opened the sheet the morning after the catalog shipped and sent
+screenshots. 入水 / 运水 / 操作 were still plain text boxes — the FLAGS and CHOICE
+versions had been written, tested, migrated, and were invisible. 热流道 was still
+two fixed rows, `hot_runner_zone_1_temp` and `hot_runner_zone_2_temp`, on moulds
+that have anywhere from one to a dozen hot-runner tips.
+
+Tried:
+
+- **Read the 20260807130000 migration back with the production data in mind.**
+  It INSERTs, guarded by `NOT EXISTS (template, parameter_key)`, and its own
+  comment says "Nothing existing is touched — no UPDATE, no DELETE". Written that
+  way it can only ADD rows to a template. But the templates were not empty: they
+  have carried the factory's rows since 20260702000100. Where a row for the same
+  concept already existed, the guard did exactly what it was written to do —
+  skipped the catalog row — and the OLD row, still `kind = 'SCALAR'` by the
+  schema migration's default, is what rendered. The feature was correct; the
+  migration's model of the database was not.
+- **20260808120000, which UPDATEs and DELETEs as well as INSERTs.** 入水 / 运水 /
+  操作 are upgraded IN PLACE (keys and ids untouched, so every stored
+  TrialProcessValue stays attached); a catalog row that turned out to be a
+  duplicate of a differently-keyed twin is deleted only when it holds no values;
+  and one ZONED 热流道温度 (12 zones) replaces the fixed pair, with the pair's
+  stored values RE-POINTED — `UPDATE trial_process_values SET
+  process_sheet_parameter_id = <zoned row>, zone_index = <N from the key>` —
+  which keeps the trial, the operator and the timestamp on each value.
+- **Guards, one per destructive statement.** Every DELETE carries
+  `NOT EXISTS (SELECT 1 FROM trial_process_values …)`; the value move carries
+  `NOT EXISTS (target cell)` so a re-run cannot collide with the new unique key;
+  the UPDATEs re-state a shape and are no-ops the second time.
+- **Tolerance, because an upgraded row still holds pre-option-list text.**
+  `processSheetOptionValueView` splits a stored value into what the option list
+  recognises and the free text it does not, and both renderers now SHOW the
+  remainder. The save path was the sharper problem: CHOICE THREW on an
+  unrecognised value, so one legacy 操作 value would have blocked the save of the
+  entire sheet. `isUnchangedLegacyProcessSheetOptionValue` keeps such a value
+  when it comes back untouched; the moment the operator picks an option the
+  posted text differs and the normal allowlist normalises it.
+
+Result:
+
+`npx tsc --noEmit` clean. `node --test tests/domain/*.test.ts`: 1035 tests, 1012
+pass, 0 fail, 22 cancelled (all `platform-production-package.test.ts`, which
+cancels in this environment — the same 22 as before this change), 1 skipped.
+Ten new tests cover the tolerance split, the unchanged-value rule, the
+`legacyHotRunnerZoneIndex` mapping, the reconciled seed list, the twelve-wide
+matrix the upgraded row renders as, and the migration's guards.
+
+Why:
+
+The 2026-08-07 entry recorded that production never runs `prisma db seed`, so
+template DATA ships as SQL. That lesson was learned and applied — and still
+produced a wrong screen, because it was applied only to the rows that were
+missing. A template is not an empty table waiting for a catalog; it is a table
+with history. "Idempotent" answered "what if this runs twice" and never answered
+"what is already in here that means the same thing".
+
+Decision:
+
+A data migration that introduces a concept must state, for every row it inserts,
+what happens if the template ALREADY HAS that concept under a different key or an
+older shape — upgrade it, dedupe it, or leave it and say so. Deleting is allowed
+only behind a "holds no values" guard; when the guard blocks, the row survives
+and shows on the sheet, which is the visible signal that a human is needed. The
+seed is updated in the same commit so a fresh database is born in the migrated
+end state (`HOT_RUNNER_ZONED_PARAMETER` replaces the pair in
+`defaultProcessSheetParameters`), and `prisma/seed.ts` keeps a value-guarded
+delete of the retired keys for a dev database that seeded but never migrated.
+
+No new stale-client seams were needed: `kind`, `zone_count`, `options` and
+`zone_index` all arrived with 20260807120000, the write payload still goes
+through `processSheetParameterShapeWrite`, and the one documented cast
+(`trialProcessValueCellWhere`) is unchanged.
+
+Verification:
+
+`npx tsc --noEmit`; `node --test tests/domain/*.test.ts`; after
+`bash scripts/dev-refresh.sh`
+open a project's Digital Process Sheet and confirm 入水 / 运水 show checkboxes,
+操作 a dropdown, and 热流道设置 one twelve-column zone matrix carrying the values
+the two old rows held.
+
+Related Docs:
+
+- `prisma/migrations/20260808120000_reconcile_legacy_process_sheet_parameters/migration.sql`
+- `src/domain/mold-trial/process-sheet.ts` (`HOT_RUNNER_ZONED_PARAMETER`, `legacyHotRunnerZoneIndex`)
+- `src/domain/mold-trial/process-sheet-catalog.ts` (`processSheetOptionValueView`)
+- `tests/domain/process-sheet-catalog.test.ts`
+
+### 2026-08-07: The Paper Process Sheet Fits — Parameter Kinds, Zone Matrix, Catalog Data Migration
+
+Context:
+
+The Digital Process Sheet stored ONE value per parameter per trial. The owner's
+actual paper sheet does not: 炮筒温度 / 射胶压力 / 射胶速度 / 射胶位置 and the three
+保压 rows each carry SEVEN values (一区…七区) — a small table drawn inside the big
+table — 入水 and 运水 are multi-select checklists, and 操作 is one of three modes.
+Everything the factory really writes down was living outside the system, which
+is why the sheet was still being filled on paper next to the machine.
+
+Tried:
+
+- **`kind` is the whole design.** `ProcessSheetParameter` gains
+  `kind TEXT NOT NULL DEFAULT 'SCALAR'` (SCALAR | ZONED | CHOICE | FLAGS),
+  `zone_count INTEGER` (ZONED only, 7 here) and `options TEXT[] NOT NULL DEFAULT '{}'`
+  (CHOICE/FLAGS). The default IS the backfill: every pre-existing row — the whole
+  seeded template and every customer template — reads as SCALAR with no UPDATE
+  statement anywhere. `kind` is TEXT, not an enum, for the same reason
+  `insert_types` is: the allowlist lives in the domain
+  (`parseProcessSheetParameterKind`, unknown → SCALAR), so a fifth shape is a code
+  change instead of a migration plus a client regeneration. `section` needed
+  nothing — it already exists as a NOT NULL column and is already the layout
+  grouping; making it nullable would have been a regression, so it was left alone.
+- **THE UNIQUE-CONSTRAINT DECISION (the part worth reading).**
+  `trial_process_values` was UNIQUE (trial_event_id, process_sheet_parameter_id).
+  A zoned row needs N values per trial, so `zone_index` has to join that key, and
+  the obvious `Int?` is a trap: **Postgres treats NULLs as DISTINCT inside a
+  unique index**, so a nullable zone_index silently allows two rows for the same
+  (trial, parameter) cell — the constraint would stop protecting exactly the rows
+  it protects today. The alternative, two PARTIAL unique indexes (`WHERE
+  zone_index IS NULL` / `IS NOT NULL`), closes the hole but **Prisma cannot
+  express a partial unique index**, so the model loses its `@@unique` and with it
+  the compound `where` the save has always used — the upsert would become
+  find-then-create-or-update, a race under two people saving the same trial
+  column. Losing an upsert to keep a NULL is a bad trade. So: `zone_index INTEGER
+  NOT NULL DEFAULT 0`, a SENTINEL. Zones number from 1, 0 can never collide, the
+  existing rows backfill by the default, and the key stays a plain UNIQUE index.
+  The index keeps its NAME: Prisma clips a generated name to 63 chars by cutting
+  the base and keeping the `_key` suffix (proved by the 20260702071024 rename
+  migration), and the two- and three-column names clip to the same string — so
+  drop-and-recreate under that name is exactly what `migrate dev` would emit and
+  the schema does not drift.
+- **Two migration folders, both after 20260807090000.**
+  `20260807120000_process_sheet_parameter_kinds_and_zones` is the ALTERs plus the
+  index swap. `20260807130000_seed_factory_process_sheet_catalog` is the DATA
+  migration, and it exists because of the precedent the 20260807090000 permissions
+  migration set: **production never runs `prisma db seed`**, so template rows that
+  ship only in the seed would give a fresh dev database the new sections and leave
+  every real project's sheet exactly as it was. It inserts the 34 catalog rows
+  into EVERY template (`CROSS JOIN "process_sheet_templates"`), idempotent twice
+  over — `WHERE NOT EXISTS` on (template, parameter_key) and `ON CONFLICT … DO
+  NOTHING` on that same unique — with sort orders from 1000 so the catalog always
+  lands after whatever a template already had. No UPDATE, no DELETE: nothing
+  existing is touched. The seed writes the identical rows from the same catalog
+  constant with the same sort base, so a migrated database and a freshly seeded
+  one read the same.
+- **The catalog is one pure module**, `src/domain/mold-trial/process-sheet-catalog.ts`:
+  34 rows in paper order (注塑 4 zoned, 保压 3 zoned, 熔胶 3, 顶针 3, 模温 2, 入水
+  flags, 运水 flags, 操作 choice, 抽芯A/退芯A/抽芯B/退芯B 4 each), the kind/zone/option
+  parsers, the zone-matrix builder, the cell-key encoding and the CHOICE/FLAGS
+  text encoding. Two transcription judgements are recorded in the file and pinned
+  by tests: the paper writes **mm** against 保压压力 — a hold PRESSURE in
+  millimetres is a slip of the pen, so it is stored in **bar** — while 保压速度
+  keeps the paper's own **bar** rather than an invented mm/s.
+- **The cell key is what made copy-forward free.** The editor addresses a cell as
+  `parameterId` (non-zoned) or `parameterId#zone`, and
+  `copyPreviousTrialProcessSheetValues` is key-agnostic — so zones, choices and
+  flags copy forward through the existing blank-fill-then-confirm-overwrite
+  behaviour with **zero change to the copy helper**, and every key that existed
+  before this feature still reads exactly the same.
+- **Matrix UI without a nested table.** A ZONED section's band carries the zone
+  captions per trial column and each parameter row renders one CSS-grid cell per
+  zone with the same `--processZoneCount`, so the zones line up vertically under
+  the captions — the owner's "table inside a table" — while the sticky parameter
+  column, the trial columns and Enter/Shift+Enter navigation stay exactly as they
+  were. It widens only inside `.processSheetWrap`, the sheet's OWN scroller; no
+  page-level overflow, and no phone layout surgery. CHOICE renders a select,
+  FLAGS render checkboxes that drive one hidden field carrying the canonical
+  text, so the server parses every kind through the same `value:<cell>` name.
+- **PDF**: a zoned row exports as one zone-labelled line per trial column
+  (`一区 210 | 二区 215`, blanks skipped). The writer draws text lines, so a drawn
+  grid was never on the table; nothing is lost and the CJK font already covers
+  the captions. CHOICE/FLAGS need no special case at all — which is exactly why
+  flags are stored as readable `"大, 潜水"` text rather than an encoded blob: the
+  PDF prints `value_text` verbatim.
+
+Result:
+
+`npx tsc --noEmit --incremental false` clean, with the sandbox client verified as
+NOT containing `zoneIndex`. Seams: the write payloads spread
+(`trialProcessValueZoneWrite`, `processSheetParameterShapeWrite`), the reads go
+through `processSheetParameterFacets` / `processValueZoneIndex` whose new fields
+are optional (and whose parameter types carry a REQUIRED key — the weak-type
+lesson from 2026-08-06), and there is exactly **ONE cast** in the tree:
+`trialProcessValueCellWhere` in `src/server/process-sheet-seams.ts`, typed AS
+`Prisma.TrialProcessValueWhereUniqueInput`. It is unavoidable and it earns its
+keep: the compound unique key CHANGES name with this migration
+(`trialEventId_processSheetParameterId` → `…_zoneIndex`), so the save and the seed
+must name the post-migration key while the client is still stale. One more read
+seam detail: the save query dropped its `select` on `processValues` — naming
+`zoneIndex` in a `select` cannot compile against a stale client, whereas reading
+the whole row and taking the field through the optional-typed helper can.
+
+`CI=true node --test tests/domain/*.test.ts`: **1025 tests, 1002 pass, 0 fail**,
+22 pre-existing cancellations (the platform-package suites, which need the
+sibling `LJ_ERP/ops` tree), 1 skipped — up from 1000/977 with the same 22/1, so
+**zero new failures**. The 25 new cases cover kind parsing (including the stale
+client's absent field), zone-count clamping, the zone matrix with a SPARSE
+section (a 3-zone parameter beside a 7-zone one: extra columns come back
+`available: false`, missing values blank), copy-forward across zone cells plus a
+choice plus a flag list in one call, the FLAGS text round trip, the export line
+formatter, catalog completeness (every paper row present exactly once, per-section
+counts and kinds, units including the 保压 correction, options verbatim, sort
+orders), both dictionaries naming every catalog section, and the data migration
+containing every catalog key exactly once with its idempotency guards. E2E
+sentinels untouched: `project.digitalProcessSheet` is unchanged and asserted.
+
+Why:
+
+The alternative — a new `TrialProcessZoneValue` table — would have added a model
+to the slice classification, a second write path, a second copy-forward path and
+a second export path. Columns plus a `kind` discriminator keep ONE storage shape,
+ONE upsert, ONE copy helper and ONE export, and the sheet's existing skeleton
+renders all four shapes.
+
+Decision:
+
+Zones are stored per parameter and a section is as wide as its widest parameter;
+empty zones stay blank because a worker fills what the machine has, and blank is
+data. Harry runs these on the Mac, with the dev server stopped (the running
+server holds the old client):
+
+```bash
+cd ~/Documents/LJ_ERP/MoldPilot
+bash scripts/dev-refresh.sh   # migrate + regenerate + seed + typecheck + tests
+# or the incremental path:
+pnpm exec prisma validate
+pnpm prisma:migrate        # applies 20260807120000 + 20260807130000, regenerates
+pnpm prisma:generate       # only if migrate dev skipped generation
+pnpm prisma:seed
+grep -rl "zoneIndex" node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/index.d.ts
+pnpm typecheck && pnpm test:domain
+pnpm dev                   # restart; the old server process keeps the stale client
+```
+
+Until the migration runs, saving the sheet on the Mac fails with a
+PrismaClientValidationError naming `zoneIndex` — the documented stale-client
+tell, not a code bug. Production picks both folders up through
+`prisma migrate deploy`; the catalog rows come from the data migration, not seed.
+
+Verification:
+
+`npx tsc --noEmit --incremental false`: 0 errors. `CI=true node --test
+tests/domain/*.test.ts`: 1025 tests, 1002 pass, 0 fail, 22 pre-existing
+cancellations, 1 skipped. `npx eslint` clean on all ten touched source files.
+Slice classification unchanged — this feature adds columns only, and
+`ProcessSheetParameter` / `TrialProcessValue` already export whole rows, so the
+new columns ride along. Not verified in the sandbox: `pnpm exec prisma validate`
+(the schema-engine download is blocked there) and both migrations themselves;
+both run on the Mac as the commands above.
+
+Related Docs:
+
+- `docs/02-schema/schema-v0.md` (ProcessSheetParameter kind/zone_count/options, TrialProcessValue zone_index + the unique rule)
+- `docs/03-ui/phase-1-screen-specs.md` (Screen 4A catalog sections, zone matrix, CHOICE/FLAGS)
+
 ### 2026-08-06: Admin Project Archive + Client Notes Ledger (One Migration)
 
 Context:

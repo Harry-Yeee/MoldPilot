@@ -3,15 +3,15 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { validateProcessSheetPdfDownload } from "@/domain/mold-trial/process-sheet-export";
+import { validateProcessSheetWorkbookDownload } from "@/domain/mold-trial/process-sheet-export";
 import { translateWorkflowMessage } from "@/i18n";
 import { useI18n } from "@/i18n/language-provider";
 import {
-  exportProcessSheetPdf,
-  type ProcessSheetPdfExportState
+  exportProcessSheetWorkbook,
+  type ProcessSheetWorkbookExportState
 } from "@/server/mold-trial-actions";
 
-const initialExportState: ProcessSheetPdfExportState = {
+const initialExportState: ProcessSheetWorkbookExportState = {
   success: false,
   attachmentId: null,
   fileName: null,
@@ -20,10 +20,18 @@ const initialExportState: ProcessSheetPdfExportState = {
 
 type ExportPhase = "idle" | "exporting" | "downloading" | "downloaded" | "error";
 
-export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: string }) {
+/**
+ * Export the Digital Process Sheet as the factory's own 技术参数表 workbook.
+ *
+ * The permission CODE behind this button is still `trial.process_sheet.export_pdf`
+ * (see the 2026-08-08 #2 development-log entry): the format changed, the grant
+ * did not, and renaming a permission code means another production data
+ * migration for zero user-visible gain. Only the LABEL says Excel.
+ */
+export function ExportProcessSheetExcelButton({ projectCode }: { projectCode: string }) {
   const { dictionary, t } = useI18n();
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(exportProcessSheetPdf, initialExportState);
+  const [state, formAction, pending] = useActionState(exportProcessSheetWorkbook, initialExportState);
   const [phase, setPhase] = useState<ExportPhase>("idle");
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const handledAttachmentId = useRef<string | null>(null);
@@ -42,7 +50,7 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
 
     let active = true;
 
-    async function downloadGeneratedPdf() {
+    async function downloadGeneratedWorkbook() {
       setPhase("downloading");
       setDownloadError(null);
 
@@ -52,12 +60,14 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
           credentials: "same-origin"
         });
         const blob = await response.blob();
-        const signatureBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
-        const validation = validateProcessSheetPdfDownload({
+        // The ZIP local-file-header magic, read as bytes: an .xlsx that does not
+        // start with PK\x03\x04 is not a workbook, whatever the headers claim.
+        const signatureBytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+        const validation = validateProcessSheetWorkbookDownload({
           responseOk: response.ok,
           contentType: response.headers.get("content-type"),
           sizeBytes: blob.size,
-          signature: new TextDecoder("ascii").decode(signatureBytes)
+          signature: String.fromCharCode(...signatureBytes)
         });
 
         if (!validation.ok) {
@@ -69,7 +79,7 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
         downloadLink.href = objectUrl;
         downloadLink.download = fileName;
         downloadLink.hidden = true;
-        downloadLink.dataset.processSheetPdfDownload = "true";
+        downloadLink.dataset.processSheetExcelDownload = "true";
         document.body.append(downloadLink);
         downloadLink.click();
         downloadLink.remove();
@@ -82,14 +92,14 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
         }
       } catch (error) {
         if (active) {
-          const message = error instanceof Error ? error.message : t("project.customerPdfDownloadFailed");
+          const message = error instanceof Error ? error.message : t("project.excelDownloadFailed");
           setDownloadError(translateWorkflowMessage(dictionary, message) ?? message);
           setPhase("error");
         }
       }
     }
 
-    void downloadGeneratedPdf();
+    void downloadGeneratedWorkbook();
 
     return () => {
       active = false;
@@ -102,10 +112,10 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
     (visiblePhase !== "error" && (phase === "exporting" || phase === "downloading"));
   const buttonLabel =
     visiblePhase === "downloading"
-      ? t("project.downloadingCustomerPdf")
+      ? t("project.downloadingExcel")
       : busy
-        ? t("project.exportingCustomerPdf")
-        : t("project.exportCustomerPdf");
+        ? t("project.exportingExcel")
+        : t("project.exportExcel");
   const errorMessage =
     downloadError ??
     (state.error == null ? null : (translateWorkflowMessage(dictionary, state.error) ?? state.error));
@@ -123,7 +133,7 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
       <Button
         type="submit"
         disabled={busy}
-        data-process-sheet-pdf-export="true"
+        data-process-sheet-excel-export="true"
         aria-busy={busy}
       >
         {buttonLabel}
@@ -131,7 +141,7 @@ export function ExportProcessSheetPdfButton({ projectCode }: { projectCode: stri
       <div className="max-w-72 text-right text-xs" aria-live="polite">
         {visiblePhase === "downloaded" && state.fileName != null ? (
           <span className="text-status-completed">
-            {t("project.customerPdfDownloaded")} {state.fileName} {t("project.customerPdfSaved")}
+            {t("project.excelDownloaded")} {state.fileName} {t("project.excelSaved")}
           </span>
         ) : null}
         {visiblePhase === "error" && errorMessage != null ? (

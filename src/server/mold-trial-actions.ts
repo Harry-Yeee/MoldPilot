@@ -45,14 +45,32 @@ import {
 } from "@/domain/mold-trial/intake-details";
 import { computeDefaultIssueDueDate, defaultOwnerGroupCodeForIssueType } from "@/domain/mold-trial/issue-routing";
 import { assertProjectNotArchived } from "@/domain/mold-trial/project-archive";
-import { normalizeMoldTrialParts, validateIssueAffectedPart, type MoldTrialPartInput } from "@/domain/mold-trial/parts";
 import {
-  buildCustomerSafeProcessSheetExport,
+  formatPartSummary,
+  normalizeMoldTrialParts,
+  validateIssueAffectedPart,
+  type MoldTrialPartInput
+} from "@/domain/mold-trial/parts";
+import {
   DEFAULT_PROCESS_SHEET_TEMPLATE_CODE,
   isProcessSheetColumnEditable,
   isProcessSheetSummaryParameter,
   snapshotInjectionMachine
 } from "@/domain/mold-trial/process-sheet";
+import { PROCESS_SHEET_WORKBOOK_CONTENT_TYPE } from "@/domain/mold-trial/process-sheet-export";
+import {
+  deserializeProcessSheetFlagValues,
+  isOptionProcessSheetKind,
+  isUnchangedLegacyProcessSheetOptionValue,
+  NON_ZONED_ZONE_INDEX,
+  parseProcessSheetChoiceValue,
+  processSheetCellKey,
+  processSheetParameterFacets,
+  processSheetZoneLabelEn,
+  processValueZoneIndex,
+  serializeProcessSheetFlagValues,
+  type ProcessSheetParameterFacets
+} from "@/domain/mold-trial/process-sheet-catalog";
 import {
   DEFAULT_TRIAL_PANEL_COUNT,
   trialStageLabel,
@@ -95,7 +113,14 @@ import { storeIssuePhotos } from "@/server/issue-photo-storage";
 import { applyDesignChangeEvent, applyPmCustomTrialLimit } from "@/server/mold-trial-limit-service";
 import { requirePermission, requirePermissions } from "@/server/permissions";
 import { liveProjectFilter } from "@/server/project-archive-filters";
-import { createSimplePdfBuffer } from "@/server/simple-pdf";
+import {
+  trialProcessValueCellWhere,
+  trialProcessValueZoneWrite
+} from "@/server/process-sheet-seams";
+import { buildProcessSheetWorkbook } from "@/server/process-sheet-workbook";
+import { buildXlsxWorkbook } from "@/server/xlsx-writer";
+import { dictionaries } from "@/i18n";
+import { translateDefaultProcessSection } from "@/i18n/display";
 import { isAssemblyRelevantIssue, type PermissionCode } from "@/domain/mold-trial/permission-policy";
 import { resolveDefaultPlanningPm } from "@/domain/mold-trial/users";
 import type { RoleCode, TrialIssueLifecycleField, ValidationResult } from "@/domain/mold-trial/types";
@@ -354,6 +379,98 @@ function parseProcessValue(input: {
     valueNumber: null,
     valueDate: null
   };
+}
+
+type ProcessSheetParsedValue = {
+  valueText: string | null;
+  valueNumber: string | null;
+  valueDate: Date | null;
+};
+
+/**
+ * One posted template row becomes one stored cell per zone (ZONED) or exactly
+ * one cell (SCALAR / CHOICE / FLAGS).
+ *
+ * The form posts `value:<parameterId>` for a single cell and
+ * `value:<parameterId>#<zone>` for a zoned one — the same cell keys the editor
+ * uses for Copy Previous Trial, so what the worker sees, what copies forward and
+ * what is stored are all addressed identically. Zones the machine does not have
+ * arrive blank and are stored as blank: a sparse row is data, not an error.
+ */
+function processSheetCellsForParameter(
+  formData: FormData,
+  parameter: { id: string; parameterKey: string; labelEn: string; valueType: string },
+  facets: ProcessSheetParameterFacets,
+  /**
+   * What this cell holds today. Only the CHOICE/FLAGS legacy tolerance reads it:
+   * a row that BECAME an option list by data migration (2026-08-08) still holds
+   * the free text typed before the list existed, and posting it back unchanged
+   * must not fail the save (CHOICE) or wipe it (FLAGS).
+   */
+  storedText: (zoneIndex: number) => string | null = () => null
+): { zoneIndex: number; parsed: ProcessSheetParsedValue }[] {
+  if (facets.kind === "ZONED") {
+    const zoneCount = facets.zoneCount ?? 0;
+
+    return Array.from({ length: zoneCount }, (_unused, index) => index + 1).map((zoneIndex) => ({
+      zoneIndex,
+      parsed: parseProcessValue({
+        raw: optionalValue(formData, `value:${processSheetCellKey(parameter.id, zoneIndex)}`),
+        valueType: parameter.valueType,
+        fieldLabel: `${parameter.labelEn} ${processSheetZoneLabelEn(zoneIndex)}`
+      })
+    }));
+  }
+
+  const raw = optionalValue(formData, `value:${parameter.id}`);
+  const stored = storedText(NON_ZONED_ZONE_INDEX);
+  // The value predates the option list AND came back untouched: keep it exactly
+  // as stored. Touching the control changes the posted text, this goes false,
+  // and the allowlist below normalises — "the next save normalises it".
+  const keepLegacyValue =
+    isOptionProcessSheetKind(facets.kind) &&
+    isUnchangedLegacyProcessSheetOptionValue({
+      raw,
+      storedText: stored,
+      kind: facets.kind,
+      options: facets.options
+    });
+
+  if (keepLegacyValue) {
+    return [{ zoneIndex: NON_ZONED_ZONE_INDEX, parsed: { valueText: stored, valueNumber: null, valueDate: null } }];
+  }
+
+  if (facets.kind === "CHOICE") {
+    const chosen = parseProcessSheetChoiceValue(raw, facets.options);
+
+    if (raw != null && chosen == null) {
+      throw new Error(`${parameter.labelEn} must be one of: ${facets.options.join(", ")}.`);
+    }
+
+    return [{ zoneIndex: NON_ZONED_ZONE_INDEX, parsed: { valueText: chosen, valueNumber: null, valueDate: null } }];
+  }
+
+  if (facets.kind === "FLAGS") {
+    const chosen = serializeProcessSheetFlagValues(deserializeProcessSheetFlagValues(raw, facets.options));
+
+    return [
+      {
+        zoneIndex: NON_ZONED_ZONE_INDEX,
+        parsed: { valueText: chosen.length === 0 ? null : chosen, valueNumber: null, valueDate: null }
+      }
+    ];
+  }
+
+  return [
+    {
+      zoneIndex: NON_ZONED_ZONE_INDEX,
+      parsed: parseProcessValue({
+        raw,
+        valueType: parameter.valueType,
+        fieldLabel: parameter.labelEn
+      })
+    }
+  ];
 }
 
 function processValueComparisonText(value: {
@@ -2222,14 +2339,13 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
       trialEvents: {
         orderBy: [{ sequenceNumber: "asc" }, { plannedDate: "asc" }]
       },
+      // Whole rows, no `select`: `zone_index` arrives with the 2026-08-07
+      // migration, and naming it in a `select` would not compile against a
+      // generated client that predates it. Reading the row and taking the field
+      // through `processValueZoneIndex` (optional in its parameter type) is the
+      // established read seam, and one trial's values are a handful of rows.
       processValues: {
-        where: { trialEventId },
-        select: {
-          processSheetParameterId: true,
-          valueText: true,
-          valueNumber: true,
-          valueDate: true
-        }
+        where: { trialEventId }
       }
     }
   });
@@ -2296,22 +2412,26 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
 
   const machineSnapshot =
     selectedInjectionMachine == null ? null : snapshotInjectionMachine(selectedInjectionMachine);
-  const existingValueByParameter = new Map(
-    project.processValues.map((processValue) => [processValue.processSheetParameterId, processValue])
+  const existingValueByCell = new Map(
+    project.processValues.map((processValue) => [
+      processSheetCellKey(processValue.processSheetParameterId, processValueZoneIndex(processValue)),
+      processValue
+    ])
   );
-  const parsedValues = parameters.map((parameter) => {
-    const raw = optionalValue(formData, `value:${parameter.id}`);
-    const parsed = parseProcessValue({
-      raw,
-      valueType: parameter.valueType,
-      fieldLabel: parameter.labelEn
-    });
-    const previous = existingValueByParameter.get(parameter.id);
-    const changed =
-      processValueComparisonText(parsed) !==
-      processValueComparisonText(previous ?? { valueText: null, valueNumber: null, valueDate: null });
+  const parsedValues = parameters.flatMap((parameter) => {
+    const facets = processSheetParameterFacets(parameter);
 
-    return { parameter, parsed, changed };
+    const storedText = (zoneIndex: number) =>
+      existingValueByCell.get(processSheetCellKey(parameter.id, zoneIndex))?.valueText ?? null;
+
+    return processSheetCellsForParameter(formData, parameter, facets, storedText).map((cell) => {
+      const previous = existingValueByCell.get(processSheetCellKey(parameter.id, cell.zoneIndex));
+      const changed =
+        processValueComparisonText(cell.parsed) !==
+        processValueComparisonText(previous ?? { valueText: null, valueNumber: null, valueDate: null });
+
+      return { parameter, zoneIndex: cell.zoneIndex, parsed: cell.parsed, changed };
+    });
   });
   const machineChanged = selectedInjectionMachine != null && selectedInjectionMachine.id !== trial.injectionMachineId;
   const changedCount = parsedValues.filter((parsed) => parsed.changed).length + (machineChanged ? 1 : 0);
@@ -2329,14 +2449,13 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
       });
     }
 
-    for (const { parameter, parsed } of parsedValues) {
+    for (const { parameter, zoneIndex, parsed } of parsedValues) {
       await tx.trialProcessValue.upsert({
-        where: {
-          trialEventId_processSheetParameterId: {
-            trialEventId,
-            processSheetParameterId: parameter.id
-          }
-        },
+        where: trialProcessValueCellWhere({
+          trialEventId,
+          processSheetParameterId: parameter.id,
+          zoneIndex
+        }),
         update: {
           parameterKeySnapshot: parameter.parameterKey,
           labelEnSnapshot: parameter.labelEn,
@@ -2352,6 +2471,7 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
           moldTrialProjectId: project.id,
           trialEventId,
           processSheetParameterId: parameter.id,
+          ...trialProcessValueZoneWrite(zoneIndex),
           parameterKeySnapshot: parameter.parameterKey,
           labelEnSnapshot: parameter.labelEn,
           labelZhSnapshot: parameter.labelZh,
@@ -2374,6 +2494,7 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
         projectCode,
         changedParameterCount: changedCount,
         savedParameterCount: parameters.length,
+        savedCellCount: parsedValues.length,
         machineNoSnapshot: machineSnapshot?.machineNoSnapshot ?? trial.machineNoSnapshot ?? null
       }
     });
@@ -2385,7 +2506,8 @@ async function saveTrialProcessSheetValuesCore(formData: FormData): Promise<Proc
     message: "Process sheet saved.",
     savedAt: new Date().toISOString(),
     changedCount,
-    savedFieldCount: parameters.length + (selectedInjectionMachine != null ? 1 : 0)
+    // Cells, not rows: a zoned parameter saves one cell per zone.
+    savedFieldCount: parsedValues.length + (selectedInjectionMachine != null ? 1 : 0)
   };
 }
 
@@ -2410,17 +2532,47 @@ export async function saveTrialProcessSheetValues(
   }
 }
 
-export type ProcessSheetPdfExportState = {
+export type ProcessSheetWorkbookExportState = {
   success: boolean;
   attachmentId: string | null;
   fileName: string | null;
   error: string | null;
 };
 
-export async function exportProcessSheetPdf(
-  _previousState: ProcessSheetPdfExportState,
+/** `No. 12 / 160T`, from the trial's own snapshot before the machine master. */
+function exportedMachineLabel(trial: {
+  machineNoSnapshot: string | null;
+  machineTonnageSnapshot: string | null;
+  machine: string | null;
+}): string | null {
+  const machineNo = trial.machineNoSnapshot?.trim();
+
+  if (machineNo != null && machineNo.length > 0) {
+    const tonnage = trial.machineTonnageSnapshot?.trim();
+    return tonnage == null || tonnage.length === 0 ? `No. ${machineNo}` : `No. ${machineNo} / ${tonnage}T`;
+  }
+
+  const legacy = trial.machine?.trim();
+  return legacy == null || legacy.length === 0 ? null : legacy;
+}
+
+/**
+ * Export the Digital Process Sheet as the factory's own 技术参数表 workbook — one
+ * worksheet per trial column, tabbed T0 / T1 / …, ready to print and pin to the
+ * machine.
+ *
+ * THE PERMISSION CODE IS DELIBERATELY UNCHANGED. `trial.process_sheet.export_pdf`
+ * still gates this action although the artifact is now .xlsx: the code is stored
+ * per role in the production database, and renaming it buys nothing a user can
+ * see while costing another production data migration. The same reasoning keeps
+ * the `PROCESS_SHEET_PDF` FileType enum value and the `exported_process_sheet_pdf`
+ * activity action — both are stored strings with history behind them. Only the
+ * displayed LABELS say Excel (development.md, 2026-08-08 #2).
+ */
+export async function exportProcessSheetWorkbook(
+  _previousState: ProcessSheetWorkbookExportState,
   formData: FormData
-): Promise<ProcessSheetPdfExportState> {
+): Promise<ProcessSheetWorkbookExportState> {
   const projectCode = value(formData, "projectCode");
 
   try {
@@ -2428,6 +2580,7 @@ export async function exportProcessSheetPdf(
     const project = await prisma.moldTrialProject.findUnique({
       where: { projectCode },
       include: {
+        parts: true,
         processSheetTemplate: {
           include: {
             parameters: {
@@ -2439,21 +2592,14 @@ export async function exportProcessSheetPdf(
         trialEvents: {
           orderBy: [{ sequenceNumber: "asc" }, { plannedDate: "asc" }]
         },
-        trialIssues: {
-          include: {
-            foundAtTrialEvent: {
-              select: {
-                trialCode: true,
-                sequenceNumber: true
-              }
-            }
-          },
-          orderBy: [{ createdAt: "asc" }]
-        },
         processValues: {
           include: {
-            processSheetParameter: true
-          }
+            processSheetParameter: true,
+            enteredBy: {
+              select: { displayName: true }
+            }
+          },
+          orderBy: [{ updatedAt: "desc" }]
         }
       }
     });
@@ -2468,65 +2614,112 @@ export async function exportProcessSheetPdf(
       throw new Error("This project does not have a process-sheet template assigned.");
     }
 
-    const valueByTrialAndParameter = new Map(
+    const valueByTrialAndCell = new Map(
       project.processValues.map((processValue) => [
-        `${processValue.trialEventId}:${processValue.processSheetParameterId}`,
+        `${processValue.trialEventId}:${processSheetCellKey(
+          processValue.processSheetParameterId,
+          processValueZoneIndex(processValue)
+        )}`,
         processValue
       ])
     );
-    const processRows = project.processSheetTemplate.parameters
-      .filter((parameter) => !isProcessSheetSummaryParameter(parameter.parameterKey))
-      .map((parameter) => ({
-        label: `${parameter.labelEn}${parameter.unit == null ? "" : ` (${parameter.unit})`}`,
-        customerVisible: parameter.customerVisible,
-        values: project.trialEvents.map((trial) => {
-          const processValue = valueByTrialAndParameter.get(`${trial.id}:${parameter.id}`);
-          if (processValue == null) {
-            return "-";
-          }
+    // Blank, not "-": an empty spreadsheet cell is a bordered box the setter can
+    // write into, which is exactly what the paper sheet leaves them.
+    const exportedProcessValue = (trialEventId: string, cellKey: string): string => {
+      const processValue = valueByTrialAndCell.get(`${trialEventId}:${cellKey}`);
+      if (processValue == null) {
+        return "";
+      }
 
-          if (processValue.valueNumber != null) {
-            return String(processValue.valueNumber);
-          }
+      if (processValue.valueNumber != null) {
+        return String(processValue.valueNumber);
+      }
 
-          if (processValue.valueDate != null) {
-            return activityDate(processValue.valueDate) ?? "-";
-          }
+      if (processValue.valueDate != null) {
+        return activityDate(processValue.valueDate) ?? "";
+      }
 
-          return processValue.valueText ?? "-";
-        })
-      }));
-    const trialSummaries = project.trialEvents.map((trial) => {
-      const code = trialStageLabel(trial.sequenceNumber);
-      const result = trial.result == null ? "No result" : trialResultLabels[trial.result];
+      return processValue.valueText ?? "";
+    };
+    const defaultTemplate = project.processSheetTemplateCode === DEFAULT_PROCESS_SHEET_TEMPLATE_CODE;
+    // Section bands print bilingually (注塑 Injection) because the sheet is read
+    // by Chinese setters and filed by English-reading PMs.
+    const sectionLabel = (section: string): string => {
+      const zh = translateDefaultProcessSection(dictionaries["zh-CN"], section, defaultTemplate);
+      const en = translateDefaultProcessSection(dictionaries.en, section, defaultTemplate);
+      return zh === en ? en : `${zh} ${en}`;
+    };
+    const templateParameters = project.processSheetTemplate.parameters.filter(
+      (parameter) => !isProcessSheetSummaryParameter(parameter.parameterKey)
+    );
+    // The 调机员 on paper is whoever actually entered this trial's numbers; the
+    // process values are ordered newest first, so the first hit is the latest.
+    const operatorByTrial = new Map<string, string>();
+    for (const processValue of project.processValues) {
+      const displayName = processValue.enteredBy?.displayName?.trim();
 
-      return `${code}: ${result}`;
-    });
-    const exportText = buildCustomerSafeProcessSheetExport({
-      projectIdentifier: project.moldCode.trim().length > 0 ? project.moldCode : project.projectCode,
-      trialSummaries,
-      processRows,
-      issues: project.trialIssues.map((issue) => ({
-        title:
-          issue.foundAtTrialEvent == null
-            ? issue.title
-            : `${issue.title} (${trialStageLabel(issue.foundAtTrialEvent.sequenceNumber)})`,
-        status: issueStatusLabels[issue.status],
-        correctionSummary: issue.correctiveAction,
-        rootCause: issue.rootCause,
-        rootCauseApproved: issue.status === "VERIFIED" || issue.status === "CLOSED",
-        internalOwner: issue.ownerUserId,
-        assemblySelfCheckNote: issue.assemblySelfCheckNote
-      })),
-      nextStep: project.trialEvents.at(-1)?.nextAction ?? project.trialEvents.at(-1)?.planReasonDetail ?? null
-    });
-    const fileName = `${project.projectCode}-process-sheet-${Date.now()}.pdf`;
+      if (displayName != null && displayName.length > 0 && !operatorByTrial.has(processValue.trialEventId)) {
+        operatorByTrial.set(processValue.trialEventId, displayName);
+      }
+    }
+
+    const workbookBuffer = buildXlsxWorkbook(
+      buildProcessSheetWorkbook({
+        titleZh: "注塑工艺技术参数表",
+        titleEn: "Injection Process Technical Sheet",
+        moldCode: project.moldCode,
+        projectCode: project.projectCode,
+        part: formatPartSummary(project.parts, project.partCode),
+        // The customer CODE, never the customer's name: this artifact leaves the
+        // building, and customer identity is not ours to print.
+        customer: project.customerCode,
+        material: project.material,
+        color: project.color,
+        trialQuantity: project.trialQuantity == null ? null : String(project.trialQuantity),
+        exportedAt: activityDate(new Date()) ?? "",
+        trials: project.trialEvents.map((trial) => ({
+          stageLabel: trialStageLabel(trial.sequenceNumber),
+          statusLabel: trialStatusLabels[trial.status],
+          resultLabel: trial.result == null ? null : trialResultLabels[trial.result],
+          machine: exportedMachineLabel(trial),
+          trialDate: activityDate(trial.actualDate ?? trial.plannedDate),
+          operator: operatorByTrial.get(trial.id) ?? null,
+          parameters: templateParameters.map((parameter) => {
+            const facets = processSheetParameterFacets(parameter);
+            const zoneCount = facets.kind === "ZONED" ? (facets.zoneCount ?? 0) : 0;
+
+            return {
+              section: sectionLabel(parameter.section),
+              // Carried for ONE reason: it decides whether the zone captions
+              // print 一区…N区 or 第1啤…第N啤 (2026-08-09).
+              parameterKey: parameter.parameterKey,
+              labelEn: parameter.labelEn,
+              labelZh: parameter.labelZh,
+              unit: parameter.unit,
+              kind: facets.kind,
+              // The workbook is stored CUSTOMER_SAFE, so an internal-only row
+              // never enters it — the rule the retired text export carried.
+              customerVisible: parameter.customerVisible,
+              zoneCount,
+              // A ZONED row exports as the paper's own matrix: one column per
+              // zone, blanks kept blank. CHOICE/FLAGS need nothing special —
+              // their chosen options are stored as readable text, which is
+              // exactly why they are stored that way.
+              zoneValues: Array.from({ length: zoneCount }, (_unused, index) =>
+                exportedProcessValue(trial.id, processSheetCellKey(parameter.id, index + 1))
+              ),
+              value: exportedProcessValue(trial.id, processSheetCellKey(parameter.id))
+            };
+          })
+        }))
+      })
+    );
+    const fileName = `${project.projectCode}-process-sheet-${Date.now()}.xlsx`;
     const attachmentId = randomUUID();
-    const pdfBuffer = await createSimplePdfBuffer(exportText);
     const { storageKey, sizeBytes } = await writeAttachmentFile({
       id: attachmentId,
-      extension: "pdf",
-      data: pdfBuffer
+      extension: "xlsx",
+      data: workbookBuffer
     });
 
     await prisma.$transaction(async (tx) => {
@@ -2539,7 +2732,7 @@ export async function exportProcessSheetPdf(
           fileName,
           fileType: "PROCESS_SHEET_PDF",
           storageKey,
-          contentType: "application/pdf",
+          contentType: PROCESS_SHEET_WORKBOOK_CONTENT_TYPE,
           sizeBytes,
           visibility: "CUSTOMER_SAFE",
           uploadedById: actor.id
@@ -2577,7 +2770,7 @@ export async function exportProcessSheetPdf(
       success: false,
       attachmentId: null,
       fileName: null,
-      error: friendlyActionErrorMessage(error, "Unable to export process sheet PDF.")
+      error: friendlyActionErrorMessage(error, "Unable to export process sheet Excel.")
     };
   }
 }

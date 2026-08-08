@@ -387,7 +387,7 @@ Archived project behavior:
 ### Primary Actions
 
 - Add new planned trial with reason.
-- Export customer-safe Process Sheet PDF.
+- Export customer-safe Process Sheet Excel workbook.
 - Close project.
 - Archive project (ADMIN only, `admin.archive_projects`): last on the page, behind a closed disclosure, requiring a written reason AND a confirm checkbox. Irreversible — it renames the project code and releases the original.
 
@@ -403,7 +403,7 @@ Replace paper process setup sheet entry with structured web entry and horizontal
 
 - PM
 - Injection
-- Marketing for customer-safe PDF export
+- Marketing for customer-safe Excel export
 - GM/Admin for view/review
 
 ### Layout
@@ -424,6 +424,38 @@ Replace paper process setup sheet entry with structured web entry and horizontal
   - Tool Data
   - Hot Runner Settings
   - Six Consecutive Shots Part Weight
+- The factory's own paper catalog follows those bands, bilingual in both
+  languages: 注塑 Injection, 保压 Hold, 熔胶 Plasticizing, 顶针 Ejector, 模温 Mold
+  Temperature, 入水 Gate Type, 运水 Cooling Circuit, 操作 Operation Mode, 抽芯A/退芯A
+  and 抽芯B/退芯B Core Pull/Return.
+- A ZONED section renders the owner's "table inside a table": its section band
+  carries the zone captions 一区…七区 per trial column, and each parameter row
+  shows one aligned input per zone. Zones the machine does not have stay blank.
+  The matrix widens the sheet inside the sheet's own horizontal scroller only —
+  it must never make the page scroll sideways, and the phone layout is unchanged.
+- Density is PAPER density, not form density (2026-08-08). A zone cell is a
+  5.5rem centred numeric box, a scalar input is capped at 10rem instead of
+  stretching to the cell, CHOICE/FLAGS controls size to their own content, the
+  parameter column keeps its 260–320px width, and rows are ~40px tall — so all
+  seven zones of a section fit inside the sheet container at 1280px and wider
+  without the sheet scrolling. Below that the sheet self-scrolls as before.
+- The sheet is ONE page with a MAP, never tabs (2026-08-09, owner decision: he
+  compares one row across T0/T1/T2, and tabs would put the row he is reading and
+  the row he is comparing it to on different screens). A sticky chip strip at the
+  top of the sheet lists every section with its fill count (`保压 12/21`, counted
+  across every visible trial column) and jumps to it; each section is a
+  collapsible band that arrives OPEN when it holds any value and FOLDED when it
+  is completely empty; `Expand all 全部展开` / `Collapse all 全部收起` sit at the
+  strip's end. A folded section still saves — its inputs are hidden, never
+  disabled. At 1440px and wider, two SHORT sections (no matrix, five rows or
+  fewer) share a row of the page; every zoned or long section keeps the full
+  width, and below 1440px the sheet is a single column exactly as before.
+- 连续六啤产品重量 is ONE zoned row of six shots, not six rows, and its matrix
+  captions read 第1啤…第6啤 instead of 一区…六区 — on screen and in the Excel
+  export, from the same caption function.
+- CHOICE rows (操作) render a single-select of their stored options; FLAGS rows
+  (入水, 运水) render multi-select checkboxes. Read-only trial columns show the
+  chosen options as text.
 - Do not show an editable Trial Summary section in normal Phase 1 use.
 
 ### Required Behaviors
@@ -434,23 +466,25 @@ Replace paper process setup sheet entry with structured web entry and horizontal
 - Show the current editable trial in the sheet toolbar, such as `Editing: T1`.
 - Show unsaved-change count, saving state, saved timestamp, and saved/error feedback inside the sheet panel.
 - Pressing Enter in an editable process value moves to the next editable value. Shift+Enter moves to the previous editable value. Enter should not submit the form.
-- `Copy Previous Trial` copies the immediate previous trial's machine selection and process parameter values into blank current-trial fields by default.
+- `Copy Previous Trial` copies the immediate previous trial's machine selection and process parameter values into blank current-trial fields by default, including every zone of a zoned parameter and the chosen options of CHOICE/FLAGS rows.
 - If the current trial already has process values, overwriting them requires an explicit confirmation path.
 - Copy Previous Trial must not copy trial result, issue records, major issue summary, correction summary, next action, Assembly self-check, or accountability fields.
 - Saving or copying process-sheet values must not create a new trial panel.
 - Keep explicit Save in Phase 1; do not autosave.
 - Trial result, major issues, correction summary, and next action do not appear as editable process-sheet rows. They are recorded in the Trial Result panel and TrialIssue records.
 - Full issue details remain below the sheet grouped by trial.
-- Customer-safe PDF export omits internal accountability fields unless explicitly customer-visible.
-- `Export Customer PDF` shows an exporting/downloading state, creates one reusable `CUSTOMER_SAFE` Process Sheet attachment, downloads it through the protected attachment route in the current browser, and reports success or failure inside the panel.
-- A successful export refreshes project data so the generated PDF appears in Customer Files and can be downloaded again. Export must not merely redirect, open a blank tab, or trigger a zero-byte download after failure.
+- Customer-safe Excel export omits internal accountability fields unless explicitly customer-visible: a template row with `customerVisible = false` never enters the workbook.
+- `Export Excel 导出Excel` shows an exporting/downloading state, creates one reusable `CUSTOMER_SAFE` Process Sheet attachment, downloads it through the protected attachment route in the current browser, and reports success or failure inside the panel.
+- The workbook is the factory's paper 技术参数表: one worksheet per trial column tabbed `T0` / `T1` / …, a merged bordered header block (bilingual title, mold code, project, part, customer, material / colour / trial quantity when set, machine, trial date, operator, result), one bordered table per section band, and a 调机员签名 / 组长签名 / QC签名 signature footer. ZONED sections print as a matrix of 一区…N区 columns capped at the section's last used zone; SCALAR rows print label | value | unit; CHOICE / FLAGS print their stored option text.
+- The export writes .xlsx with no npm dependency: `src/server/xlsx-writer.ts` emits a stored (uncompressed) OPC ZIP with CRC-32 from `node:zlib`.
+- A successful export refreshes project data so the generated workbook appears in Customer Files and can be downloaded again. Export must not merely redirect, open a blank tab, or trigger a zero-byte download after failure.
 
 ### Validation
 
 - Process values save as structured TrialProcessValue records.
-- PDF export stores bytes under the attachment storage root with a server-generated attachment UUID and records `application/pdf`, actual byte size, `CUSTOMER_SAFE` visibility, one FileAttachment, and one ActivityLog.
+- Excel export stores bytes under the attachment storage root with a server-generated attachment UUID and records the OOXML spreadsheet content type, actual byte size, `CUSTOMER_SAFE` visibility, one FileAttachment, and one ActivityLog. The stored `PROCESS_SHEET_PDF` FileType and `exported_process_sheet_pdf` activity action keep their pre-Excel names.
 - The protected attachment route remains the download boundary and returns attachment `Content-Disposition`; export permission does not bypass attachment download permissions.
-- Customer-safe export must not include internal owner, private notes, Assembly self-check, or unapproved root-cause details.
+- Customer-safe export must not include internal owner, private notes, Assembly self-check, or unapproved root-cause details. The workbook carries process parameters only — no issue records at all.
 
 ## Screen 5: Record Trial Form
 

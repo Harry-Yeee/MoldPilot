@@ -323,6 +323,16 @@ model ProcessSheetTemplate {
   @@map("process_sheet_templates")
 }
 
+/// One row of a process-sheet template.
+///
+/// `kind` is the SHAPE of the row and the reason the factory's paper sheet fits
+/// here at all (2026-08-07): SCALAR is one value per trial (everything that
+/// existed before this column, which is why the default backfills them),
+/// ZONED is one value per machine zone 一区…N区 rendered as a matrix inside the
+/// sheet, CHOICE is exactly one of `options`, FLAGS is any number of them.
+/// `zoneCount` is meaningful for ZONED only (7 on this factory's machines) and
+/// `options` for CHOICE / FLAGS only; `src/domain/mold-trial/process-sheet-catalog.ts`
+/// is the single gate that keeps all three honest on read.
 model ProcessSheetParameter {
   id                     String           @id @default(uuid()) @db.Uuid
   processSheetTemplateId String           @map("process_sheet_template_id") @db.Uuid
@@ -332,6 +342,9 @@ model ProcessSheetParameter {
   labelZh                String?          @map("label_zh")
   unit                   String?
   valueType              ProcessValueType @default(TEXT) @map("value_type")
+  kind                   String           @default("SCALAR")
+  zoneCount              Int?             @map("zone_count")
+  options                String[]         @default([])
   sortOrder              Int              @default(0) @map("sort_order")
   customerVisible        Boolean          @default(true) @map("customer_visible")
   active                 Boolean          @default(true)
@@ -542,11 +555,21 @@ model TrialIssue {
   @@map("trial_issues")
 }
 
+/// One recorded process-sheet cell.
+///
+/// `zoneIndex` is 0 for every non-zoned parameter and 1…N for a ZONED one. It is
+/// NOT NULL with a 0 SENTINEL on purpose: Postgres treats NULLs as distinct
+/// inside a UNIQUE index, so a nullable zone_index would silently allow two rows
+/// for the same (trial, parameter) cell. Zones number from 1, so 0 can never
+/// collide with a real zone, the pre-existing rows backfill by DEFAULT, and the
+/// compound unique below stays a plain UNIQUE index that Prisma can express —
+/// which is what keeps the upsert-by-unique save path intact.
 model TrialProcessValue {
   id                      String    @id @default(uuid()) @db.Uuid
   moldTrialProjectId      String    @map("mold_trial_project_id") @db.Uuid
   trialEventId            String    @map("trial_event_id") @db.Uuid
   processSheetParameterId String    @map("process_sheet_parameter_id") @db.Uuid
+  zoneIndex               Int       @default(0) @map("zone_index")
   parameterKeySnapshot    String    @map("parameter_key_snapshot")
   labelEnSnapshot         String    @map("label_en_snapshot")
   labelZhSnapshot         String?   @map("label_zh_snapshot")
@@ -564,7 +587,7 @@ model TrialProcessValue {
   processSheetParameter ProcessSheetParameter @relation(fields: [processSheetParameterId], references: [id])
   enteredBy             User                 @relation("ProcessValueEnteredBy", fields: [enteredById], references: [id])
 
-  @@unique([trialEventId, processSheetParameterId])
+  @@unique([trialEventId, processSheetParameterId, zoneIndex])
   @@index([moldTrialProjectId])
   @@index([processSheetParameterId])
   @@map("trial_process_values")

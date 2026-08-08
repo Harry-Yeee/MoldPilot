@@ -1386,56 +1386,128 @@ table {
   border-top: 1px solid #edf0f4;
 }
 
+/*
+ * DENSITY (2026-08-08). The owner's words were "the fields are gigantic" — and
+ * they were, for a reason worth writing down: an `<input>` with no explicit
+ * width contributes the browser's DEFAULT text-field width (~11rem, `size=20`)
+ * to intrinsic sizing, and this table is `width: max-content`, so the
+ * `width: 100%` in @layer base never bit. Every zone track sized itself off a
+ * default text box and one 7-zone section ran past 1200px per trial column.
+ *
+ * The fix is explicit widths (5.5rem numeric zone cell, 10rem scalar cap),
+ * tight cell padding, and a ~40px row, all scoped to this table so nothing
+ * outside the sheet — phone layout included — moves. Overflow still belongs to
+ * `.processSheetWrap`, the sheet's own horizontal scroller.
+ */
+/*
+ * ONE SHARED TEMPLATE (2026-08-10). Every section is a separate <table>, so
+ * "uniform" cannot be left to the browser: an auto-laid table sizes its columns
+ * off ITS OWN content, which is precisely why one section's 保压压力 label column
+ * came out narrower than the next one's and the T0 header of two neighbouring
+ * sections landed at two different x-positions.
+ *
+ * The fix is that the four numbers below are declared ONCE, on the one class
+ * every section's table carries, and every column width is one of them:
+ *
+ *   --processLabelCol   272px — the sticky parameter column, every section.
+ *   --processTrialCol   the scalar cap plus its own padding — one trial column
+ *                       of any NON-ZONED section, every section.
+ *   --processScalarCellWidth / --processZoneCellWidth  the field itself.
+ *
+ * Because the widths are declared and not measured, the trial-column headers of
+ * ANY two sections are at the same x BY CONSTRUCTION — label column plus a whole
+ * number of identical trial columns — which is what lets the owner run his eye
+ * down T1 through the whole stacked non-zoned region without it stepping.
+ */
 .processSheetTable {
+  /* One place to retune the paper density. */
+  --processCellPadY: 4px;
+  --processCellPadX: 8px;
+  --processZoneCellWidth: 5.5rem;
+  --processScalarCellWidth: 10rem;
+  --processLabelCol: 17rem;
+  --processTrialCol: calc(var(--processScalarCellWidth) + 2 * var(--processCellPadX));
+  --processControlHeight: 1.75rem;
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 .processSheetTable th,
 .processSheetTable td {
-  min-width: 150px;
+  min-width: 0;
+  padding: var(--processCellPadY) var(--processCellPadX);
   border-right: 1px solid #edf0f4;
   vertical-align: middle;
 }
 
+/*
+ * NOT sticky any more (2026-08-09). The sheet used to be ONE table forty rows
+ * long, where a pinned header row was the only way to know which column you
+ * were reading. It is now one short table per section — six rows at the most —
+ * each carrying its own trial-column header, and the sticky thing on the screen
+ * is the section chip strip. Two sticky boxes both claiming `top: 0` only fight
+ * each other.
+ */
 .processSheetTable thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   background: #f6f8fb;
 }
 
+/* THE label column. Fixed, not a 260–320px range: a range is a licence for two
+   sections to disagree, and disagreeing is the whole complaint. Both halves are
+   written `.processSheetTable …` so they OUT-SPECIFY the `.processSheetTable th`
+   reset above — a body label cell left on its bare class would keep that rule's
+   `min-width: 0` and quietly fall out of the shared track. */
 .processSheetTable thead th:first-child,
-.processParameterCell {
+.processSheetTable .processParameterCell {
   position: sticky;
   left: 0;
   z-index: 1;
-  min-width: 260px;
-  max-width: 320px;
+  width: var(--processLabelCol);
+  min-width: var(--processLabelCol);
+  max-width: var(--processLabelCol);
   background: white;
 }
 
-.processSectionRow th {
+/*
+ * THE trial column, for every section that is not a matrix. A CHOICE dropdown
+ * and a FLAGS checklist used to size their column to their own content, which
+ * made 操作 and 入水 the two sections that never lined up with anything; they now
+ * take the same track as a plain numeric row and wrap inside it.
+ */
+.processSectionBlock:not(.processSectionZoned) .processSheetTable th + th,
+.processSectionBlock:not(.processSectionZoned) .processSheetTable td {
+  width: var(--processTrialCol);
+}
+
+/* The zone-caption row keeps its tint, label cell included — scoped to the table
+   so it still out-ranks the white background of the shared label column above. */
+.processSheetTable .processSectionRow th {
   background: #eef3f8;
   color: #29384a;
 }
 
+/* Labels WRAP inside the fixed column instead of widening it — an unbreakable
+   label is the one thing that could still push a column out of alignment. */
 .processParameterCell span,
 .processSheetTable thead th span {
   display: block;
   font-weight: 800;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .processParameterCell small,
 .processSheetTable thead th small {
   display: block;
-  margin-top: 3px;
+  margin-top: 1px;
   color: #7b8794;
-  font-size: 0.72rem;
+  font-size: 0.6875rem;
   font-weight: 700;
+  line-height: 1.15;
   text-transform: none;
   white-space: normal;
 }
@@ -1444,12 +1516,332 @@ table {
   background: #fbfdff;
 }
 
-.processEditableCell input {
-  min-width: 132px;
+/*
+ * Scalar values are capped, never stretched: a single number in a 10rem box
+ * reads like the paper sheet, and `width` (not `min-width`) is what actually
+ * constrains the intrinsic width this table measures.
+ */
+.processSheetTable .processEditableCell > input:not([type="hidden"]) {
+  width: var(--processScalarCellWidth);
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--processControlHeight);
+  padding: 2px 6px;
 }
 
+/*
+ * The owner's "table inside a table": a ZONED section's rows are its parameters
+ * and its columns are 一区…N区. Each trial column holds one identical grid per
+ * row, so the zones line up vertically under the caption row without nesting a
+ * real <table> — and the whole matrix rides inside .processSheetWrap, the
+ * sheet's OWN horizontal scroller. Nothing here can widen the page.
+ */
+.processZoneCells {
+  display: grid;
+  /* Fixed tracks, not `1fr`: a flexible track still reports its item's
+     max-content width to this `width: max-content` table, which is exactly how
+     seven numeric cells grew to the width of seven default text fields. */
+  grid-template-columns: repeat(var(--processZoneCount, 7), var(--processZoneCellWidth, 5.5rem));
+  gap: 0 3px;
+  align-items: center;
+}
+
+.processSheetTable .processZoneCells input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--processControlHeight);
+  padding: 2px 4px;
+  text-align: center;
+}
+
+/*
+ * THE TRANSPOSED MATRIX (2026-08-10). A zoned section with ONE parameter prints
+ * zones ACROSS and trials DOWN, so its table is the one table on this page that
+ * must FILL the width instead of measuring itself: the zone captions are the
+ * header row and each zone takes an equal fraction of whatever is left after the
+ * label column.
+ *
+ * `width: 100%` has to out-rank `.processSheetTable { width: max-content }`, and
+ * both classes sit on the same element, so the selector is compound rather than
+ * a bare class — a tie would be broken by source order, which is exactly the
+ * kind of fragility this file has been bitten by before. `table-layout: fixed`
+ * is what makes the second column "everything except the declared label column"
+ * instead of a measurement of twelve inputs.
+ */
+.processSheetTable.processTransposedTable {
+  width: 100%;
+  /* A FLOOR, not `0`: the label column plus 3rem per zone. Wider than that the
+     zones share the room going spare; narrower — a phone, a split window — the
+     row scrolls inside `.processSheetWrap` exactly as every other section does,
+     instead of crushing twelve boxes into nothing. `--processZoneCount` is set
+     on the <table> and inherits down to the caption and cell grids. */
+  min-width: calc(var(--processLabelCol) + var(--processZoneCount, 7) * 3rem);
+  table-layout: fixed;
+}
+
+/* Equal fractions, not the fixed 5.5rem track: the whole point of transposing is
+   that the row is as wide as the sheet, so twelve tips share one line instead of
+   running off the side. `minmax(0, 1fr)` because a bare `1fr` floors at the
+   item's min-content width, which for a numeric input is not zero. */
+.processZoneCellsFluid {
+  grid-template-columns: repeat(var(--processZoneCount, 7), minmax(0, 1fr));
+}
+
+/* The trial code owns the label column in a transposed section, tinted like the
+   caption row it sits under so the eye reads the column as headings, not data. */
+.processSheetTable .processTrialRowLabel {
+  background: #f6f8fb;
+}
+
+.processZoneCaption {
+  color: #7b8794;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: none;
+}
+
+.processZoneCellValue {
+  color: #526274;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.processZoneCellUnavailable {
+  display: block;
+}
+
+.processSheetTable .processSectionLabelCell {
+  background: #eef3f8;
+  color: #29384a;
+}
+
+/* Tint only. The 3px padding this used to ask for never applied — the table's
+   own `padding` shorthand out-ranks a longhand on a bare class — and a caption
+   row that is 1px shorter than every other row is the sort of near-miss the
+   uniform pass exists to delete. It takes `--processCellPadY` like everything. */
+.processZoneHeaderCell {
+  background: #eef3f8;
+}
+
+/* CHOICE / FLAGS size to their own content — a three-word dropdown has no
+   business being as wide as a numeric column. */
+.processSheetTable .processChoiceSelect {
+  width: auto;
+  min-width: 0;
+  max-width: var(--processScalarCellWidth);
+  min-height: var(--processControlHeight);
+  padding: 2px 6px;
+}
+
+.processFlagOptions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.processFlagOptions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.processSheetTable .processFlagOptions input {
+  min-width: 0;
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* A value stored before the row became a checklist: shown, not hidden, until
+   the next save normalises it. */
+.processLegacyValue {
+  color: #8a6d3b;
+  background: #fcf3e3;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* A stored value wraps inside its track rather than widening it — the same
+   guarantee the parameter labels get, for the same reason. */
 .processReadonlyCell {
   color: #526274;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * THE SECTION MAP (2026-08-09, corrected 2026-08-10) — the answer to "it is a
+ * wall of fields", and NOT tabs. The owner reads this sheet line by line,
+ * comparing T0 against T1 against T2 on one row; tabs would put the line he is
+ * on and the line he is comparing it to on different screens. So everything
+ * stays on one page and the page gets a map instead: a sticky chip strip with
+ * every section, its fill count, one click away.
+ *
+ * Two other rules were tried here and BOTH are gone.
+ *
+ *   - Each section a native <details>, an empty one folded. Reverted on sight:
+ *     a band that may or may not be open is a band he cannot find by eye.
+ *   - Two-up packing at `min-width: 1440px`, every non-matrix section in one
+ *     lane of `repeat(2, minmax(0, 1fr))`. Reverted too, and for the sharper
+ *     reason: a section in the right-hand lane starts its T0 column at a
+ *     different x from the section above it, so the one thing this screen
+ *     exists for — running your eye down a trial column across sections —
+ *     stopped working. There are no lanes. Every section is FULL WIDTH.
+ *
+ * What is left is one flat column: `.processSheetSections` is a grid with no
+ * declared tracks, i.e. exactly one, at every width. Phone contract: nothing
+ * here is width-conditional any more, so there is nothing for a narrow screen
+ * to undo (a chip strip wraps on its own).
+ */
+.processSheetEmpty {
+  margin: 0;
+  padding: 14px 18px 18px;
+  color: #6b7787;
+  font-style: italic;
+}
+
+/*
+ * The strip is CAPPED, and the cap is load-bearing: a jumped-to band clears it
+ * by a fixed `scroll-margin-top` below, and a fixed offset can only be right if
+ * the strip has a known ceiling. Twenty-two chips wrap to three rows at 1440px,
+ * which is what 6rem holds; a narrower window scrolls the last row into view
+ * inside the strip rather than pushing the whole sheet down the page.
+ */
+.processSectionStrip {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-height: 6rem;
+  overflow-y: auto;
+  padding: 9px 18px;
+  border-top: 1px solid #edf0f4;
+  border-bottom: 1px solid #e5e9ef;
+  background: #f6f8fb;
+}
+
+.processSectionChip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid #d6dde6;
+  border-radius: 999px;
+  background: white;
+  padding: 3px 10px;
+  color: #29384a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.processSectionChip:hover {
+  border-color: #1d4f91;
+  color: #1d4f91;
+  text-decoration: none;
+}
+
+.processSectionChip small {
+  color: #4d5d70;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+/* An untouched section says so quietly instead of shouting a zero. */
+.processSectionChip small.processSectionChipEmpty {
+  color: #a2adba;
+}
+
+/*
+ * ONE COLUMN, EVERY WIDTH. No `grid-template-columns`: an undeclared grid is a
+ * single implicit track, which is precisely the stack the owner asked for, and
+ * leaving it undeclared is what makes "there are no lanes" checkable.
+ */
+.processSheetSections {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 18px 16px;
+}
+
+.processSectionBlock {
+  min-width: 0;
+  border: 1px solid #e5e9ef;
+  border-radius: 6px;
+  background: white;
+  /* The band's rounded corners have to clip the table under them. */
+  overflow: clip;
+}
+
+/*
+ * The band is a plain <h3> again — the tinted strip the section header always
+ * was, and nothing else. It clicked and folded for one day; see the note above.
+ * The fill count rides at its right end, which is the one thing the folding
+ * experiment left behind that was worth keeping.
+ */
+.processSectionBand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #eef3f8;
+  color: #29384a;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.processSectionBandName {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.processSectionBandFill {
+  flex: none;
+  color: #4d5d70;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+/* Jump targets stop clear of the sticky strip instead of hiding under it: the
+   strip's own 6rem ceiling plus its padding and border. */
+.processSectionBlock.sectionAnchor {
+  scroll-margin-top: 7rem;
+}
+
+/*
+ * THE SEAM between the two regions. Deliberately slim and unboxed — it is a
+ * rule with a name on it, not a third kind of band; making it look like a
+ * section header would invite the reader to look for trial columns under it.
+ */
+.processZonedDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  color: #4d5d70;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.processZonedDivider::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid #d6dde6;
 }
 
 .compactBlockedAction {

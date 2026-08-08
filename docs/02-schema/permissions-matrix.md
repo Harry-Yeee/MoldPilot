@@ -172,7 +172,7 @@ Phase 1 permission codes (updated 2026-07-07; source of truth is `src/domain/mol
 | `trial.issue.qc_verify` | Enter QC verification/status fields. |
 | `trial.issue.close` | Close own assigned issue, or close any issue as PM/GM oversight with required non-owner reason. |
 | `trial.process_sheet.edit` | Enter or update process-sheet values for a trial. |
-| `trial.process_sheet.export_pdf` | Export customer-safe process-sheet PDF. |
+| `trial.process_sheet.export_pdf` | Export the customer-safe process-sheet Excel workbook (技术参数表). The CODE keeps its `export_pdf` spelling: it is stored per role in production and renaming it is a data migration for a label (development.md, 2026-08-08 #2). Displayed as `Export process sheet Excel` / `导出工艺表 Excel`. |
 | `trial.design_change.report` | Record customer/internal design change event. |
 | `trial.design_change.approve_extra_trial` | Approve eligible +1 design-change trial allowance. |
 | `project.client_note.write` | Add a client note 客户备注 and strike through a superseded one (append-only; there is no edit). Defaults: PM, Marketing, Admin. |

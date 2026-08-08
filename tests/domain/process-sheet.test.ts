@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import {
-  buildCustomerSafeProcessSheetExport,
   compareInjectionMachineNo,
   copyPreviousTrialProcessSheetValues,
   defaultProcessSheetParameters,
@@ -224,67 +223,6 @@ describe("Digital process sheet domain helpers", () => {
     assert.match(actionSource, /await getActor\("trial\.process_sheet\.edit"\)/);
     assert.match(actionSource, /action: "saved_trial_process_sheet"/);
     assert.doesNotMatch(saveCoreSource, /trialEvent\.create/);
-  });
-
-  test("customer-safe PDF text omits internal/private issue fields and duplicated manual Trial Summary process rows", () => {
-    const exportText = buildCustomerSafeProcessSheetExport({
-      projectIdentifier: "M-PILOT-01",
-      trialSummaries: ["T0: Not Approved / Rework Required"],
-      processRows: [
-        {
-          label: "Press Tonnage",
-          values: ["408"],
-          customerVisible: true
-        },
-        {
-          label: "Trial Result",
-          values: ["Manual duplicated trial result"],
-          customerVisible: true
-        },
-        {
-          label: "Major Issues",
-          values: ["Manual duplicated major issue"],
-          customerVisible: true
-        },
-        {
-          label: "Correction Summary",
-          values: ["Manual duplicated correction"],
-          customerVisible: true
-        },
-        {
-          label: "Next Action",
-          values: ["Manual duplicated next action"],
-          customerVisible: true
-        },
-        {
-          label: "Internal Private Note",
-          values: ["Bill owns the internal correction follow-up"],
-          customerVisible: true
-        }
-      ],
-      issues: [
-        {
-          title: "Gate insert correction",
-          status: "In Progress",
-          correctionSummary: "Correction in progress",
-          rootCause: "Unapproved internal root cause",
-          rootCauseApproved: false,
-          internalOwner: "Technical",
-          assemblySelfCheckNote: "Assembly self-check passed"
-        }
-      ],
-      nextStep: "Run T1 after correction readiness."
-    });
-
-    assert.match(exportText, /Press Tonnage/);
-    assert.match(exportText, /Correction in progress/);
-    assert.doesNotMatch(exportText, /Manual duplicated trial result/);
-    assert.doesNotMatch(exportText, /Manual duplicated major issue/);
-    assert.doesNotMatch(exportText, /Manual duplicated correction/);
-    assert.doesNotMatch(exportText, /Manual duplicated next action/);
-    assert.doesNotMatch(exportText, /Bill owns/);
-    assert.doesNotMatch(exportText, /Unapproved internal root cause/);
-    assert.doesNotMatch(exportText, /Assembly self-check passed/);
   });
 
   test("Assembly self-check does not close an issue or satisfy closure requirements", () => {

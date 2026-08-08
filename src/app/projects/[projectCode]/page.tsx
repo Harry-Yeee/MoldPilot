@@ -15,7 +15,7 @@ import { IssueTrialDeadlineChip } from "@/components/project/TrialDeadlineChip";
 import { AddPlannedTrialPanelForm } from "@/app/projects/[projectCode]/add-planned-trial-form";
 import { ClientNotesSection } from "@/app/projects/[projectCode]/client-notes-section";
 import { CustomerFilesSection } from "@/app/projects/[projectCode]/customer-files-section";
-import { ExportProcessSheetPdfButton } from "@/app/projects/[projectCode]/export-process-sheet-pdf-button";
+import { ExportProcessSheetExcelButton } from "@/app/projects/[projectCode]/export-process-sheet-excel-button";
 import { MeasurementReportPanel } from "@/app/projects/[projectCode]/measurement-report-panel";
 import { ProcessSheetEditor } from "@/app/projects/[projectCode]/process-sheet-editor";
 import { TrialIssueRowActions } from "@/app/projects/[projectCode]/trial-issue-row-actions";
@@ -35,6 +35,10 @@ import {
   formatInjectionMachineLabel,
   isProcessSheetSummaryParameter
 } from "@/domain/mold-trial/process-sheet";
+import {
+  processSheetParameterFacets,
+  processValueZoneIndex
+} from "@/domain/mold-trial/process-sheet-catalog";
 import {
   buildTrialPanels,
   trialStageLabel,
@@ -820,7 +824,7 @@ function ProcessSheetComparison({
           <span>{template?.name ?? t("process.noTemplateAssigned")}</span>
         </div>
         {canExport ? (
-          <ExportProcessSheetPdfButton projectCode={projectCode} />
+          <ExportProcessSheetExcelButton projectCode={projectCode} />
         ) : (
           <div className="blockedAction compactBlockedAction">{t("common.blockedAction")}</div>
         )}
@@ -835,15 +839,22 @@ function ProcessSheetComparison({
         }))}
         parameters={(template?.parameters ?? [])
           .filter((parameter) => !isProcessSheetSummaryParameter(parameter.parameterKey))
-          .map((parameter) => ({
-            id: parameter.id,
-            section: translateDefaultProcessSection(dictionary, parameter.section, defaultTemplate),
-            parameterKey: parameter.parameterKey,
-            labelEn: parameter.labelEn,
-            labelZh: parameter.labelZh,
-            unit: parameter.unit,
-            valueType: parameter.valueType
-          }))}
+          .map((parameter) => {
+            const facets = processSheetParameterFacets(parameter);
+
+            return {
+              id: parameter.id,
+              section: translateDefaultProcessSection(dictionary, parameter.section, defaultTemplate),
+              parameterKey: parameter.parameterKey,
+              labelEn: parameter.labelEn,
+              labelZh: parameter.labelZh,
+              unit: parameter.unit,
+              valueType: parameter.valueType,
+              kind: facets.kind,
+              zoneCount: facets.zoneCount,
+              options: facets.options
+            };
+          })}
         projectCode={projectCode}
         redirectTo={redirectTo}
         templateName={template?.name ?? t("process.noTemplateAssigned")}
@@ -856,6 +867,7 @@ function ProcessSheetComparison({
         values={project.processValues.map((value) => ({
           trialEventId: value.trialEventId,
           processSheetParameterId: value.processSheetParameterId,
+          zoneIndex: processValueZoneIndex(value),
           displayValue: processValueDisplay(value)
         }))}
       />
@@ -1132,6 +1144,9 @@ export default async function MoldTrialProjectPage({ params, searchParams }: Pag
   const canCreateIssue = writeAllowed("trial.issue.create");
   const canEditProcessSheet = writeAllowed("trial.process_sheet.edit");
   // Exporting writes a PROCESS_SHEET_EXPORT attachment, so it counts as a write.
+  // The code still reads `export_pdf` although the export is now .xlsx — the
+  // grant is stored per role in production and renaming it would be a data
+  // migration for a label (development.md, 2026-08-08 #2).
   const canExportProcessSheet = writeAllowed("trial.process_sheet.export_pdf");
   const canUploadAttachment = writeAllowed("attachment.upload");
   const canAdminDeleteAttachment = writeAllowed("attachment.delete");

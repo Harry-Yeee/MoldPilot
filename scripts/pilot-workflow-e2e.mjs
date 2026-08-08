@@ -945,12 +945,21 @@ async function assertManagementReportsWorkflow(page) {
   await switchUser(page, "admin");
 }
 
-async function assertProcessSheetPdfExportDownload(page, downloadDir) {
+/**
+ * The export became a real .xlsx technical sheet on 2026-08-08. The stored
+ * FileType enum (PROCESS_SHEET_PDF), the entityType and the activity action
+ * keep their pre-Excel names on purpose — they are stored strings with history,
+ * and renaming them is a production data migration for a label.
+ */
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const ZIP_SIGNATURE = "PK\u0003\u0004";
+
+async function assertProcessSheetExcelExportDownload(page, downloadDir) {
   const project = await prisma.moldTrialProject.findFirst({
     where: { clientProjectRef: PROJECT_CODE },
     select: { id: true, projectCode: true }
   });
-  assert.ok(project, "workflow project must exist before the PDF export check");
+  assert.ok(project, "workflow project must exist before the Excel export check");
 
   await page.enableDownloads(downloadDir);
   const [attachmentCountBefore, activityCountBefore] = await Promise.all([
@@ -965,20 +974,20 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
 
   const downloadWillBegin = page.waitForEvent(
     ["Browser.downloadWillBegin", "Page.downloadWillBegin"],
-    "Process Sheet PDF browser download",
-    (params) => typeof params.suggestedFilename === "string" && params.suggestedFilename.endsWith(".pdf")
+    "Process Sheet Excel browser download",
+    (params) => typeof params.suggestedFilename === "string" && params.suggestedFilename.endsWith(".xlsx")
   );
   const downloadCompleted = page.waitForEvent(
     ["Browser.downloadProgress", "Page.downloadProgress"],
-    "Process Sheet PDF download completion",
+    "Process Sheet Excel download completion",
     (params) => params.state === "completed" || params.state === "canceled"
   );
 
   await page.evaluate(
     clientFunction(() => {
-      const button = document.querySelector('[data-process-sheet-pdf-export="true"]');
+      const button = document.querySelector('[data-process-sheet-excel-export="true"]');
       if (!(button instanceof HTMLButtonElement) || button.disabled) {
-        throw new Error("Export Customer PDF button is unavailable.");
+        throw new Error("Export Excel button is unavailable.");
       }
       button.click();
       return true;
@@ -986,20 +995,21 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
   );
 
   const [beginEvent, completionEvent] = await Promise.all([downloadWillBegin, downloadCompleted]);
-  assert.equal(completionEvent.params.state, "completed", "Chrome PDF download should complete");
-  assert.equal(completionEvent.params.guid, beginEvent.params.guid, "download events should refer to the same PDF");
-  assert.match(beginEvent.params.suggestedFilename, /\.pdf$/i);
+  assert.equal(completionEvent.params.state, "completed", "Chrome Excel download should complete");
+  assert.equal(completionEvent.params.guid, beginEvent.params.guid, "download events should refer to the same workbook");
+  assert.match(beginEvent.params.suggestedFilename, /\.xlsx$/i);
 
   const downloaded = await waitFor(async () => {
-    const names = (await readdir(downloadDir)).filter((name) => name.toLowerCase().endsWith(".pdf"));
+    const names = (await readdir(downloadDir)).filter((name) => name.toLowerCase().endsWith(".xlsx"));
     if (names.length === 0) {
       return false;
     }
 
     const bytes = await readFile(path.join(downloadDir, names[0]));
     return bytes.length > 0 ? { bytes, fileName: names[0] } : false;
-  }, "non-empty Process Sheet PDF on disk");
-  assert.equal(downloaded.bytes.subarray(0, 5).toString("utf8"), "%PDF-");
+  }, "non-empty Process Sheet workbook on disk");
+  // Every .xlsx is a ZIP: the local-file-header magic is the real proof.
+  assert.equal(downloaded.bytes.subarray(0, 4).toString("latin1"), ZIP_SIGNATURE);
 
   await waitFor(
     async () =>
@@ -1022,7 +1032,7 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
   });
   assert.ok(attachment, "exported Process Sheet attachment should exist");
   assert.equal(attachment.fileType, "PROCESS_SHEET_PDF");
-  assert.equal(attachment.contentType, "application/pdf");
+  assert.equal(attachment.contentType, XLSX_CONTENT_TYPE);
   assert.equal(attachment.sizeBytes, downloaded.bytes.length);
   assert.equal(attachment.visibility, "CUSTOMER_SAFE");
   assert.equal(attachment.storageKey.includes("generated/process-sheet-exports"), false);
@@ -1058,16 +1068,16 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
         contentLength: response.headers.get("content-length"),
         contentDisposition: response.headers.get("content-disposition"),
         byteLength: bytes.byteLength,
-        signature: String.fromCharCode(...bytes.slice(0, 5))
+        signature: String.fromCharCode(...bytes.slice(0, 4))
       };
     }, attachment.id)
   );
   assert.equal(routeResult.status, 200);
-  assert.equal(routeResult.contentType, "application/pdf");
+  assert.equal(routeResult.contentType, XLSX_CONTENT_TYPE);
   assert.equal(Number(routeResult.contentLength), attachment.sizeBytes);
   assert.match(routeResult.contentDisposition, /^attachment;/);
   assert.equal(routeResult.byteLength, attachment.sizeBytes);
-  assert.equal(routeResult.signature, "%PDF-");
+  assert.equal(routeResult.signature, ZIP_SIGNATURE);
 
   await waitForDomText(page, attachment.fileName, "export in Customer Files");
   const attachmentCountAfterExport = await prisma.fileAttachment.count({
@@ -1076,12 +1086,12 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
   const activityCountAfterExport = await prisma.activityLog.count({ where: { action: "exported_process_sheet_pdf" } });
   const repeatDownloadWillBegin = page.waitForEvent(
     ["Browser.downloadWillBegin", "Page.downloadWillBegin"],
-    "Customer Files PDF re-download",
+    "Customer Files Excel re-download",
     (params) => params.suggestedFilename === attachment.fileName
   );
   const repeatDownloadCompleted = page.waitForEvent(
     ["Browser.downloadProgress", "Page.downloadProgress"],
-    "Customer Files PDF re-download completion",
+    "Customer Files Excel re-download completion",
     (params) => params.state === "completed" || params.state === "canceled"
   );
 
@@ -1089,7 +1099,7 @@ async function assertProcessSheetPdfExportDownload(page, downloadDir) {
     clientFunction((attachmentId) => {
       const link = document.querySelector(`a[href="/api/attachments/${CSS.escape(attachmentId)}"]`);
       if (!(link instanceof HTMLAnchorElement)) {
-        throw new Error("Customer Files PDF download link was not found.");
+        throw new Error("Customer Files Excel download link was not found.");
       }
       link.click();
       return true;
@@ -1784,8 +1794,8 @@ async function main() {
     console.log("[OK] Technical PM added T1 after T0 completion.");
 
     await switchUser(page, "yvonne");
-    await assertProcessSheetPdfExportDownload(page, downloadDir);
-    console.log("[OK] Marketing exported, downloaded, and re-downloaded one customer-safe Process Sheet PDF.");
+    await assertProcessSheetExcelExportDownload(page, downloadDir);
+    console.log("[OK] Marketing exported, downloaded, and re-downloaded one customer-safe Process Sheet Excel workbook.");
 
     await switchUser(page, "zhong");
     await claimDepartmentInboxIssue(page, "Workflow E2E assembly relevant issue", "zhong");

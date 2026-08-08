@@ -58,9 +58,37 @@ const defaultProcessSectionKey: Record<string, TranslationKey> = {
   "Velocity Profile": "process.section.velocityProfile",
   "Hold Pressure": "process.section.holdPressure",
   "Other Settings": "process.section.otherSettings",
-  "Tool Data": "process.section.toolData",
+  "Tool Data": "process.section.toolData"
+};
+
+/**
+ * The factory catalog sections (2026-08-07). Translated for EVERY template, not
+ * only the seeded default one: the data migration puts the same catalog into
+ * every template that exists, so a customer template shows 注塑 / 保压 too. The
+ * map above stays gated on the default template, because those section names
+ * were only ever the default template's.
+ */
+const catalogProcessSectionKey: Record<string, TranslationKey> = {
+  // 热流道设置 moved up from the gated map on 2026-08-08: the reconciliation
+  // migration puts the ZONED 热流道温度 row into EVERY template, so the band has
+  // to read in 中文 on a customer template too.
   "Hot Runner Settings": "process.section.hotRunnerSettings",
-  "Six Consecutive Shots Part Weight": "process.section.sixShotWeight"
+  // 连续六啤产品重量 moved up the same way on 2026-08-09, for the same reason: the
+  // 20260808130000 migration puts the ZONED shot-weight row into EVERY template,
+  // so the band has to read in 中文 on a customer template too.
+  "Six Consecutive Shots Part Weight": "process.section.sixShotWeight",
+  "Injection Profile": "process.section.injectionProfile",
+  "Hold Profile": "process.section.holdProfile",
+  Plasticizing: "process.section.plasticizing",
+  Ejector: "process.section.ejector",
+  "Mold Temperature": "process.section.moldTemperature",
+  "Gate Type": "process.section.gateType",
+  "Cooling Circuit": "process.section.coolingCircuit",
+  "Operation Mode": "process.section.operationMode",
+  "Core Pull A": "process.section.corePullA",
+  "Core Return A": "process.section.coreReturnA",
+  "Core Pull B": "process.section.corePullB",
+  "Core Return B": "process.section.coreReturnB"
 };
 
 const activityEntityKey: Record<string, TranslationKey> = {
@@ -279,6 +307,11 @@ export function translateDefaultProcessSection(
   section: string,
   defaultTemplate: boolean
 ): string {
+  const catalogKey = catalogProcessSectionKey[section];
+  if (catalogKey != null) {
+    return createTranslator(dictionary)(catalogKey);
+  }
+
   if (!defaultTemplate) {
     return section;
   }

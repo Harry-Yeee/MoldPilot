@@ -19,6 +19,17 @@ import {
   snapshotInjectionMachine
 } from "../src/domain/mold-trial/process-sheet.ts";
 import {
+  factoryProcessSheetCatalog,
+  factoryProcessSheetSortOrder,
+  parseProcessSheetParameterKind,
+  parseProcessSheetZoneCount
+} from "../src/domain/mold-trial/process-sheet-catalog.ts";
+import {
+  processSheetParameterShapeWrite,
+  trialProcessValueCellWhere,
+  trialProcessValueZoneWrite
+} from "../src/server/process-sheet-seams.ts";
+import {
   assertFreshProductionBootstrap,
   resolveMoldPilotSeedMode
 } from "../src/domain/mold-trial/seed-mode.ts";
@@ -1099,38 +1110,110 @@ async function seedDefaultProcessSheetTemplate() {
   });
 
   await Promise.all(
-    defaultProcessSheetParameters.map((parameter, index) =>
-      prisma.processSheetParameter.upsert({
+    defaultProcessSheetParameters.map((parameter, index) => {
+      // Most of this list is SCALAR and says nothing about kind. 热流道温度 is
+      // ZONED (2026-08-08), so the shape rides the same seam the catalog uses.
+      const kind = parseProcessSheetParameterKind("kind" in parameter ? parameter.kind : null);
+      const shape = processSheetParameterShapeWrite({
+        kind,
+        zoneCount: parseProcessSheetZoneCount("zoneCount" in parameter ? parameter.zoneCount : null, kind),
+        options: []
+      });
+      const common = {
+        section: parameter.section,
+        labelEn: parameter.labelEn,
+        labelZh: parameter.labelZh ?? null,
+        unit: "unit" in parameter ? (parameter.unit ?? null) : null,
+        valueType: parameter.valueType,
+        sortOrder: index,
+        customerVisible: parameter.customerVisible,
+        active: true,
+        ...shape
+      };
+
+      return prisma.processSheetParameter.upsert({
         where: {
           processSheetTemplateId_parameterKey: {
             processSheetTemplateId: template.id,
             parameterKey: parameter.parameterKey
           }
         },
-        update: {
-          section: parameter.section,
-          labelEn: parameter.labelEn,
-          labelZh: parameter.labelZh ?? null,
-          unit: "unit" in parameter ? (parameter.unit ?? null) : null,
-          valueType: parameter.valueType,
-          sortOrder: index,
-          customerVisible: parameter.customerVisible,
-          active: true
-        },
+        update: common,
         create: {
           processSheetTemplateId: template.id,
-          section: parameter.section,
           parameterKey: parameter.parameterKey,
-          labelEn: parameter.labelEn,
-          labelZh: parameter.labelZh ?? null,
-          unit: "unit" in parameter ? (parameter.unit ?? null) : null,
-          valueType: parameter.valueType,
-          sortOrder: index,
-          customerVisible: parameter.customerVisible,
-          active: true
+          ...common
         }
-      })
-    )
+      });
+    })
+  );
+
+  // A dev database seeded before 2026-08-08 still holds the fixed
+  // `hot_runner_zone_1_temp` / `hot_runner_zone_2_temp` rows; the data migration
+  // retires them, and this is the seed's own safety net for a database that ran
+  // the seed but not the migration. Values are never deleted — a row that still
+  // holds any is left in place, exactly like the migration's guard.
+  await prisma.processSheetParameter.deleteMany({
+    where: {
+      processSheetTemplateId: template.id,
+      parameterKey: { in: ["hot_runner_zone_1_temp", "hot_runner_zone_2_temp"] },
+      processValues: { none: {} }
+    }
+  });
+
+  // The same safety net for the six `shot_weight_<N>` rows the ZONED
+  // 连续六啤产品重量 row replaces (2026-08-09). Same guard, same reason: a row that
+  // still holds a value is left in place rather than deleted, so a dev database
+  // that seeded before the 20260808130000 migration shows the leftover instead
+  // of losing the number.
+  await prisma.processSheetParameter.deleteMany({
+    where: {
+      processSheetTemplateId: template.id,
+      parameterKey: { in: ["shot_weight_1", "shot_weight_2", "shot_weight_3", "shot_weight_4", "shot_weight_5", "shot_weight_6"] },
+      processValues: { none: {} }
+    }
+  });
+
+  // The owner's paper catalog 工艺参数表 — zoned matrices, gate/cooling flags and
+  // the operation-mode choice. Fresh databases get it here; databases that
+  // already exist get the identical rows from the 20260807130000 data migration
+  // (production never runs seed), and both use the same sort-order base so the
+  // sheet reads the same way either way.
+  await Promise.all(
+    factoryProcessSheetCatalog.map((parameter, index) => {
+      const kind = parseProcessSheetParameterKind(parameter.kind);
+      const shape = processSheetParameterShapeWrite({
+        kind,
+        zoneCount: parseProcessSheetZoneCount("zoneCount" in parameter ? parameter.zoneCount : null, kind),
+        options: "options" in parameter ? parameter.options : []
+      });
+      const common = {
+        section: parameter.section,
+        labelEn: parameter.labelEn,
+        labelZh: parameter.labelZh,
+        unit: "unit" in parameter ? parameter.unit : null,
+        valueType: parameter.valueType,
+        sortOrder: factoryProcessSheetSortOrder(index),
+        customerVisible: parameter.customerVisible,
+        active: true,
+        ...shape
+      };
+
+      return prisma.processSheetParameter.upsert({
+        where: {
+          processSheetTemplateId_parameterKey: {
+            processSheetTemplateId: template.id,
+            parameterKey: parameter.parameterKey
+          }
+        },
+        update: common,
+        create: {
+          processSheetTemplateId: template.id,
+          parameterKey: parameter.parameterKey,
+          ...common
+        }
+      });
+    })
   );
 
   await prisma.processSheetParameter.updateMany({
@@ -1644,11 +1727,18 @@ async function createIssue(
   return issue;
 }
 
+/**
+ * A seeded process value. An ARRAY seeds a ZONED row, one entry per zone in
+ * zone order (2026-08-09) — which is how 连续六啤产品重量 is seeded now that its
+ * six shots are one row rather than six.
+ */
+type SeedProcessValue = string | number | readonly (string | number | null)[];
+
 async function seedTrialProcessValues(
   users: Awaited<ReturnType<typeof seedUsers>>,
   projectId: string,
   trialEventId: string,
-  valuesByParameterKey: Record<string, string | number>
+  valuesByParameterKey: Record<string, SeedProcessValue>
 ) {
   const project = await prisma.moldTrialProject.findUnique({
     where: { id: projectId },
@@ -1669,20 +1759,37 @@ async function seedTrialProcessValues(
     }
   });
   const editableParameters = parameters.filter((parameter) => !isProcessSheetSummaryParameter(parameter.parameterKey));
+  // One entry per CELL: a scalar row contributes one at the 0 sentinel, a zoned
+  // row one per zone. The 0 sentinel is what every value written before the
+  // 2026-08-07 migration holds, so both address the same way.
+  type SeedProcessCell = {
+    parameter: (typeof editableParameters)[number];
+    raw: string | number;
+    zoneIndex: number | undefined;
+  };
+  const cells = editableParameters.flatMap<SeedProcessCell>((parameter) => {
+    const raw = valuesByParameterKey[parameter.parameterKey];
+
+    if (!Array.isArray(raw)) {
+      return [{ parameter, raw: raw as string | number, zoneIndex: undefined }];
+    }
+
+    return raw.flatMap<SeedProcessCell>((zoneValue, index) =>
+      zoneValue == null ? [] : [{ parameter, raw: zoneValue, zoneIndex: index + 1 }]
+    );
+  });
 
   await Promise.all(
-    editableParameters.map((parameter) => {
-      const raw = valuesByParameterKey[parameter.parameterKey];
+    cells.map(({ parameter, raw, zoneIndex }) => {
       const valueNumber = typeof raw === "number" ? String(raw) : null;
       const valueText = typeof raw === "number" ? null : raw;
 
       return prisma.trialProcessValue.upsert({
-        where: {
-          trialEventId_processSheetParameterId: {
-            trialEventId,
-            processSheetParameterId: parameter.id
-          }
-        },
+        where: trialProcessValueCellWhere({
+          trialEventId,
+          processSheetParameterId: parameter.id,
+          zoneIndex
+        }),
         update: {
           parameterKeySnapshot: parameter.parameterKey,
           labelEnSnapshot: parameter.labelEn,
@@ -1706,14 +1813,15 @@ async function seedTrialProcessValues(
           valueNumber,
           valueDate: null,
           customerVisible: parameter.customerVisible,
-          enteredById: users.wang.id
+          enteredById: users.wang.id,
+          ...trialProcessValueZoneWrite(zoneIndex)
         }
       });
     })
   );
 
   await log(users.wang.id, "TrialEvent", trialEventId, "seed_process_sheet_values_recorded", {
-    valueCount: editableParameters.length
+    valueCount: cells.length
   });
 }
 
@@ -2245,12 +2353,10 @@ async function seedPilotProject(
     tool_name_number: "M-PILOT-01",
     number_of_cavities: 1,
     part_weight_average: 553.1,
-    shot_weight_1: 553.2,
-    shot_weight_2: 552.8,
-    shot_weight_3: 553.4,
-    shot_weight_4: 553,
-    shot_weight_5: 552.9,
-    shot_weight_6: 553.3
+    // Six consecutive shots, one ZONED row (2026-08-09): the array is the six
+    // shots in order, and the demo numbers drift slightly on purpose — that
+    // drift is the whole reason the line is read across.
+    shot_part_weight: [553.2, 552.8, 553.4, 553, 552.9, 553.3]
   });
 
   await createIssue(users, groups, project.id, {

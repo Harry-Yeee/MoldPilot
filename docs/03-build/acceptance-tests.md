@@ -1593,8 +1593,8 @@ Preconditions:
 
 Steps:
 
-1. Click `Export Customer PDF` and wait for the browser download event.
-2. Verify the suggested filename ends in `.pdf`, the downloaded file is non-empty, and its first bytes are `%PDF-`.
+1. Click `Export Excel 导出Excel` and wait for the browser download event.
+2. Verify the suggested filename ends in `.xlsx`, the downloaded file is non-empty, and its first bytes are the ZIP magic `PK\x03\x04`.
 3. Inspect the generated FileAttachment and ActivityLog records.
 4. Request `/api/attachments/{id}` as Marketing and inspect the response headers/body.
 5. Confirm the new export appears in Customer Files, then download it again from that section.
@@ -1602,14 +1602,14 @@ Steps:
 Expected:
 
 - One click creates exactly one FileAttachment and one `exported_process_sheet_pdf` ActivityLog record.
-- FileAttachment uses the generated attachment UUID, attachment storage root, `PROCESS_SHEET_EXPORT`, `PROCESS_SHEET_PDF`, `application/pdf`, the actual non-zero byte size, and `CUSTOMER_SAFE` visibility.
+- FileAttachment uses the generated attachment UUID, attachment storage root, `PROCESS_SHEET_EXPORT`, `PROCESS_SHEET_PDF` (the enum value is unchanged on purpose), `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, the actual non-zero byte size, and `CUSTOMER_SAFE` visibility.
 - The ActivityLog payload includes attachment id, filename, size, and visibility.
-- Chrome receives a real, non-empty `.pdf` download rather than only a redirect message or blank tab.
-- The protected attachment GET returns `200`, `application/pdf`, non-zero `Content-Length`, and attachment `Content-Disposition` for Marketing with `attachment.download.customer_safe`.
+- Chrome receives a real, non-empty `.xlsx` download rather than only a redirect message or blank tab.
+- The protected attachment GET returns `200`, the OOXML spreadsheet content type, non-zero `Content-Length`, `X-Content-Type-Options: nosniff`, and an RFC 5987 attachment `Content-Disposition` for Marketing with `attachment.download.customer_safe`.
 - The export appears in Customer Files after refresh and can be downloaded again without creating another attachment/export log.
 - A failed export or invalid/empty protected response does not trigger a browser download.
-- PDF includes customer-safe process values and may include generated trial result, issue summary, correction summary, and next step from TrialEvent/TrialIssue records.
-- PDF does not include duplicated/manual process-sheet Trial Summary rows.
+- The workbook holds one worksheet per trial column (`T0`, `T1`, …), each with the bilingual header block, the section tables (ZONED as a 一区…N区 matrix, SCALAR as label | value | unit, CHOICE/FLAGS as text) and the 调机员 / 组长 / QC signature footer.
+- The workbook includes customer-safe process values only: a `customerVisible = false` row and every manual Trial Summary row are omitted, and no TrialIssue data is carried at all.
 - PDF does not include internal owner, private notes, Assembly self-check, or unapproved root-cause details.
 
 ### AT-032: Security-Control Regression

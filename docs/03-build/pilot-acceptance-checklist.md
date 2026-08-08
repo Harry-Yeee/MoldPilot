@@ -122,7 +122,7 @@ Expected server-side behavior:
 
 - Marketing/Sales (`yvonne`):
   - Can create client-feedback/customer-driven issue or feedback reason where permitted.
-  - Can export customer-safe Process Sheet PDF if `trial.process_sheet.export_pdf` is granted.
+  - Can export the customer-safe Process Sheet Excel workbook if `trial.process_sheet.export_pdf` is granted (the permission code keeps its pre-Excel spelling).
   - Cannot reschedule trials by default.
   - Cannot approve extra trial allowance.
   - Cannot update root cause, corrective action, verification, or closure.

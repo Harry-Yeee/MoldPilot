@@ -1,3 +1,9 @@
+import {
+  LEGACY_SHOT_PART_WEIGHT_PARAMETER_KEY_PATTERN,
+  SHOT_PART_WEIGHT_PARAMETER_KEY,
+  type ProcessSheetParameterKind
+} from "./process-sheet-catalog.ts";
+
 export const DEFAULT_PROCESS_SHEET_TEMPLATE_CODE = "default_process_setup";
 
 export type ProcessValueType = "TEXT" | "NUMBER" | "DATE" | "BOOLEAN";
@@ -10,7 +16,110 @@ export type DefaultProcessSheetParameter = {
   unit?: string;
   valueType: ProcessValueType;
   customerVisible: boolean;
+  /** Absent means SCALAR — the shape every row of this list had until 2026-08-08. */
+  kind?: ProcessSheetParameterKind;
+  zoneCount?: number;
 };
+
+/**
+ * 热流道温度 — the row that replaces the fixed `hot_runner_zone_1_temp` /
+ * `hot_runner_zone_2_temp` pair (2026-08-08).
+ *
+ * The pair was a guess at how many hot-runner tips a mould has. Real moulds have
+ * anywhere from one to a dozen, so two fixed rows were wrong for almost every
+ * mould: too few to record a 8-tip manifold, two empty rows on a cold-runner
+ * tool. ZONED with twelve zones is the same shape the paper sheet uses for
+ * 炮筒温度 — sparse is normal, a tip the mould does not have simply stays blank.
+ *
+ * Exported so the seed, the 20260808120000 data migration and its test all name
+ * the same row. It is NOT part of `factoryProcessSheetCatalog`: that list is the
+ * owner's paper 工艺参数表 transcribed, and the hot runner is not on that paper —
+ * it has always been one of this template's own rows.
+ */
+export const HOT_RUNNER_ZONED_PARAMETER = {
+  section: "Hot Runner Settings",
+  parameterKey: "hot_runner_temp",
+  labelEn: "Hot Runner Temperature",
+  labelZh: "热流道温度",
+  unit: "deg C",
+  valueType: "NUMBER",
+  customerVisible: true,
+  kind: "ZONED",
+  zoneCount: 12
+} as const satisfies DefaultProcessSheetParameter;
+
+/** The fixed hot-runner rows the ZONED row replaces: `hot_runner_zone_<N>_temp`. */
+export const LEGACY_HOT_RUNNER_PARAMETER_KEY_PATTERN = /^hot_runner_zone_(\d+)_temp$/;
+
+/**
+ * The zone a legacy hot-runner row becomes, or null when the key is not one.
+ *
+ * This is the whole value-migration rule in one function: `hot_runner_zone_2_temp`
+ * holds the temperature of tip 2, so its stored values become `zone_index = 2`
+ * of the ZONED row. Zone 0 is the non-zoned sentinel and a zone above the row's
+ * twelve would not render, so both read as "not migratable" — the SQL carries
+ * the same bounds, and a row whose values cannot move is left alone rather than
+ * retired.
+ */
+export function legacyHotRunnerZoneIndex(parameterKey: string): number | null {
+  const matched = LEGACY_HOT_RUNNER_PARAMETER_KEY_PATTERN.exec(parameterKey.trim());
+  if (matched == null) {
+    return null;
+  }
+
+  const zone = Number.parseInt(matched[1] ?? "", 10);
+  if (!Number.isFinite(zone) || zone < 1 || zone > HOT_RUNNER_ZONED_PARAMETER.zoneCount) {
+    return null;
+  }
+
+  return zone;
+}
+
+/**
+ * 连续六啤产品重量 — one ZONED row of six shots, replacing `shot_weight_1` …
+ * `shot_weight_6` (2026-08-09).
+ *
+ * Six rows for six consecutive shots was six copies of one measurement. On the
+ * paper sheet it is one line with six boxes, and it is read ACROSS: the setter
+ * is looking at whether the six weights drift, which six stacked rows hide.
+ * ZONED is the shape the sheet already has for "one line, N boxes", so this
+ * needs no new mechanism — only a caption that says 第1啤 instead of 一区
+ * (`processSheetZoneCaptionKind`).
+ *
+ * Exported so the seed, the 20260808130000 data migration and its test all name
+ * the same row, exactly as `HOT_RUNNER_ZONED_PARAMETER` is.
+ */
+export const SHOT_PART_WEIGHT_ZONED_PARAMETER = {
+  section: "Six Consecutive Shots Part Weight",
+  parameterKey: SHOT_PART_WEIGHT_PARAMETER_KEY,
+  labelEn: "Six-shot Part Weight",
+  labelZh: "连续六啤产品重量",
+  unit: "g",
+  valueType: "NUMBER",
+  customerVisible: true,
+  kind: "ZONED",
+  zoneCount: 6
+} as const satisfies DefaultProcessSheetParameter;
+
+/**
+ * The shot a legacy `shot_weight_<N>` row becomes, or null when the key is not
+ * one — the same rule, and the same bounds, `legacyHotRunnerZoneIndex` applies.
+ * Zone 0 is the non-zoned sentinel and a shot above six would not render, so
+ * both read as "not migratable" and the SQL leaves such a row alone.
+ */
+export function legacyShotPartWeightZoneIndex(parameterKey: string): number | null {
+  const matched = LEGACY_SHOT_PART_WEIGHT_PARAMETER_KEY_PATTERN.exec(parameterKey.trim());
+  if (matched == null) {
+    return null;
+  }
+
+  const shot = Number.parseInt(matched[1] ?? "", 10);
+  if (!Number.isFinite(shot) || shot < 1 || shot > SHOT_PART_WEIGHT_ZONED_PARAMETER.zoneCount) {
+    return null;
+  }
+
+  return shot;
+}
 
 export const defaultProcessSheetParameters = [
   {
@@ -268,78 +377,16 @@ export const defaultProcessSheetParameters = [
     valueType: "NUMBER",
     customerVisible: true
   },
-  {
-    section: "Hot Runner Settings",
-    parameterKey: "hot_runner_zone_1_temp",
-    labelEn: "Hot Runner Zone 1 Temperature",
-    labelZh: "热流道一区温度",
-    unit: "deg C",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Hot Runner Settings",
-    parameterKey: "hot_runner_zone_2_temp",
-    labelEn: "Hot Runner Zone 2 Temperature",
-    labelZh: "热流道二区温度",
-    unit: "deg C",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_1",
-    labelEn: "Shot 1 Part Weight",
-    labelZh: "第一啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_2",
-    labelEn: "Shot 2 Part Weight",
-    labelZh: "第二啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_3",
-    labelEn: "Shot 3 Part Weight",
-    labelZh: "第三啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_4",
-    labelEn: "Shot 4 Part Weight",
-    labelZh: "第四啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_5",
-    labelEn: "Shot 5 Part Weight",
-    labelZh: "第五啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  },
-  {
-    section: "Six Consecutive Shots Part Weight",
-    parameterKey: "shot_weight_6",
-    labelEn: "Shot 6 Part Weight",
-    labelZh: "第六啤产品重量",
-    unit: "g",
-    valueType: "NUMBER",
-    customerVisible: true
-  }
+  // One ZONED row, twelve zones — replaces the fixed zone-1 / zone-2 pair
+  // (2026-08-08). Existing databases get the same end state from the
+  // 20260808120000 data migration, which moves the pair's stored values into
+  // zones 1 and 2 before retiring them.
+  HOT_RUNNER_ZONED_PARAMETER,
+  // One ZONED row of six shots — replaces the six `shot_weight_<N>` scalars
+  // (2026-08-09). Existing databases reach the same end state from the
+  // 20260808130000 data migration, which moves the six stored values into zones
+  // 1…6 before retiring the rows.
+  SHOT_PART_WEIGHT_ZONED_PARAMETER
 ] as const satisfies readonly DefaultProcessSheetParameter[];
 
 export const PROCESS_SHEET_SUMMARY_PARAMETER_KEYS = new Set([
@@ -350,27 +397,10 @@ export const PROCESS_SHEET_SUMMARY_PARAMETER_KEYS = new Set([
   "internal_private_note"
 ]);
 
-const processSheetSummaryLabels = new Set([
-  "trial result",
-  "major issues",
-  "correction summary",
-  "next action",
-  "internal private note"
-]);
-
 export const PROCESS_SHEET_COPY_EXCLUDED_PARAMETER_KEYS = PROCESS_SHEET_SUMMARY_PARAMETER_KEYS;
 
 export function isProcessSheetSummaryParameter(parameterKey: string): boolean {
   return PROCESS_SHEET_SUMMARY_PARAMETER_KEYS.has(parameterKey);
-}
-
-function isProcessSheetSummaryLabel(label: string): boolean {
-  const normalized = label
-    .replace(/\([^)]*\)/g, "")
-    .trim()
-    .toLowerCase();
-
-  return processSheetSummaryLabels.has(normalized);
 }
 
 export type InjectionMachineSearchRecord = {
@@ -557,62 +587,4 @@ export function copyPreviousTrialProcessSheetValues(input: ProcessSheetCopyPlan)
     overwrittenKeys,
     changedCount
   };
-}
-
-export type CustomerSafeProcessSheetIssue = {
-  title: string;
-  status: string;
-  correctionSummary?: string | null;
-  rootCause?: string | null;
-  rootCauseApproved?: boolean;
-  internalOwner?: string | null;
-  assemblySelfCheckNote?: string | null;
-  privateNote?: string | null;
-};
-
-export function buildCustomerSafeProcessSheetExport(input: {
-  projectIdentifier: string;
-  trialSummaries: readonly string[];
-  processRows: readonly { label: string; values: readonly string[]; customerVisible: boolean }[];
-  issues: readonly CustomerSafeProcessSheetIssue[];
-  nextStep?: string | null;
-}): string {
-  const lines = [
-    "MoldPilot Process Sheet Export",
-    `Project: ${input.projectIdentifier}`,
-    "",
-    "Trial Result",
-    ...input.trialSummaries.filter((summary) => summary.trim().length > 0),
-    "",
-    "Process Sheet Comparison"
-  ];
-
-  for (const row of input.processRows) {
-    if (!row.customerVisible || isProcessSheetSummaryLabel(row.label)) {
-      continue;
-    }
-
-    lines.push(`${row.label}: ${row.values.join(" | ")}`);
-  }
-
-  lines.push("", "Issue Summary");
-  for (const issue of input.issues) {
-    const parts = [`${issue.title} (${issue.status})`];
-
-    if (issue.correctionSummary != null && issue.correctionSummary.trim().length > 0) {
-      parts.push(`Correction: ${issue.correctionSummary}`);
-    }
-
-    if (issue.rootCauseApproved === true && issue.rootCause != null && issue.rootCause.trim().length > 0) {
-      parts.push(`Verified cause: ${issue.rootCause}`);
-    }
-
-    lines.push(parts.join(" - "));
-  }
-
-  if (input.nextStep != null && input.nextStep.trim().length > 0) {
-    lines.push("", "Next Step", input.nextStep);
-  }
-
-  return lines.join("\n");
 }

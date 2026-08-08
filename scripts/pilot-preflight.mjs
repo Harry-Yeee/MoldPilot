@@ -513,7 +513,9 @@ async function checkSeed(prisma) {
   );
   const hasProcessValues =
     project.processValues.length >= 20 &&
-    ["machine_number", "press_tonnage", "cycle_time", "shot_weight_6", "hold_pressure_stage_2"].every((key) =>
+    // shot_weight_1..6 were re-pointed to the zoned shot_part_weight parameter
+    // by migration 20260808130000 — the checker must follow the data's shape.
+    ["machine_number", "press_tonnage", "cycle_time", "shot_part_weight", "hold_pressure_stage_2"].every((key) =>
       processValueKeys.has(key)
     );
   const hasIntakeProject =

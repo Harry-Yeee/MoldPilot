@@ -181,8 +181,8 @@ test("project and upload action feedback follows the selected language", () => {
     "无法连接服务器完成上传。"
   );
   assert.equal(
-    translateWorkflowMessage(dictionaries["zh-CN"], "The downloaded attachment is not a valid PDF."),
-    "下载的附件不是有效的 PDF。"
+    translateWorkflowMessage(dictionaries["zh-CN"], "The downloaded attachment is not a valid Excel workbook."),
+    "下载的附件不是有效的 Excel 文件。"
   );
 });
 
@@ -191,7 +191,7 @@ test("client upload feedback and Admin accessibility labels use i18n", async () 
     readFile("src/components/attachments/DirectFileUploadForm.tsx", "utf8"),
     readFile("src/components/attachments/AttachmentUploader.tsx", "utf8"),
     readFile("src/components/attachments/MeasurementReportUploadForm.tsx", "utf8"),
-    readFile("src/app/projects/[projectCode]/export-process-sheet-pdf-button.tsx", "utf8"),
+    readFile("src/app/projects/[projectCode]/export-process-sheet-excel-button.tsx", "utf8"),
     readFile("src/app/admin/page.tsx", "utf8")
   ]);
 

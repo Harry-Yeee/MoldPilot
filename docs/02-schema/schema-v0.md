@@ -387,8 +387,11 @@ Defines one row in a process-sheet template.
 | label_zh | text | Chinese label, optional but preferred when present in the source sheet. |
 | unit | text | Optional, such as `°C`, `sec`, `bar`, `mm`, `g`. |
 | value_type | enum | Text, Number, Date, Boolean. |
-| sort_order | integer | Display order within template. |
-| customer_visible | boolean | Whether value can appear in customer-safe PDF. |
+| kind | text | Row SHAPE: `SCALAR` (one value per trial), `ZONED` (one value per machine zone, rendered as a matrix), `CHOICE` (exactly one of `options`), `FLAGS` (any number of `options`). NOT NULL DEFAULT `SCALAR`, which is how every pre-2026-08-07 row backfills. Allowlisted on read in `src/domain/mold-trial/process-sheet-catalog.ts` — anything unknown reads as SCALAR, so a new shape is a code change, not a migration. |
+| zone_count | integer | ZONED only; 7 on this factory's machines. Null for every other kind; a ZONED row with no count reads as 7. |
+| options | text[] | CHOICE/FLAGS only. NOT NULL DEFAULT `'{}'`. Stored values are option strings from this list; FLAGS store the chosen ones in `value_text` joined by `", "` so the customer Excel export stays readable. |
+| sort_order | integer | Display order within template. The factory catalog occupies 1000+ so it always renders after a template's pre-existing rows. |
+| customer_visible | boolean | Whether value can appear in the customer-safe export (an Excel workbook since 2026-08-08). |
 | active | boolean | Defaults true. |
 
 Unique rule:
@@ -396,6 +399,15 @@ Unique rule:
 ```text
 process_sheet_template_id + parameter_key must be unique
 ```
+
+Rules:
+
+- `section` is a stable stored English name; the sheet translates it through the
+  i18n dictionary (`translateDefaultProcessSection`). The factory catalog's
+  sections are translated for EVERY template, because the 20260807130000 data
+  migration puts the same catalog into every template that exists.
+- A ZONED section is as wide as the widest `zone_count` among its parameters,
+  and zones a machine does not have stay blank. Sparse is normal data.
 
 ## MoldTrialProject
 
@@ -616,6 +628,7 @@ This powers both per-trial process entry and horizontal comparison across T0/T1/
 | mold_trial_project_id | uuid | References MoldTrialProject for efficient project-level comparison. |
 | trial_event_id | uuid | References TrialEvent / trial column. |
 | process_sheet_parameter_id | uuid | References ProcessSheetParameter / row definition. |
+| zone_index | integer | Which machine zone this value belongs to: 1…N for a ZONED parameter, and the sentinel `0` for every other kind. NOT NULL DEFAULT 0, so all pre-2026-08-07 rows backfill as non-zoned. |
 | parameter_key_snapshot | text | Snapshot of parameter key for historical stability. |
 | label_en_snapshot | text | Snapshot English label. |
 | label_zh_snapshot | text | Snapshot Chinese label. |
@@ -631,19 +644,31 @@ This powers both per-trial process entry and horizontal comparison across T0/T1/
 Unique rule:
 
 ```text
-trial_event_id + process_sheet_parameter_id must be unique
+trial_event_id + process_sheet_parameter_id + zone_index must be unique
 ```
+
+`zone_index` is NOT NULL with a `0` sentinel rather than nullable, deliberately:
+Postgres treats NULLs as DISTINCT inside a unique index, so a nullable
+zone_index would let the same (trial, parameter) cell be written twice with no
+error — the constraint would stop protecting exactly the rows it protects today.
+Zones number from 1, so 0 can never collide with a real zone, and the constraint
+stays a plain UNIQUE index that Prisma can express and upsert against.
 
 Rules:
 
 - Store process values as structured data, not only as uploaded spreadsheet files.
+- A ZONED parameter stores one row per zone (`zone_index` 1…N); every other kind
+  stores exactly one row at `zone_index` 0.
+- Copy Previous Trial copies zone values and chosen options like any other cell:
+  the editor addresses cells as `parameterId` / `parameterId#zone`, so zones and
+  choices ride the existing blank-fill-then-confirm-overwrite behaviour.
 - TrialProcessValue rows are saved only for the current editable TrialEvent column.
 - Saving process values must not create a new TrialEvent and must not change trial result/outcome.
 - Copy Previous Trial may prefill the current editable trial from the immediate previous trial's machine selection and TrialProcessValue rows.
 - Copy Previous Trial should fill blank current fields by default. Overwriting existing current values requires explicit user confirmation.
 - Copy Previous Trial must not copy TrialIssue records, issue summaries, next action, Assembly self-check, PM/QC verification, or other accountability fields.
 - Previous trial columns should be read-only by default in the comparison view.
-- Customer-safe PDF exports include only customer-visible process values and approved/generated summaries from TrialEvent and TrialIssue records.
+- Customer-safe process-sheet exports include only customer-visible process values. Since 2026-08-08 the artifact is an Excel workbook (技术参数表) carrying process parameters only — no TrialIssue data.
 - Legacy saved TrialProcessValue records for old Trial Summary parameters should not be destructively deleted, but normal UI/export should hide or ignore them.
 
 ## MissedTrialEvent

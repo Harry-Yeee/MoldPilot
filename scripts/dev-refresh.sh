@@ -21,11 +21,20 @@ if [ "$MODE" = "production" ]; then
   exit 1
 fi
 
-echo "[dev-refresh] 1/3 Installing dependencies (no-op if lockfile unchanged)"
+echo "[dev-refresh] 1/4 Installing dependencies (no-op if lockfile unchanged)"
 pnpm install
 
-echo "[dev-refresh] 2/3 Migrate + regenerate client + seed + typecheck + tests"
+# ALWAYS regenerate before anything touches the client. `migrate dev` only
+# regenerates when it APPLIES a migration — if migrations were already applied
+# by an earlier (possibly partial) run, it no-ops and leaves the client stale,
+# and the seed then fails with "Unknown argument <newField>" (incident
+# 2026-08-08, seed hit `kind` with a pre-process-sheet client). Generation is
+# idempotent and needs only schema.prisma, so doing it unconditionally is free.
+echo "[dev-refresh] 2/4 Regenerating the Prisma client from the pulled schema"
+pnpm prisma:generate
+
+echo "[dev-refresh] 3/4 Migrate + seed + typecheck + tests"
 python3 scripts/migrate-and-verify.py
 
-echo "[dev-refresh] 3/3 Done. If a dev server is running it holds the OLD client:"
+echo "[dev-refresh] 4/4 Done. If a dev server is running it holds the OLD client:"
 echo "               stop it (Ctrl+C) and start again:  pnpm dev"
